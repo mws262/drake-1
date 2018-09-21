@@ -1,0 +1,153 @@
+# -*- python -*-
+
+load(
+    "//tools:drake.bzl",
+    "drake_cc_library",
+    "drake_cc_binary",
+    "drake_cc_googletest",
+)
+#load(
+#    "//tools/skylark:drake_py.bzl",
+#    "drake_py_unittest",
+#)
+#load("//tools/install:install_data.bzl", "install", "install_data")
+#load("//tools/lint:lint.bzl", "add_lint_tests")
+#load(
+#    "//tools/skylark:drake_py.bzl",
+#    "drake_py_test",
+#)
+
+package(
+    default_visibility = [":__subpackages__"],
+)
+
+drake_cc_library(
+    name = "manipulation_plan",
+    hdrs = ["manipulation_plan.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//common/trajectories",
+        "//lcm",
+        "//systems/framework:leaf_system",
+    ],
+)
+
+drake_cc_googletest(
+    name = "manipulation_plan_test",
+    data = [
+        "plan/joint_angles.mat",
+        "plan/joint_timings.mat",
+    ],
+    deps = [
+        ":manipulation_plan",
+    ],
+)
+
+drake_cc_library(
+    name = "controller",
+    srcs = ["controller.cc"],
+    hdrs = ["controller.h"],
+    data = [
+        "plan/joint_accel_fit.mat",
+        "plan/joint_angle_fit.mat",
+        "plan/joint_fit_timings.mat",
+        "plan/joint_vel_fit.mat",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":manipulation_plan",
+        "//common:default_scalars",
+        "//geometry:scene_graph",
+        "//lcm",
+        "//lcmtypes:iiwa",
+        "//math:orthonormal_basis",
+        "//multibody:kinematics_cache",
+        "//multibody:rigid_body_tree",
+        "//systems/framework",
+        "//systems/lcm",
+        "@lcmtypes_bot2_core",
+        "@lcmtypes_robotlocomotion",
+    ],
+)
+
+drake_cc_library(
+    name = "box_controller",
+    srcs = ["box_controller.cc"],
+    hdrs = ["box_controller.h"],
+    data = [
+        "plan/joint_accel_fit.mat",
+        "plan/joint_angle_fit.mat",
+        "plan/joint_fit_timings.mat",
+        "plan/joint_vel_fit.mat",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":manipulation_plan",
+        "//common:default_scalars",
+        "//geometry:scene_graph",
+        "//lcm",
+        "//lcmtypes:iiwa",
+        "//math:orthonormal_basis",
+        "//multibody:kinematics_cache",
+        "//multibody:rigid_body_tree",
+        "//systems/framework",
+        "//systems/lcm",
+        "@lcmtypes_bot2_core",
+        "@lcmtypes_robotlocomotion",
+    ],
+)
+
+drake_cc_binary(
+    name = "box_soccer_simulation",
+    srcs = ["box_soccer_simulation.cc"],
+    data = [
+        ":models",
+        "//examples/contact_model:bowling_ball",
+    ],
+    deps = [
+        ":box_controller",
+        "//common:text_logging_gflags",
+        "//examples/kuka_iiwa_arm:iiwa_common",
+        "//examples/kuka_iiwa_arm:iiwa_lcm",
+        "//geometry:geometry_visualization",
+        "//lcm",
+        "//manipulation/util:sim_diagram_builder",
+        "//manipulation/util:world_sim_tree_builder",
+        "//multibody:rigid_body_tree_construction",
+        "//multibody/multibody_tree/multibody_plant",
+        "//multibody/multibody_tree/parsing:multibody_plant_sdf_parser",
+        "//systems/analysis",
+        "//systems/controllers:inverse_dynamics_controller",
+        "//systems/primitives",
+        "@lcmtypes_bot2_core",
+    ],
+)
+
+drake_cc_binary(
+    name = "kuka_soccer_simulation",
+    srcs = ["kuka_soccer_simulation.cc"],
+    add_test_rule = 1,
+    data = [
+        ":models",
+        "//examples/contact_model:bowling_ball",
+    ],
+    deps = [
+        ":controller",
+        "//common:text_logging_gflags",
+        "//examples/kuka_iiwa_arm:iiwa_common",
+        "//examples/kuka_iiwa_arm:iiwa_lcm",
+        "//geometry:geometry_visualization",
+        "//lcm",
+        "//manipulation/util:sim_diagram_builder",
+        "//manipulation/util:world_sim_tree_builder",
+        "//multibody:rigid_body_tree_construction",
+        "//multibody/multibody_tree/multibody_plant",
+        "//multibody/multibody_tree/parsing:multibody_plant_sdf_parser",
+        "//systems/analysis",
+        "//systems/controllers:inverse_dynamics_controller",
+        "//systems/primitives",
+        "@lcmtypes_bot2_core",
+    ],
+)
+
+

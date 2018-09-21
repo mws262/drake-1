@@ -1,0 +1,5 @@
+joint_angles have timings on the rows, different joints on the columns, going from 1->7.
+joint_angles have rows matching joint_timings. All ball data matches the rows in ball_timings.
+contact_pt_timings cover the same time range as ball timings, but with gaps, since the contact point is intermittent.
+Unless otherwise noted, ball radius is 0.1m.
+joint_fit... are for pchip interpolated and fnder-differentiated joint angle values.
