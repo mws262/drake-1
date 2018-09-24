@@ -23,7 +23,6 @@ namespace iiwa_soccer {
 using drake::geometry::SceneGraph;
 using drake::math::RollPitchYaw;
 using drake::math::RotationMatrix;
-using drake::multibody::collision::PointPair;
 using drake::systems::BasicVector;
 using drake::systems::Context;
 using drake::systems::InputPortDescriptor;
@@ -62,86 +61,81 @@ void BoxController::LoadPlans() {
 }
 
 // Constructs the Jacobian matrices.
-// TODO: Look at MBP discrete update.
 void BoxController::ConstructJacobians(
-    const std::vector<drake::multibody::collision::PointPair<double>>& contacts,
-    const KinematicsCache<double>& kinematics_cache,
+    const Context<double>& context,
+    const std::vector<geometry::PenetrationAsPointPair<double>>& contacts,
     MatrixXd* N, MatrixXd* S, MatrixXd* T,
     MatrixXd* Ndot_v, MatrixXd* Sdot_v, MatrixXd* Tdot_v) const {
 
+  // Get the tree.
+  const auto tree = robot_and_ball_plant_.model(); 
+
   // Get the numbers of contacts and generalized velocities.
   const int nc = static_cast<int>(contacts.size());
-  const int ngv = 13;
+
+  // Set the number of generalized velocities.
+  const int nv = tree.num_velocities(); 
 
   // Resize the matrices.
-  N->resize(nc, ngv);
-  S->resize(nc, ngv);
-  T->resize(nc, ngv);
+  N->resize(nc, nv);
+  S->resize(nc, nv);
+  T->resize(nc, nv);
   Ndot_v->resize(nc, 1);
   Sdot_v->resize(nc, 1);
   Tdot_v->resize(nc, 1);
 
   // Get the two body indices.
   for (int i = 0; i < nc; ++i) {
-    const int body_a_index = contacts[i].elementA->get_body()->get_body_index();
-    const int body_b_index = contacts[i].elementB->get_body()->get_body_index();
+    const auto& point_pair = contacts[i];
+
+    // Get the surface normal in the world frame.
+    const Vector3d& n_BA_W = point_pair.nhat_BA_W:
+
+    // TODO: get the two bodies. 
+    const GeometryId geometryA_id = point_pair.id_A;
+    const GeometryId geometryB_id = point_pair.id_B;
+    const Body<double>& bodyA = tree.get_body(body_A_index);
+    const BOdy<double>& bodyB = tree.get_body(body_B_index);
 
     // The reported point on A's surface (As) in the world frame (W).
-    const Vector3d p_WAs =
-        kinematics_cache.get_element(body_a_index).transform_to_world *
-            contacts[i].ptA;
+    const Vector3d& p_WAs = point_pair.p_WCa;
 
     // The reported point on B's surface (Bs) in the world frame (W).
-    const Vector3d p_WBs =
-        kinematics_cache.get_element(body_b_index).transform_to_world *
-            contacts[i].ptB;
+    const Vector3d& p_WBs = point_pair.p_WCb;
 
     // Get the point of contact in the world frame.
     const Vector3d p_W = (p_WAs + p_WBs) * 0.5;
 
-    // The contact point in A's frame.
-    const auto X_AW = kinematics_cache.get_element(body_a_index)
-        .transform_to_world.inverse(Eigen::Isometry);
-    const Vector3d p_A = X_AW * p_W;
+    // Get the geometric Jacobian for the velocity of the contact point
+    // as moving with Body A.
+    MatrixXd J_WAc(3, nv);
+    tree.CalcPointsGeometricJacobianExpressedInWorld(
+        context, bodyA.body_frame(), p_W, &J_WAc); 
 
-    // The contact point in B's frame.
-    const auto X_BW = kinematics_cache.get_element(body_b_index)
-        .transform_to_world.inverse(Eigen::Isometry);
-    const Vector3d p_B = X_BW * p_W;
+    // Get the geometric Jacobian for the velocity of the contact point
+    // as moving with Body B.
+    MatrixXd J_WBc(3, nv);
+    tree.CalcPointsGeometricJacobianExpressedInWorld(
+        context, bodyB.body_frame(), p_W, &J_WBc); 
 
-    // Get the Jacobian matrices.
-    const auto JA = robot_and_ball_tree_.transformPointsJacobian(
-        kinematics_cache, p_A, body_a_index, 0, false);
-    const auto JB = robot_and_ball_tree_.transformPointsJacobian(
-        kinematics_cache, p_B, body_b_index, 0, false);
-
-    // Compute the linear aspect of the Jacobian.
-    const MatrixXd J = JA - JB;
-
-    // Get the Jacobian matrices times v.
-    const auto JA_dot_v = robot_and_ball_tree_.transformPointsJacobianDotTimesV(
-        kinematics_cache, p_A, body_a_index, 0);
-    const auto JB_dot_v = robot_and_ball_tree_.transformPointsJacobianDotTimesV(
-        kinematics_cache, p_B, body_b_index, 0);
-
-    // Compute the linear aspect of the Jacobian times v.
-    const MatrixXd Jdot_v = JA_dot_v - JB_dot_v;
+    // Compute the linear components of the Jacobian.
+    const MatrixXd J = J_WAc - J_WBc;
 
     // Compute an orthonormal basis using the contact normal.
     const int kXAxisIndex = 0, kYAxisIndex = 1, kZAxisIndex = 2;
-    auto R_WC = math::ComputeBasisFromAxis(kXAxisIndex, contacts[i].normal);
-    const Vector3d tan1_dir = R_WC.col(kYAxisIndex);
-    const Vector3d tan2_dir = R_WC.col(kZAxisIndex);
+    auto R_WC = math::ComputeBasisFromAxis(kXAxisIndex, n_BA_W);
+    const Vector3d t1_BA_W = R_WC.col(kYAxisIndex);
+    const Vector3d t2_BA_W = R_WC.col(kZAxisIndex);
 
     // Set N, S, and T.
-    N->row(i) = contacts[i].normal.transpose() * J;
-    S->row(i) = tan1_dir.transpose() * J;
-    T->row(i) = tan2_dir.transpose() * J;
+    N->row(i) = n_BA_W.transpose() * J;
+    S->row(i) = t1_BA_W.transpose() * J;
+    T->row(i) = t2_BA_W.transpose() * J;
 
-    // Set Ndot_v, Sdot_v, Tdot_v.
-    Ndot_v->row(i) = contacts[i].normal.transpose() * Jdot_v;
-    Sdot_v->row(i) = tan1_dir.transpose() * Jdot_v;
-    Tdot_v->row(i) = tan2_dir.transpose() * Jdot_v;
+    // TODO: Set Ndot_v, Sdot_v, Tdot_v properly.
+    Ndot_v->row(i).setZero(); // = n_BA_W.transpose() * Jdot_v;
+    Sdot_v->row(i).setZero(); // = t1_BA_W.transpose() * Jdot_v;
+    Tdot_v->row(i).setZero(); // = t2_BA_W.transpose() * Jdot_v;
   }
 }
 
@@ -167,12 +161,12 @@ VectorXd BoxController::ComputeTorquesForContactNotDesired(
       joint_ki_ * get_integral_value(context) +
       joint_kd_ * (qdot_robot_des - qd_robot);
 
-  // TODO: replace this.
-  // Construct the kinematics cache.
-  auto kinematics_cache = robot_tree_.doKinematics(q_robot, qd_robot);
-
-  // TODO: Set the state of the robot plant in its context.
-
+  // Set the state in the robot context to q_robot and qd_robot. 
+  VectorX<double> x = mbp_robot_.model().get_mutable_multibody_state_vector(
+      robot_context_.get());
+  DRAKE_DEMAND(x.size() == q_robot.size() + qd_robot.size()); 
+  x.head(q_robot.size()) = q_robot;
+  x.tail(qd_robot.size()) = qd_robot;
 
   // Get the generalized inertia matrix.
   MatrixXd M;
@@ -204,7 +198,10 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   const VectorXd q0 = get_all_q(context);
   VectorXd v0 = get_all_v(context);
 
-  // Set the joint velocities for the robot to zero.
+  // Get the robot tree.
+  const auto& robot_tree = mbp_robot_.model();
+
+  // TODO: Set the joint velocities for the robot to zero.
   v0.segment(get_robot_velocity_start_index_in_v(), nv_robot_).setZero();
 
   // Transform the velocities to time derivatives of generalized
@@ -221,58 +218,63 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   // velocities.
   const VectorXd q1 = q0 + dt * qdot0;
 
-  // Get the collision IDs for the robot foot (the box) and the ball.
-  std::vector<drake::multibody::collision::ElementId> ids_to_check;
-  get_ball_from_robot_and_ball_tree().
-      appendCollisionElementIdsFromThisBody(ids_to_check);
-  const auto& robot_foot_link = get_robot_box_link_from_robot_and_ball_tree();
-  robot_foot_link.appendCollisionElementIdsFromThisBody(ids_to_check);
+  // TODO: Update the context to use configuration q1 in the query.
 
-  // Get the robot and ball tree as non-const, which is necessary to call some
-  // collision detection routines.
-  RigidBodyTree<double>* robot_and_ball_tree_nc =
-      const_cast<RigidBodyTree<double>*>(&robot_and_ball_tree_);
+  // Evaluate scene graph's output port, getting a SceneGraph reference.
+  const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(context, geometry_query_input_port_)->GetValue<geometry::QueryObject<double>>(); 
 
-  // Get the closest points on the robot foot and the ball.
-  kinematics_cache = robot_and_ball_tree_.doKinematics(q1, v0);
-  std::vector<int> indices_A, indices_B;
-  VectorXd phi;
-  Matrix3Xd points_A, points_B, normal;
-  bool result = robot_and_ball_tree_nc->collisionDetect(
-      kinematics_cache, phi, normal, points_A, points_B, indices_A,
-      indices_B, ids_to_check, true);
-  DRAKE_DEMAND(result);
-  DRAKE_DEMAND(phi.size() == 1);
-  DRAKE_DEMAND(indices_A.size() == 1);
-  DRAKE_DEMAND(indices_B.size() == 1);
+  // Get the closest points on the robot foot and the ball corresponding to q1
+  // and v0.
+  std::vector<SignedDistancePair<double>> closest_points =
+      query_object.ComputeSignedDistancePairwiseClosestPoints();
+  DRAKE_DEMAND(!closest_points.empty());
+  int found_index = -1;
+  const int num_data = static_cast<int>(closest_points.size());
+  for (int i = 0; i < num_data; ++i) {
+    // TODO: Get the two bodies in contact.
 
-  // Make the robot 'body A'.
-  if (indices_A.front() != robot_foot_link.get_body_index()) {
-    std::swap(points_A, points_B);
-    std::swap(indices_A, indices_B);
-  } else {
-    DRAKE_DEMAND(indices_B.front() == robot_foot_link.get_body_index());
+    // If the two bodies correspond to the foot (box) and the ball, mark the
+    // found index and stop looping.
   }
+  DRAKE_DEMAND(found_index >= 0);
+
+  // Get the signed distance data structure. 
+  auto& closest = closest_points[found_index];
+
+  // TODO: Call A the body belonging to the robot. 
+  if (something) {
+    std::swap(closest.id_A, closest.id_B);
+    std::swap(closest.p_ACa, closest.p_BCb);
+  }   
+
+  // Get the closest points on the bodies. They'll be in their respective body
+  // frames. 
+  const Vector3d& closest_Aa = closest.p_ACa; 
+  const Vector3d& closest_Bb = closest.p_BCb;
+
+  // TODO: transform the points in the body frames corresponding to q1 to the
+  // world frame.
 
   // Get the vector from the closest point on the foot to the closest point
-  // on the ball in the world frame.
-  const Vector3d closest_A = points_A.col(0);
-  const Vector3d closest_B = kinematics_cache.get_element(indices_B.front())
-      .transform_to_world.inverse(Eigen::Isometry) * points_B.col(0);
-  Vector3d linear_v_des = (closest_B - closest_A) / dt;
-
-  // Determine the end-effector velocity (at the target point of contact on
-  // the robot) that would be necessary for the robot to touch the closest
-  // point on the ball.
-  auto J = robot_and_ball_tree_.transformPointsJacobian(
-      kinematics_cache, kinematics_cache.get_element(indices_A.front()).
-          transform_to_world.inverse(Eigen::Isometry) * closest_A,
-      indices_A.front(), 0, false).template block<3, 7>(
-      0, get_robot_velocity_start_index_in_v());
+  // on the ball in the body frames.
+  Vector3d linear_v_des = (closest_Bw - closest_Aw) / dt;
 
   // Get the robot current generalized position and velocity.
   const VectorXd q_robot = get_robot_q(context);
   const VectorXd qd_robot = get_robot_qd(context);
+
+  // Set the state in the robot context to q_robot and qd_robot. 
+  VectorX<double> x = robot_tree.get_mutable_multibody_state_vector(
+      robot_context_.get());
+  DRAKE_DEMAND(x.size() == q_robot.size() + qd_robot.size()); 
+  x.head(q_robot.size()) = q_robot;
+  x.tail(qd_robot.size()) = qd_robot;
+
+  // Get the geometric Jacobian for the velocity of the closest point on the
+  // robot as moving with the robot Body A.
+  MatrixXd J_WAc(3, nv_robot_);
+  robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
+      *robot_context_, body_A.body_frame(), closest_Aw, &J_WAc); 
 
   // Set the rigid body constraints.
   /*
@@ -309,18 +311,22 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
       joint_kp_ * (q_robot_des - q_robot) +
           joint_kd_ * (qdot_robot_des - qd_robot);
 
-  // Reconstruct the kinematics cache.
-  kinematics_cache = robot_tree_.doKinematics(q_robot, qd_robot);
-
   // Get the generalized inertia matrix.
-  auto M = robot_tree_.massMatrix(kinematics_cache);
+  MatrixXd M;
+  robot_tree.CalcMassMatrixViaInverseDynamics(*robot_context_, &M);
   Eigen::LLT<MatrixXd> lltM(M);
   DRAKE_DEMAND(lltM.info() == Eigen::Success);
 
-  // Get the Coriolis and gravitational forces.
-  const typename RigidBodyTree<double>::BodyToWrenchMap no_external_wrenches;
-  const VectorXd fext = -robot_tree_.dynamicsBiasTerm(
-      kinematics_cache, no_external_wrenches);
+  // Compute the contribution from force elements.
+  multibody::MultibodyForces<double> link_wrenches(robot_tree);
+  PositionKinematicsCache<double> pcache(robot_tree.get_topology());
+  VelocityKinematicsCache<double> vcache(robot_tree.get_topology());
+  robot_tree.CalcPositionKinematicsCache(*robot_context_, &pcache);
+  robot_tree.CalcVelocityKinematicsCache(*robot_context_, pcache, &vcache);
+
+  // Compute the external forces.
+  const VectorXd fext = -robot_tree.CalcInverseDynamics(
+      *robot_context_, VectorXd::Zero(nv_robot_), link_wrenches);
 
   // Compute inverse dynamics.
   return M * qddot - fext;
@@ -330,7 +336,7 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
 // ball are in contact.
 VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
     const Context<double>& context,
-    const std::vector<PointPair<double>>& contacts) const {
+    const std::vector<geometry::PenetrationAsPointPair<double>>& contacts) const {
   // ***************************************************************
   // Note: This code is specific to this example/system.
   // ***************************************************************
@@ -353,23 +359,28 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
   const VectorXd q = get_all_q(context);
   const VectorXd v = get_all_v(context);
 
-  // Construct the kinematics cache.
-  auto kinematics_cache = robot_and_ball_tree_.doKinematics(q, v);
-
   // Construct the actuation matrix.
   MatrixXd B = MatrixXd::Zero(nv, num_actuators);
   for (int i = 0; i < num_actuators; ++i)
     B(robot_velocity_start_index_in_v + i, i) = 1.0;
 
   // Get the generalized inertia matrix.
-  auto M = robot_and_ball_tree_.massMatrix(kinematics_cache);
+  MatrixXd M;
+  mbp_robot_.model().CalcMassMatrixViaInverseDynamics(*robot_context_, &M);
   Eigen::LLT<MatrixXd> lltM(M);
   DRAKE_DEMAND(lltM.info() == Eigen::Success);
 
-  // Get the Coriolis and gravitational forces.
-  const typename RigidBodyTree<double>::BodyToWrenchMap no_external_wrenches;
-  const VectorXd fext = -robot_and_ball_tree_.dynamicsBiasTerm(
-      kinematics_cache, no_external_wrenches);
+  // Compute the contribution from force elements.
+  const auto& robot_tree = mbp_robot_.model();
+  multibody::MultibodyForces<double> link_wrenches(robot_tree);
+  PositionKinematicsCache<double> pcache(robot_tree.get_topology());
+  VelocityKinematicsCache<double> vcache(robot_tree.get_topology());
+  robot_tree.CalcPositionKinematicsCache(*robot_context_, &pcache);
+  robot_tree.CalcVelocityKinematicsCache(*robot_context_, pcache, &vcache);
+
+  // Compute the external forces.
+  const VectorXd fext = -robot_tree.CalcInverseDynamics(
+      *robot_context_, VectorXd::Zero(nv_robot_), link_wrenches);
 
   // TODO(edrumwri): Check whether desired ball acceleration is in the right
   // format to match with layout of M.
@@ -389,8 +400,7 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
   // Construct the Jacobians and the Jacobians times the velocity.
   MatrixXd N, S, T;
   MatrixXd Ndot_v, Sdot_v, Tdot_v;
-  ConstructJacobians(contacts, kinematics_cache, &N, &S, &T,
-                     &Ndot_v, &Sdot_v, &Tdot_v);
+  ConstructJacobians(contacts, &N, &S, &T, &Ndot_v, &Sdot_v, &Tdot_v);
 
   // Get the Jacobians at the point of contact: N, S, T, and construct Z and
   // Zdot_v.
@@ -502,40 +512,29 @@ const VectorXd cf = z.tail(nc);
 }
 
 // Gets the vector of contacts.
-std::vector<PointPair<double>> BoxController::FindContacts(
-    const KinematicsCache<double>& kinematics_cache) const {
-  // Get the robot and ball tree as non-const, which is necessary to call some
-  // collision detection routines.
-  RigidBodyTree<double>* robot_and_ball_tree_nc =
-      const_cast<RigidBodyTree<double>*>(&robot_and_ball_tree_);
+std::vector<geometry::PenetrationAsPointPair<double>> BoxController::FindContacts() const {
+  // Evaluate scene graph's output port, getting a SceneGraph reference.
+  const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(context, geometry_query_input_port_)->GetValue<geometry::QueryObject<double>>(); 
 
-  // First, compute the set of contacts.
-  auto contacts = robot_and_ball_tree_nc->ComputeMaximumDepthCollisionPoints(
-      kinematics_cache, true);
+  // Determine the set of contacts.
+  std::vector<geometry::PenetrationAsPointPair<double>> contacts = query_object.ComputePointPairPenetration();
 
   // Get the ball body and foot bodies.
   const auto ball_body = &get_ball_from_robot_and_ball_tree();
-  const auto link6_body = &get_robot_foot_link_from_robot_and_ball_tree();
-  const auto link7_body = &get_robot_link7_from_robot_and_ball_tree();
+  const auto box_body = &get_box_from_robot_and_ball_tree();
   const auto world_body = &get_world_from_robot_and_ball_tree();
 
   // Make sorted pairs to check.
-  const SortedPair<const RigidBody<double>*> ball_link6_pair(
-      ball_body, link6_body);
-  const SortedPair<const RigidBody<double>*> ball_link7_pair(
-      ball_body, link7_body);
-  const SortedPair<const RigidBody<double>*> ball_world_pair(
-      ball_body, world_body);
+  const auto ball_box_pair = make_sorted_pair(ball_body, box_body);
 
   // Remove contacts between all but the robot foot and the ball and the
   // ball and the ground.
   for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    // TODO: Get the two bodies involved in the contact.
     const auto body_a = contacts[i].elementA->get_body();
     const auto body_b = contacts[i].elementB->get_body();
-    const SortedPair<const RigidBody<double>*> body_a_b_pair(body_a, body_b);
-    if (body_a_b_pair != ball_link6_pair &&
-        body_a_b_pair != ball_link7_pair &&
-        body_a_b_pair != ball_world_pair) {
+    const auto body_a_b_pair = make_sorted_pair(body_a, body_b);
+    if (body_a_b_pair != ball_box_pair) {
       contacts[i] = contacts.back();
       contacts.pop_back();
       --i;
@@ -573,8 +572,7 @@ void BoxController::DoControlCalc(
   VectorXd tau;
   if (contact_desired) {
     // Find contacts.
-    auto kinematics_cache = robot_and_ball_tree_.doKinematics(q, v);
-    auto contacts = FindContacts(kinematics_cache);
+    auto contacts = FindContacts();
 
     // Get the number of points of contact.
     const int nc = static_cast<int>(contacts.size());
@@ -625,75 +623,26 @@ void BoxController::DoCalcTimeDerivatives(
     // Get the current robot configuration.
     const auto x = dynamic_cast<const BasicVector<double>&>(
         context.get_continuous_state_vector()).get_value();
-    const VectorXd q_robot = x.segment(
-        get_robot_position_start_index_in_x(), nq_robot_);
+    const VectorXd q_robot = robot_and_ball_plant_.model().get_positions_from_array(robot_model_instance_, x);
     derivatives->get_mutable_vector().SetFromVector(q_robot_des - q_robot);
   }
 }
 
 /// Gets the ball body from the robot and ball tree.
-const RigidBody<double>& BoxController::get_ball_from_robot_and_ball_tree() const {
-  const int ball_index = robot_and_ball_tree_.FindBodyIndex("ball");
-  return robot_and_ball_tree_.get_body(ball_index);
+const Body<double>& BoxController::get_ball_from_robot_and_ball_tree() const {
+  return robot_and_ball_plant_.model().GetBodyByName("ball"); 
 }
 
-/// Gets the robot body from the robot and ball tree.
-const RigidBody<double>& BoxController::get_robot_from_robot_and_ball_tree()
+/// Gets the box link from the robot and ball tree.
+const RigidBody<double>& BoxController::get_box_from_robot_and_ball_tree()
     const {
-  const int robot_index = robot_and_ball_tree_.FindBodyIndex("base");
-  return robot_and_ball_tree_.get_body(robot_index);
+  return robot_and_ball_plant_.model().GetBodyByName("box"); 
 }
 
 /// Gets the world body from the robot and ball tree.
 const RigidBody<double>& BoxController::get_world_from_robot_and_ball_tree()
     const {
-  return robot_and_ball_tree_.world();
-}
-
-/// Gets the link7 body from the robot and ball tree.
-const RigidBody<double>& BoxController::get_robot_link7_from_robot_and_ball_tree()
-    const {
-  const int robot_index = robot_and_ball_tree_.FindBodyIndex("iiwa_link_7");
-  return robot_and_ball_tree_.get_body(robot_index);
-}
-
-/// Gets the link5 body from the robot and ball tree.
-const RigidBody<double>& BoxController::get_robot_link5_from_robot_and_ball_tree()
-const {
-  const int robot_index = robot_and_ball_tree_.FindBodyIndex("iiwa_link_5");
-  return robot_and_ball_tree_.get_body(robot_index);
-}
-
-/// Gets the link6 from the robot and ball tree.
-const RigidBody<double>& BoxController::get_robot_foot_link_from_robot_and_ball_tree()
-    const {
-  const int robot_index = robot_and_ball_tree_.FindBodyIndex("iiwa_link_6");
-  return robot_and_ball_tree_.get_body(robot_index);
-}
-
-/// Gets the starting position index of the robot in the vector of continuous
-/// velocities, v.
-int BoxController::get_robot_velocity_start_index_in_v() const {
-  return get_robot_from_robot_and_ball_tree().get_velocity_start_index();
-}
-
-/// Gets the starting position index of the ball in the vector of continuous
-/// velocities, v.
-int BoxController::get_ball_velocity_start_index_in_v() const {
-  return get_ball_from_robot_and_ball_tree().get_velocity_start_index();
-}
-
-/// Gets the starting position index of the robot in the state vector, x.
-int BoxController::get_robot_position_start_index_in_x() const {
-  // According to RigidBodyTree documentation, generalized coordinates are
-  // first in the state vector.
-  return get_robot_from_robot_and_ball_tree().get_position_start_index();
-}
-
-/// Gets the starting position index of the robot in the vector of continuous
-/// generaliezd positions, q.
-int BoxController::get_ball_position_start_index_in_q() const {
-  return get_ball_from_robot_and_ball_tree().get_position_start_index();
+  return robot_and_ball_plant_.model().world_body();
 }
 
 VectorXd BoxController::get_all_q(const Context<double>& context) const {
@@ -705,6 +654,7 @@ VectorXd BoxController::get_all_q(const Context<double>& context) const {
   for (int i = 0; i < q.size(); ++i)
     q[i] = std::numeric_limits<double>::quiet_NaN();
 
+// TODO: update this.
   q.segment(get_robot_position_start_index_in_q(), nq_robot_) = robot_q;
   q.segment(get_ball_position_start_index_in_q(), nq_ball_) = ball_q;
 
@@ -724,6 +674,7 @@ Eigen::VectorXd BoxController::get_all_v(const Context<double>& context) const {
   for (int i = 0; i < v.size(); ++i)
     v[i] = std::numeric_limits<double>::quiet_NaN();
 
+// TODO: update this.
   v.segment(get_robot_velocity_start_index_in_v(), nv_robot_) = robot_qd;
   v.segment(get_ball_velocity_start_index_in_v(), nv_ball_) = ball_v;
   return v;
