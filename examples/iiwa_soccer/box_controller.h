@@ -4,8 +4,8 @@
 #include "drake/systems/framework/output_port.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/framework/basic_vector.h"
-#include "drake/multibody/kinematics_cache.h"
-#include "drake/multibody/rigid_body_tree.h"
+#include "drake/multibody/multibody_tree/multibody_tree.h"
+#include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
 #include "drake/systems/framework/event.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/systems/framework/vector_system.h"
@@ -19,15 +19,17 @@ class BoxController : public systems::LeafSystem<double> {
  public:
 
   // Constructor with LCM. Will draw target point if publish is on.
-  BoxController(const MultibodyPlant<double>& robot_and_ball_plant,
-             const MultibodyPlant<double>& robot_mbp,
-             const Vector3<double>& k_p,
-             const Vector3<double>& k_d,
-             const VectorX<double>& joint_kp,
-             const VectorX<double>& joint_ki,
-             const VectorX<double>& joint_kd,
-             drake::lcm::DrakeLcm& lcm) :
-      BoxController(robot_and_ball_tree, robot_tree, k_p, k_d,
+  BoxController(
+      const multibody::multibody_plant::MultibodyPlant<double>&
+          robot_and_ball_plant,
+      const multibody::multibody_plant::MultibodyPlant<double>& robot_mbp,
+      const Vector3<double>& k_p,
+      const Vector3<double>& k_d,
+      const VectorX<double>& joint_kp,
+      const VectorX<double>& joint_ki,
+      const VectorX<double>& joint_kd,
+      drake::lcm::DrakeLcm& lcm) :
+      BoxController(robot_and_ball_plant, robot_mbp, k_p, k_d,
                  joint_kp, joint_ki, joint_kd) {
 
     draw_status_ = true;
@@ -36,18 +38,23 @@ class BoxController : public systems::LeafSystem<double> {
   }
 
   // Constructor without lcm. Draws nothing.
-  BoxController(const MultibodyPlant<double>& robot_and_ball_plant,
-             const MultibodyTree<double>& robot_mbp,
-             const Vector3<double>& k_p,
-             const Vector3<double>& k_d,
-             const VectorX<double>& joint_kp,
-             const VectorX<double>& joint_ki,
-             const VectorX<double>& joint_kd) :
-      command_output_size_(robot_tree.get_num_actuators()),
-      robot_and_ball_plant_(robot_and_ball_plant), robot_mbp_(robot_mbp),
-      k_p_(k_p), k_d_(k_d),
-      joint_kp_(joint_kp), joint_ki_(joint_ki), joint_kd_(joint_kd) {
-
+  BoxController(
+      const multibody::multibody_plant::MultibodyPlant<double>&
+          robot_and_ball_plant,
+      const multibody::multibody_plant::MultibodyPlant<double>& robot_mbp,
+      const Vector3<double>& k_p,
+      const Vector3<double>& k_d,
+      const VectorX<double>& joint_kp,
+      const VectorX<double>& joint_ki,
+      const VectorX<double>& joint_kd) :
+      command_output_size_(robot_mbp.num_actuators()),
+      robot_and_ball_plant_(robot_and_ball_plant),
+      robot_mbp_(robot_mbp),
+      k_p_(k_p),
+      k_d_(k_d),
+      joint_kp_(joint_kp),
+      joint_ki_(joint_ki),
+      joint_kd_(joint_kd) {
     LoadPlans();
     this->DeclareContinuousState(nq_robot()); // For integral control state.
     input_port_index_estimated_robot_q_ = this->DeclareVectorInputPort(
@@ -97,14 +104,13 @@ class BoxController : public systems::LeafSystem<double> {
       systems::Context<double>* context, const Eigen::VectorXd& qint) const;
   Eigen::VectorXd get_integral_value(
       const systems::Context<double>& context) const;
-  const MultibodyPlant<double>& get_multibody_plant() const {
-    return robot_and_ball_tree_;
-  }
-  const Body<double>& get_world_from_robot_and_ball_tree() const;
-  const Body<double>& get_ball_from_robot_and_ball_tree() const;
-  const Body<double>& get_box_from_robot_and_ball_tree() const;
+  const multibody::Body<double>& get_world_from_robot_and_ball_tree() const;
+  const multibody::Body<double>& get_ball_from_robot_and_ball_tree() const;
+  const multibody::Body<double>& get_box_from_robot_and_ball_tree() const;
 
  private:
+  void UpdateRobotConfigurationForGeometricQueries(
+      const VectorX<double>& q) const;
   Eigen::VectorXd TransformVToQdot(
       const Eigen::VectorXd& q, const Eigen::VectorXd& v) const;
   void DoCalcTimeDerivatives(
@@ -113,7 +119,7 @@ class BoxController : public systems::LeafSystem<double> {
   void DoControlCalc(const systems::Context<double>& context,
                      systems::BasicVector<double>* const output) const;
   void ConstructJacobians(
-      const Context<double>& context,
+      const systems::Context<double>& context,
       const std::vector<geometry::PenetrationAsPointPair<double>>& contacts,
       Eigen::MatrixXd* N, Eigen::MatrixXd* S, Eigen::MatrixXd* T,
       Eigen::MatrixXd* Ndot_v, Eigen::MatrixXd* Sdot_v,
@@ -149,13 +155,13 @@ class BoxController : public systems::LeafSystem<double> {
         context, input_port_index_estimated_ball_v_)->CopyToVector();
   }
 
-  int nq_robot() const { return mbp_robot_.model().num_positions(); }
-  int nv_robot() const { return mbp_robot_.model().num_velocities(); }
+  int nq_robot() const { return robot_mbp_.tree().num_positions(); }
+  int nv_robot() const { return robot_mbp_.tree().num_velocities(); }
   int nq_ball() const {
-      return robot_and_ball_plant_.model().num_positions() - nq_robot();
+      return robot_and_ball_plant_.tree().num_positions() - nq_robot();
   }
   int nv_ball() const {
-      return robot_and_ball_plant_.model().num_velocities() - nv_robot();
+      return robot_and_ball_plant_.tree().num_velocities() - nv_robot();
   }
 
   int input_port_index_estimated_robot_q_{-1};
@@ -163,14 +169,39 @@ class BoxController : public systems::LeafSystem<double> {
   int input_port_index_estimated_ball_q_{-1};
   int input_port_index_estimated_ball_v_{-1};
   const int command_output_size_; // number of robot motor torques.
-  const MultibodyPlant<double>& robot_and_ball_plant_;
-  const MultibodyPlant<double>& mbp_robot_;
-  std::unique_ptr<Context<double>> robot_context_;
+  lcm::DrakeLcm* lcm_;
+
+  // The plant holding everything: robot and ball.
+  const multibody::multibody_plant::MultibodyPlant<double>&
+      robot_and_ball_plant_;
+
+  // A plant for the robot only.
+  const multibody::multibody_plant::MultibodyPlant<double>& robot_mbp_;
+
+  // A context for making queries with robot_mbp_.
+  std::unique_ptr<systems::Context<double>> robot_context_;
+
+  // A context for making contact queries with SceneGraph.
+  std::unique_ptr<systems::Context<double>> scenegraph_and_mbp_query_context_;
+
+  // A mapping from registered geometry indices to body indices.
+  std::unordered_map<geometry::GeometryId, multibody::BodyIndex>
+      geometry_id_to_body_index_;
+
+  // PD gains.
   const Vector3<double> k_p_;
   const Vector3<double> k_d_;
-  lcm::DrakeLcm* lcm_;
   Eigen::DiagonalMatrix<double, Eigen::Dynamic, Eigen::Dynamic> joint_kp_,
       joint_ki_, joint_kd_;
+
+  // Instance index for the robot in robot_and_ball_plant_.
+  multibody::ModelInstanceIndex robot_instance_;
+
+  // Instance index for the ball in robot_and_ball_plant_.
+  multibody::ModelInstanceIndex ball_instance_;
+
+  // Port for the SceneGraph query object.
+  int geometry_query_input_port_{-1};
 
   // If set to 'true', the controller will output visual debugging / logging
   // info through LCM messages.

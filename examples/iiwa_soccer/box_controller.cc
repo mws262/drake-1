@@ -3,7 +3,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/sorted_pair.h"
-#include "drake/examples/iiwa_soccer/controller.h"
+#include "drake/examples/iiwa_soccer/box_controller.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/math/orthonormal_basis.h"
@@ -12,7 +12,7 @@
 //#include "drake/multibody/ik_options.h"
 //#include "drake/multibody/rigid_body_constraint.h"
 //#include "drake/multibody/rigid_body_ik.h"
-#include "drake/multibody/rigid_body_plant/frame_visualizer.h"
+//#include "drake/multibody/rigid_body_plant/frame_visualizer.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/lcm/lcm_subscriber_system.h"
 
@@ -20,12 +20,16 @@ namespace drake {
 namespace examples {
 namespace iiwa_soccer {
 
+using drake::geometry::GeometryId;
 using drake::geometry::SceneGraph;
 using drake::math::RollPitchYaw;
 using drake::math::RotationMatrix;
+using drake::multibody::Body;
+using drake::multibody::BodyIndex;
+using drake::multibody::PositionKinematicsCache;
+using drake::multibody::VelocityKinematicsCache;
 using drake::systems::BasicVector;
 using drake::systems::Context;
-using drake::systems::InputPortDescriptor;
 using drake::systems::OutputPort;
 using drake::systems::PublishEvent;
 using drake::systems::ContinuousState;
@@ -60,6 +64,11 @@ void BoxController::LoadPlans() {
       "examples/iiwa_soccer/plan/contact_status.mat");
 }
 
+// TODO: create the necessary contexts.
+// TODO: get model instances
+// TODO: populate the mapping from geometry IDs to bodies.
+// TODO: set geometry_query_input_port_
+
 // Constructs the Jacobian matrices.
 void BoxController::ConstructJacobians(
     const Context<double>& context,
@@ -68,7 +77,7 @@ void BoxController::ConstructJacobians(
     MatrixXd* Ndot_v, MatrixXd* Sdot_v, MatrixXd* Tdot_v) const {
 
   // Get the tree.
-  const auto tree = robot_and_ball_plant_.model(); 
+  const auto& tree = robot_and_ball_plant_.tree();
 
   // Get the numbers of contacts and generalized velocities.
   const int nc = static_cast<int>(contacts.size());
@@ -89,13 +98,15 @@ void BoxController::ConstructJacobians(
     const auto& point_pair = contacts[i];
 
     // Get the surface normal in the world frame.
-    const Vector3d& n_BA_W = point_pair.nhat_BA_W:
+    const Vector3d& n_BA_W = point_pair.nhat_BA_W;
 
-    // TODO: get the two bodies. 
-    const GeometryId geometryA_id = point_pair.id_A;
-    const GeometryId geometryB_id = point_pair.id_B;
-    const Body<double>& bodyA = tree.get_body(body_A_index);
-    const BOdy<double>& bodyB = tree.get_body(body_B_index);
+    // Get the two bodies.
+    const GeometryId geometry_A_id = point_pair.id_A;
+    const GeometryId geometry_B_id = point_pair.id_B;
+    const BodyIndex body_A_index = geometry_id_to_body_index_.at(geometry_A_id);
+    const BodyIndex body_B_index = geometry_id_to_body_index_.at(geometry_B_id);
+    const Body<double>& body_A = tree.get_body(body_A_index);
+    const Body<double>& body_B = tree.get_body(body_B_index);
 
     // The reported point on A's surface (As) in the world frame (W).
     const Vector3d& p_WAs = point_pair.p_WCa;
@@ -110,13 +121,13 @@ void BoxController::ConstructJacobians(
     // as moving with Body A.
     MatrixXd J_WAc(3, nv);
     tree.CalcPointsGeometricJacobianExpressedInWorld(
-        context, bodyA.body_frame(), p_W, &J_WAc); 
+        context, body_A.body_frame(), p_W, &J_WAc); 
 
     // Get the geometric Jacobian for the velocity of the contact point
     // as moving with Body B.
     MatrixXd J_WBc(3, nv);
     tree.CalcPointsGeometricJacobianExpressedInWorld(
-        context, bodyB.body_frame(), p_W, &J_WBc); 
+        context, body_B.body_frame(), p_W, &J_WBc); 
 
     // Compute the linear components of the Jacobian.
     const MatrixXd J = J_WAc - J_WBc;
@@ -145,11 +156,11 @@ VectorXd BoxController::ComputeTorquesForContactNotDesired(
     const Context<double>& context) const {
   // Get the desired robot acceleration.
   const VectorXd q_robot_des = plan_.GetRobotQQdotAndQddot(
-      context.get_time()).head(nq_robot_);
+      context.get_time()).head(nv_robot());
   const VectorXd qdot_robot_des = plan_.GetRobotQQdotAndQddot(
-      context.get_time()).segment(nq_robot_, nv_robot_);
+      context.get_time()).segment(nv_robot(), nv_robot());
   const VectorXd qddot_robot_des = plan_.GetRobotQQdotAndQddot(
-      context.get_time()).tail(nv_robot_);
+      context.get_time()).tail(nv_robot());
 
   // Get the robot current generalized position and velocity.
   const VectorXd q_robot = get_robot_q(context);
@@ -162,7 +173,7 @@ VectorXd BoxController::ComputeTorquesForContactNotDesired(
       joint_kd_ * (qdot_robot_des - qd_robot);
 
   // Set the state in the robot context to q_robot and qd_robot. 
-  VectorX<double> x = mbp_robot_.model().get_mutable_multibody_state_vector(
+  VectorX<double> x = robot_mbp_.tree().get_mutable_multibody_state_vector(
       robot_context_.get());
   DRAKE_DEMAND(x.size() == q_robot.size() + qd_robot.size()); 
   x.head(q_robot.size()) = q_robot;
@@ -170,12 +181,12 @@ VectorXd BoxController::ComputeTorquesForContactNotDesired(
 
   // Get the generalized inertia matrix.
   MatrixXd M;
-  mbp_robot_.model().CalcMassMatrixViaInverseDynamics(*robot_context_, &M);
+  robot_mbp_.tree().CalcMassMatrixViaInverseDynamics(*robot_context_, &M);
   Eigen::LLT<MatrixXd> lltM(M);
   DRAKE_DEMAND(lltM.info() == Eigen::Success);
 
   // Compute the contribution from force elements.
-  const auto& robot_tree = mbp_robot_.model();
+  const auto& robot_tree = robot_mbp_.tree();
   multibody::MultibodyForces<double> link_wrenches(robot_tree);
   PositionKinematicsCache<double> pcache(robot_tree.get_topology());
   VelocityKinematicsCache<double> vcache(robot_tree.get_topology());
@@ -184,7 +195,7 @@ VectorXd BoxController::ComputeTorquesForContactNotDesired(
 
   // Compute the external forces.
   const VectorXd fext = -robot_tree.CalcInverseDynamics(
-      *robot_context_, VectorXd::Zero(nv_robot_), link_wrenches);
+      *robot_context_, VectorXd::Zero(nv_robot()), link_wrenches);
 
   // Compute inverse dynamics.
   return M * qddot - fext;
@@ -198,16 +209,18 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   const VectorXd q0 = get_all_q(context);
   VectorXd v0 = get_all_v(context);
 
-  // Get the robot tree.
-  const auto& robot_tree = mbp_robot_.model();
+  // Get the relevant trees.
+  const auto& all_tree = robot_and_ball_plant_.tree();
+  const auto& robot_tree = robot_mbp_.tree();
 
-  // TODO: Set the joint velocities for the robot to zero.
-  v0.segment(get_robot_velocity_start_index_in_v(), nv_robot_).setZero();
+  // Set the joint velocities for the robot to zero.
+  all_tree.set_velocities_in_array(
+      robot_instance_, VectorXd::Zero(nv_robot()), &v0);
 
   // Transform the velocities to time derivatives of generalized
   // coordinates.
-  VectorXd qdot0;
-  mbp_both_.MapVelocityToQDot(context, v0, &qdot0);
+  BasicVector<double> qdot0(robot_and_ball_plant_.tree().num_positions());
+  robot_and_ball_plant_.MapVelocityToQDot(context, v0, &qdot0);
 
   // TODO(edrumwri): turn this system into an actual discrete system.
   const double control_freq = 100.0;  // 100 Hz.
@@ -216,33 +229,53 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   // Get the estimated position of the ball and the robot at the next time
   // step using a first order approximation to position and the current
   // velocities.
-  const VectorXd q1 = q0 + dt * qdot0;
+  const VectorXd q1 = q0 + dt * qdot0.CopyToVector();
 
-  // TODO: Update the context to use configuration q1 in the query.
+  // Update the context to use configuration q1 in the query.
+  UpdateRobotConfigurationForGeometricQueries(q1);
 
   // Evaluate scene graph's output port, getting a SceneGraph reference.
-  const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(context, geometry_query_input_port_)->GetValue<geometry::QueryObject<double>>(); 
+  const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(
+      *scenegraph_and_mbp_query_context_, geometry_query_input_port_)->
+      GetValue<geometry::QueryObject<double>>();
+
+  // Get the box and the ball bodies.
+  const auto ball_body = &get_ball_from_robot_and_ball_tree();
+  const auto box_body = &get_box_from_robot_and_ball_tree();
+  const auto box_and_ball = MakeSortedPair(ball_body, box_body);
 
   // Get the closest points on the robot foot and the ball corresponding to q1
   // and v0.
-  std::vector<SignedDistancePair<double>> closest_points =
+  std::vector<geometry::SignedDistancePair<double>> closest_points =
       query_object.ComputeSignedDistancePairwiseClosestPoints();
   DRAKE_DEMAND(!closest_points.empty());
   int found_index = -1;
   const int num_data = static_cast<int>(closest_points.size());
   for (int i = 0; i < num_data; ++i) {
-    // TODO: Get the two bodies in contact.
+    // Get the two bodies in contact.
+    const auto& point_pair = closest_points[i];
+    const GeometryId geometry_A_id = point_pair.id_A;
+    const GeometryId geometry_B_id = point_pair.id_B;
+    const BodyIndex body_A_index = geometry_id_to_body_index_.at(geometry_A_id);
+    const BodyIndex body_B_index = geometry_id_to_body_index_.at(geometry_B_id);
+    const auto body_A = &all_tree.get_body(body_A_index);
+    const auto body_B = &all_tree.get_body(body_B_index);
+    const auto bodies = MakeSortedPair(body_A, body_B);
 
     // If the two bodies correspond to the foot (box) and the ball, mark the
     // found index and stop looping.
+    if (bodies == box_and_ball) {
+      found_index = i;
+      break;
+    }
   }
   DRAKE_DEMAND(found_index >= 0);
 
   // Get the signed distance data structure. 
   auto& closest = closest_points[found_index];
 
-  // TODO: Call A the body belonging to the robot. 
-  if (something) {
+  // Make A be the body belonging to the robot.
+  if (&geometry_id_to_body_index_.at(closest.id_A) != ball_body) {
     std::swap(closest.id_A, closest.id_B);
     std::swap(closest.p_ACa, closest.p_BCb);
   }   
@@ -272,9 +305,9 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
 
   // Get the geometric Jacobian for the velocity of the closest point on the
   // robot as moving with the robot Body A.
-  MatrixXd J_WAc(3, nv_robot_);
+  MatrixXd J_WAc(3, nv_robot());
   robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
-      *robot_context_, body_A.body_frame(), closest_Aw, &J_WAc); 
+      *robot_context_, box_body->body_frame(), closest_Aw, &J_WAc);
 
   // Set the rigid body constraints.
   /*
@@ -303,7 +336,7 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   // Use resolved-motion rate control to determine the robot velocity that
   // would be necessary to realize the desired end-effector velocity.
   Eigen::JacobiSVD<MatrixXd> svd(
-      J, Eigen::ComputeThinU | Eigen::ComputeThinV);
+      J_WAc, Eigen::ComputeThinU | Eigen::ComputeThinV);
   const VectorXd qdot_robot_des = svd.solve(linear_v_des);
 
   // Set qddot_robot_des using purely error feedback.
@@ -326,7 +359,7 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
 
   // Compute the external forces.
   const VectorXd fext = -robot_tree.CalcInverseDynamics(
-      *robot_context_, VectorXd::Zero(nv_robot_), link_wrenches);
+      *robot_context_, VectorXd::Zero(nv_robot()), link_wrenches);
 
   // Compute inverse dynamics.
   return M * qddot - fext;
@@ -342,10 +375,10 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
   // ***************************************************************
 
   // Get the number of generalized positions, velocities, and actuators.
-  const int nv = robot_and_ball_tree_.get_num_velocities();
-  DRAKE_DEMAND(nv == nv_robot_ + nv_ball_);
-  const int num_actuators = robot_and_ball_tree_.get_num_actuators();
-  DRAKE_DEMAND(num_actuators == nv_robot_);
+  const int nv = robot_and_ball_plant_.tree().num_velocities();
+  DRAKE_DEMAND(nv == nv_robot() + nv_ball());
+  const int num_actuators = robot_and_ball_plant_.tree().num_actuators();
+  DRAKE_DEMAND(num_actuators == nv_robot());
 
   // The starting index of the ball in the generalized velocities array. Note
   // TwanCode, which uses angular velocities first in the array and linear
@@ -366,12 +399,12 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
 
   // Get the generalized inertia matrix.
   MatrixXd M;
-  mbp_robot_.model().CalcMassMatrixViaInverseDynamics(*robot_context_, &M);
+  robot_mbp_.tree().CalcMassMatrixViaInverseDynamics(*robot_context_, &M);
   Eigen::LLT<MatrixXd> lltM(M);
   DRAKE_DEMAND(lltM.info() == Eigen::Success);
 
   // Compute the contribution from force elements.
-  const auto& robot_tree = mbp_robot_.model();
+  const auto& robot_tree = robot_mbp_.tree();
   multibody::MultibodyForces<double> link_wrenches(robot_tree);
   PositionKinematicsCache<double> pcache(robot_tree.get_topology());
   VelocityKinematicsCache<double> vcache(robot_tree.get_topology());
@@ -380,17 +413,17 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
 
   // Compute the external forces.
   const VectorXd fext = -robot_tree.CalcInverseDynamics(
-      *robot_context_, VectorXd::Zero(nv_robot_), link_wrenches);
+      *robot_context_, VectorXd::Zero(nv_robot()), link_wrenches);
 
   // TODO(edrumwri): Check whether desired ball acceleration is in the right
   // format to match with layout of M.
 
   // Get the desired ball acceleration.
   const VectorXd vdot_ball_des = plan_.GetBallQVAndVdot(context.get_time()).
-      tail(nv_ball_);
+      tail(nv_ball());
 
   // Construct the weighting matrix.
-  MatrixXd P = MatrixXd::Zero(nv_ball_, nv);
+  MatrixXd P = MatrixXd::Zero(nv_ball(), nv);
   const int ball_linear_velocity_start_index_in_ball_v = 3;
   for (int i = 0; i < 3; ++i) {
     const int index = ball_linear_velocity_start_index_in_v + i;
@@ -400,7 +433,7 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
   // Construct the Jacobians and the Jacobians times the velocity.
   MatrixXd N, S, T;
   MatrixXd Ndot_v, Sdot_v, Tdot_v;
-  ConstructJacobians(contacts, &N, &S, &T, &Ndot_v, &Sdot_v, &Tdot_v);
+  ConstructJacobians(context, contacts, &N, &S, &T, &Ndot_v, &Sdot_v, &Tdot_v);
 
   // Get the Jacobians at the point of contact: N, S, T, and construct Z and
   // Zdot_v.
@@ -505,16 +538,24 @@ const VectorXd cf = z.tail(nc);
   std::cout << "vdot: " << vdot.transpose() << std::endl;
   std::cout << "vdot (desired): " << vdot_ball_des.transpose() << std::endl;
   std::cout << "P * vdot: " << P_vdot.transpose() << std::endl;
-  std::cout << "torque: " << z.head(nv_robot_).transpose() << std::endl;
+  std::cout << "torque: " << z.head(nv_robot()).transpose() << std::endl;
 
-  // First nv_robot_ primal variables are the torques.
-  return z.head(nv_robot_);
+  // First nv_robot() primal variables are the torques.
+  return z.head(nv_robot());
 }
 
 // Gets the vector of contacts.
-std::vector<geometry::PenetrationAsPointPair<double>> BoxController::FindContacts() const {
+std::vector<geometry::PenetrationAsPointPair<double>>
+BoxController::FindContacts() const {
+  // TODO: Update the state of the query context to that in the true context.
+
+  // Get the tree corresponding to all bodies.
+  const auto& all_tree = robot_and_ball_plant_.tree();
+
   // Evaluate scene graph's output port, getting a SceneGraph reference.
-  const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(context, geometry_query_input_port_)->GetValue<geometry::QueryObject<double>>(); 
+  const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(
+      *scenegraph_and_mbp_query_context_, geometry_query_input_port_)->
+      GetValue<geometry::QueryObject<double>>();
 
   // Determine the set of contacts.
   std::vector<geometry::PenetrationAsPointPair<double>> contacts = query_object.ComputePointPairPenetration();
@@ -525,16 +566,20 @@ std::vector<geometry::PenetrationAsPointPair<double>> BoxController::FindContact
   const auto world_body = &get_world_from_robot_and_ball_tree();
 
   // Make sorted pairs to check.
-  const auto ball_box_pair = make_sorted_pair(ball_body, box_body);
+  const auto ball_box_pair = MakeSortedPair(ball_body, box_body);
+  const auto ball_world_pair = MakeSortedPair(ball_body, world_body);
 
   // Remove contacts between all but the robot foot and the ball and the
   // ball and the ground.
   for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
-    // TODO: Get the two bodies involved in the contact.
-    const auto body_a = contacts[i].elementA->get_body();
-    const auto body_b = contacts[i].elementB->get_body();
-    const auto body_a_b_pair = make_sorted_pair(body_a, body_b);
-    if (body_a_b_pair != ball_box_pair) {
+    const GeometryId geometry_A_id = contacts[i].id_A;
+    const GeometryId geometry_B_id = contacts[i].id_B;
+    const BodyIndex body_A_index = geometry_id_to_body_index_.at(geometry_A_id);
+    const BodyIndex body_B_index = geometry_id_to_body_index_.at(geometry_B_id);
+    const auto body_a = &all_tree.get_body(body_A_index);
+    const auto body_b = &all_tree.get_body(body_B_index);
+    const auto body_a_b_pair = MakeSortedPair(body_a, body_b);
+    if (body_a_b_pair != ball_box_pair && body_a_b_pair != ball_world_pair) {
       contacts[i] = contacts.back();
       contacts.pop_back();
       --i;
@@ -559,10 +604,10 @@ void BoxController::DoControlCalc(
   const bool contact_desired = plan_.IsContactDesired(context.get_time());
 
   // Get the number of generalized positions, velocities, and actuators.
-  const int nv = robot_and_ball_tree_.get_num_velocities();
-  DRAKE_DEMAND(nv == nv_robot_ + nv_ball_);
-  const int num_actuators = robot_and_ball_tree_.get_num_actuators();
-  DRAKE_DEMAND(num_actuators == nv_robot_);
+  const int nv = robot_and_ball_plant_.tree().num_velocities();
+  DRAKE_DEMAND(nv == nv_robot() + nv_ball());
+  const int num_actuators = robot_and_ball_plant_.tree().num_actuators();
+  DRAKE_DEMAND(num_actuators == nv_robot());
 
   // Get the generalized positions and velocities.
   VectorXd q = get_all_q(context);
@@ -603,7 +648,7 @@ VectorXd BoxController::get_integral_value(const Context<double>& context) const
 /// Sets the value of the integral term in the state.
 void BoxController::set_integral_value(
     Context<double>* context, const VectorXd& qint) const {
-  DRAKE_DEMAND(qint.size() == nv_robot_);
+  DRAKE_DEMAND(qint.size() == nv_robot());
   context->get_mutable_continuous_state_vector().SetFromVector(qint);
 }
 
@@ -614,49 +659,48 @@ void BoxController::DoCalcTimeDerivatives(
   const bool contact_intended = plan_.IsContactDesired(context.get_time());
 
   if (contact_intended) {
-    derivatives->get_mutable_vector().SetFromVector(VectorXd::Zero(nq_robot_));
+    derivatives->get_mutable_vector().SetFromVector(VectorXd::Zero(nv_robot()));
   } else {
     // Get the desired robot configuration.
     const VectorXd q_robot_des = plan_.GetRobotQQdotAndQddot(
-        context.get_time()).head(nq_robot_);
+        context.get_time()).head(nv_robot());
 
     // Get the current robot configuration.
     const auto x = dynamic_cast<const BasicVector<double>&>(
         context.get_continuous_state_vector()).get_value();
-    const VectorXd q_robot = robot_and_ball_plant_.model().get_positions_from_array(robot_model_instance_, x);
+    const VectorXd q_robot = robot_and_ball_plant_.tree().
+        get_positions_from_array(robot_instance_, x);
     derivatives->get_mutable_vector().SetFromVector(q_robot_des - q_robot);
   }
 }
 
 /// Gets the ball body from the robot and ball tree.
 const Body<double>& BoxController::get_ball_from_robot_and_ball_tree() const {
-  return robot_and_ball_plant_.model().GetBodyByName("ball"); 
+  return robot_and_ball_plant_.tree().GetBodyByName("ball"); 
 }
 
 /// Gets the box link from the robot and ball tree.
-const RigidBody<double>& BoxController::get_box_from_robot_and_ball_tree()
-    const {
-  return robot_and_ball_plant_.model().GetBodyByName("box"); 
+const Body<double>& BoxController::get_box_from_robot_and_ball_tree() const {
+  return robot_and_ball_plant_.tree().GetBodyByName("box"); 
 }
 
 /// Gets the world body from the robot and ball tree.
-const RigidBody<double>& BoxController::get_world_from_robot_and_ball_tree()
-    const {
-  return robot_and_ball_plant_.model().world_body();
+const Body<double>& BoxController::get_world_from_robot_and_ball_tree() const {
+  return robot_and_ball_plant_.tree().world_body();
 }
 
 VectorXd BoxController::get_all_q(const Context<double>& context) const {
   const VectorXd robot_q = get_robot_q(context);
   const VectorXd ball_q = get_ball_q(context);
-  VectorXd q(nq_ball_ + nq_robot_);
+  VectorXd q(nq_ball() + nv_robot());
 
   // Sanity check.
   for (int i = 0; i < q.size(); ++i)
     q[i] = std::numeric_limits<double>::quiet_NaN();
 
-// TODO: update this.
-  q.segment(get_robot_position_start_index_in_q(), nq_robot_) = robot_q;
-  q.segment(get_ball_position_start_index_in_q(), nq_ball_) = ball_q;
+  const auto& all_tree = robot_and_ball_plant_.tree();
+  all_tree.set_positions_in_array(robot_instance_, robot_q, &q);
+  all_tree.set_positions_in_array(ball_instance_, ball_q, &q);
 
   // Sanity check.
   for (int i = 0; i < q.size(); ++i)
@@ -668,15 +712,15 @@ VectorXd BoxController::get_all_q(const Context<double>& context) const {
 Eigen::VectorXd BoxController::get_all_v(const Context<double>& context) const {
   const VectorXd robot_qd = get_robot_qd(context);
   const VectorXd ball_v = get_ball_v(context);
-  VectorXd v(nv_ball_ + nv_robot_);
+  VectorXd v(nv_ball() + nv_robot());
 
   // Sanity check.
   for (int i = 0; i < v.size(); ++i)
     v[i] = std::numeric_limits<double>::quiet_NaN();
 
-// TODO: update this.
-  v.segment(get_robot_velocity_start_index_in_v(), nv_robot_) = robot_qd;
-  v.segment(get_ball_velocity_start_index_in_v(), nv_ball_) = ball_v;
+  const auto& all_tree = robot_and_ball_plant_.tree();
+  all_tree.set_velocities_in_array(robot_instance_, robot_qd, &v);
+  all_tree.set_velocities_in_array(ball_instance_, ball_v, &v);
   return v;
 }
 

@@ -88,8 +88,7 @@ drake_cc_library(
         "//lcm",
         "//lcmtypes:iiwa",
         "//math:orthonormal_basis",
-        "//multibody:kinematics_cache",
-        "//multibody:rigid_body_tree",
+        "//multibody/multibody_tree/multibody_plant",
         "//systems/framework",
         "//systems/lcm",
         "@lcmtypes_bot2_core",
@@ -149,5 +148,3 @@ drake_cc_binary(
         "@lcmtypes_bot2_core",
     ],
 )
-
-
