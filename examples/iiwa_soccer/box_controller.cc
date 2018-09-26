@@ -64,8 +64,7 @@ void BoxController::LoadPlans() {
       "examples/iiwa_soccer/plan/contact_status.mat");
 }
 
-// TODO: create the necessary contexts.
-// TODO: get model instances
+// TODO: create scenegraph+plant context.
 // TODO: populate the mapping from geometry IDs to bodies.
 // TODO: set geometry_query_input_port_
 
@@ -232,7 +231,7 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   const VectorXd q1 = q0 + dt * qdot0.CopyToVector();
 
   // Update the context to use configuration q1 in the query.
-  UpdateRobotConfigurationForGeometricQueries(q1);
+  UpdateRobotAndBallConfigurationForGeometricQueries(q1);
 
   // Evaluate scene graph's output port, getting a SceneGraph reference.
   const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(
@@ -275,18 +274,29 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   auto& closest = closest_points[found_index];
 
   // Make A be the body belonging to the robot.
-  if (&geometry_id_to_body_index_.at(closest.id_A) != ball_body) {
+  const BodyIndex body_A_index = geometry_id_to_body_index_.at(closest.id_A);
+  const BodyIndex body_B_index = geometry_id_to_body_index_.at(closest.id_B);
+  auto body_A = &all_tree.get_body(body_A_index);
+  auto body_B = &all_tree.get_body(body_B_index);
+  if (body_A != ball_body) {
+    std::swap(body_A, body_B);
     std::swap(closest.id_A, closest.id_B);
     std::swap(closest.p_ACa, closest.p_BCb);
-  }   
+  }
 
   // Get the closest points on the bodies. They'll be in their respective body
   // frames. 
   const Vector3d& closest_Aa = closest.p_ACa; 
   const Vector3d& closest_Bb = closest.p_BCb;
 
-  // TODO: transform the points in the body frames corresponding to q1 to the
+  // Transform the points in the body frames corresponding to q1 to the
   // world frame.
+  const auto X_wa = all_tree.EvalBodyPoseInWorld(
+      *scenegraph_and_mbp_query_context_, *body_A);
+  const auto X_wb = all_tree.EvalBodyPoseInWorld(
+      *scenegraph_and_mbp_query_context_, *body_B);
+  const Vector3d closest_Aw = X_wa * closest_Aa;
+  const Vector3d closest_Bw = X_wb * closest_Bb;
 
   // Get the vector from the closest point on the foot to the closest point
   // on the ball in the body frames.
@@ -365,6 +375,19 @@ VectorXd BoxController::ComputeTorquesForContactDesiredButNoContact(
   return M * qddot - fext;
 }
 
+// Constructs the robot actuation matrix.
+/*
+MatrixXd BoxController::ConstructActuationMatrix() const {
+
+}
+
+// Constructs the matrix that zeros angular velocities for the ball (and
+// does not change the linear velocities).
+MatrixXd BoxController::ConstructWeightingMatrix() const {
+}
+
+*/
+
 // Computes the control torques when contact is desired and the robot and the
 // ball are in contact.
 VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
@@ -380,22 +403,14 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
   const int num_actuators = robot_and_ball_plant_.tree().num_actuators();
   DRAKE_DEMAND(num_actuators == nv_robot());
 
-  // The starting index of the ball in the generalized velocities array. Note
-  // TwanCode, which uses angular velocities first in the array and linear
-  // velocities second.
-  const int robot_velocity_start_index_in_v =
-      get_robot_velocity_start_index_in_v();
-  const int ball_linear_velocity_start_index_in_v =
-      get_ball_velocity_start_index_in_v() + 3;
-
   // Get the generalized positions and velocities.
   const VectorXd q = get_all_q(context);
   const VectorXd v = get_all_v(context);
 
-  // Construct the actuation matrix.
-  MatrixXd B = MatrixXd::Zero(nv, num_actuators);
-  for (int i = 0; i < num_actuators; ++i)
-    B(robot_velocity_start_index_in_v + i, i) = 1.0;
+  // Construct the actuation and weighting matrices.
+//  MatrixXd B = MatrixXd::Zero(nv, num_actuators);
+  MatrixXd B = ConstructActuationMatrix();
+  MatrixXd P = ConstructWeightingMatrix();
 
   // Get the generalized inertia matrix.
   MatrixXd M;
@@ -421,14 +436,6 @@ VectorXd BoxController::ComputeTorquesForContactDesiredAndContacting(
   // Get the desired ball acceleration.
   const VectorXd vdot_ball_des = plan_.GetBallQVAndVdot(context.get_time()).
       tail(nv_ball());
-
-  // Construct the weighting matrix.
-  MatrixXd P = MatrixXd::Zero(nv_ball(), nv);
-  const int ball_linear_velocity_start_index_in_ball_v = 3;
-  for (int i = 0; i < 3; ++i) {
-    const int index = ball_linear_velocity_start_index_in_v + i;
-    P(ball_linear_velocity_start_index_in_ball_v + i, index) = 1.0;
-  }
 
   // Construct the Jacobians and the Jacobians times the velocity.
   MatrixXd N, S, T;

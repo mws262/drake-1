@@ -56,6 +56,8 @@ class BoxController : public systems::LeafSystem<double> {
       joint_ki_(joint_ki),
       joint_kd_(joint_kd) {
     LoadPlans();
+
+    // Declare states and ports.
     this->DeclareContinuousState(nq_robot()); // For integral control state.
     input_port_index_estimated_robot_q_ = this->DeclareVectorInputPort(
         systems::BasicVector<double>(nq_robot())).get_index();
@@ -68,7 +70,15 @@ class BoxController : public systems::LeafSystem<double> {
     this->DeclareVectorOutputPort(
         systems::BasicVector<double>(command_output_size_),
         &BoxController::DoControlCalc); // Output 0.
+
+    // Create the necessary contexts.
     robot_context_ = robot_mbp_.CreateDefaultContext();
+//    scenegraph_and_mbp_query_context_ = robot_and_ball_plant_.
+//        CreateDefaultContext();
+
+    // Get model instance indices from the composite plant.
+    robot_instance_ = robot_and_ball_plant_.GetModelInstanceByName("robot");
+    ball_instance_ = robot_and_ball_plant_.GetModelInstanceByName("ball");
   }
 
   const systems::OutputPort<double>& get_output_port_control() const {
@@ -109,7 +119,9 @@ class BoxController : public systems::LeafSystem<double> {
   const multibody::Body<double>& get_box_from_robot_and_ball_tree() const;
 
  private:
-  void UpdateRobotConfigurationForGeometricQueries(
+  Eigen::MatrixXd ConstructActuationMatrix() const;
+  Eigen::MatrixXd ConstructWeightingMatrix() const;
+  void UpdateRobotAndBallConfigurationForGeometricQueries(
       const VectorX<double>& q) const;
   Eigen::VectorXd TransformVToQdot(
       const Eigen::VectorXd& q, const Eigen::VectorXd& v) const;
