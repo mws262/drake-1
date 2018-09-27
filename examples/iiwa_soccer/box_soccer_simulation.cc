@@ -12,7 +12,7 @@
 #include "drake/common/find_resource.h"
 #include "drake/common/text_logging.h"
 #include "drake/common/text_logging_gflags.h"
-#include "drake/examples/iiwa_soccer/controller.h"
+#include "drake/examples/iiwa_soccer/box_controller.h"
 #include "drake/examples/kuka_iiwa_arm/iiwa_common.h"
 #include "drake/examples/kuka_iiwa_arm/iiwa_lcm.h"
 #include "drake/geometry/geometry_visualization.h"
@@ -23,8 +23,6 @@
 #include "drake/multibody/multibody_tree/parsing/multibody_plant_sdf_parser.h"
 #include "drake/multibody/multibody_tree/uniform_gravity_field_element.h"
 #include "drake/multibody/parsers/urdf_parser.h"
-#include "drake/multibody/rigid_body_plant/frame_visualizer.h"
-#include "drake/multibody/rigid_body_tree_construction.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/controllers/inverse_dynamics.h"
@@ -62,9 +60,7 @@ using drake::systems::Context;
 using drake::systems::Demultiplexer;
 using drake::systems::Diagram;
 using drake::systems::DiagramBuilder;
-using drake::systems::FrameVisualizer;
 using drake::systems::Multiplexer;
-using drake::systems::RigidBodyPlant;
 using drake::systems::Simulator;
 using drake::systems::controllers::InverseDynamics;
 using drake::trajectories::PiecewisePolynomial;
@@ -74,8 +70,10 @@ using kuka_iiwa_arm::kIiwaLcmStatusPeriod;
 using kuka_iiwa_arm::IiwaStatusSender;
 using kuka_iiwa_arm::IiwaCommandReceiver;
 
-const char* armModelPath = "drake/examples/iiwa_soccer/models/box.sdf";
-const char* ballModelPath = "drake/examples/iiwa_soccer/models/soccer_ball.sdf";
+const char* robot_model_name = "box";
+const char* ball_model_name = "ball";
+const char* arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf";
+const char* ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf";
 
 const Eigen::Vector3d robot_base_location(0, 0, 0);
 
@@ -121,49 +119,26 @@ int DoMainControlled() {
 
   systems::DiagramBuilder<double> builder;
 
-  auto tree = std::make_unique<RigidBodyTree<double>>();
-
-  // Construct the tree for simulation.
-  AddModelInstanceFromUrdfFileToWorld(
-      FindResourceOrThrow(boxModelPath),
-      multibody::joints::kFixed,
-      tree.get());
-  AddModelInstanceFromUrdfFileToWorld(
-      FindResourceOrThrow(ballModelPath),
-      multibody::joints::kQuaternion,
-      tree.get());
-
-  // Make ground part of tree.
-  multibody::AddFlatTerrainToWorld(tree.get(), 100., 10.);
-
+  // Create SceneGraph.
   SceneGraph<double>& scene_graph = *builder.AddSystem<SceneGraph>();
   scene_graph.set_name("scene_graph");
 
-  // Construct the multibody plant using both the Kuka and ball models.
-  MultibodyPlant<double>& mb_plant = *builder.AddSystem<MultibodyPlant>();
-  auto kuka_id_table = AddModelFromSdfFile(
-      FindResourceOrThrow(armModelPath), &mb_plant, &scene_graph);
+  // Construct the multibody plant using both the robot and ball models.
+  MultibodyPlant<double>& all_plant = *builder.AddSystem<MultibodyPlant>();
+  auto robot_id_table = AddModelFromSdfFile(
+      FindResourceOrThrow(arm_model_path), &all_plant, &scene_graph);
   auto ball_id_table = AddModelFromSdfFile(
-      FindResourceOrThrow(ballModelPath), &mb_plant, &scene_graph);
+      FindResourceOrThrow(ball_model_path), &all_plant, &scene_graph);
 
   // Add gravity to the model.
-  mb_plant.AddForceElement<multibody::UniformGravityFieldElement>(
+  all_plant.AddForceElement<multibody::UniformGravityFieldElement>(
       -9.81 * Vector3<double>::UnitZ());
-  mb_plant.Finalize(&scene_graph);
+  all_plant.Finalize(&scene_graph);
 
-/*
-  RigidBodyPlant<double>* plant_ptr = builder.AddPlant(std::move(tree));
-  systems::CompliantMaterial default_material;
-  default_material.set_youngs_modulus(1e8)
-      .set_dissipation(1.0)
-      .set_friction(.02, .02);
-  plant_ptr->set_default_compliant_material(default_material);
-*/
-  // Construct the tree for control.
-  auto control_tree = std::make_unique<RigidBodyTree<double>>();
-  AddModelInstanceFromUrdfFileToWorld(FindResourceOrThrow(armModelPath),
-                                      multibody::joints::kFixed,
-                                      control_tree.get());
+  // Construct the MBT/MBP for the "robot" only.
+  MultibodyPlant<double> robot_plant;
+  AddModelFromSdfFile(
+      FindResourceOrThrow(arm_model_path), &robot_plant, &scene_graph);
 
   /******** Add systems. ********/
 
@@ -179,17 +154,19 @@ int DoMainControlled() {
   joint_ki.setOnes() *= 0.1;
   joint_kd.setOnes() *= 1.0;
 
-  auto controller = builder.AddSystem<Controller>(
-      *tree, *control_tree, k_p, k_d,
+  auto controller = builder.AddSystem<BoxController>(
+      all_plant, robot_plant, k_p, k_d,
       joint_kp, joint_ki, joint_kd, lcm);
 
+  // TODO: Make this more robust.
   // Construct the necessary demultiplexers.
-  const int nq_ball = 7, nq_robot = 7, nv_ball = 6, nqd_robot = 7;
+  const int nq_ball = 7, nq_robot = 7, nv_ball = 6, nv_robot = 7;
   auto robot_state_demuxer = builder.AddSystem<Demultiplexer<double>>(
-      nq_robot + nqd_robot, nq_robot);
+      nq_robot + nv_robot, nq_robot);
   auto ball_state_demuxer = builder.AddSystem<Demultiplexer<double>>(
       nq_ball + nv_ball, 1);
 
+  // TODO: Make this more robust.
   // Construct the necessary mutliplexers.
   std::vector<int> ball_config_port_input_sizes = { 1, 1, 1, 1,  1, 1, 1 };
   std::vector<int> ball_vel_port_input_sizes = { 1, 1, 1, 1, 1, 1 };
@@ -212,10 +189,10 @@ int DoMainControlled() {
   iiwa_command_sub->set_name("iiwa_command_subscriber");
 
   builder.Connect(iiwa_command_sub->get_output_port(), iiwa_command_receiver->get_input_port(0));
-  builder.Connect(mb_plant.get_continuous_state_output_port(kuka_id_table), iiwa_status_sender->get_state_input_port());
+  builder.Connect(all_plant.get_continuous_state_output_port(robot_id_table), iiwa_status_sender->get_state_input_port());
   builder.Connect(iiwa_command_receiver->get_output_port(0), iiwa_status_sender->get_command_input_port());
-  builder.Connect(mb_plant.get_continuous_state_output_port(kuka_id_table), robot_state_demuxer->get_input_port(0));
-  builder.Connect(mb_plant.get_continuous_state_output_port(ball_id_table), ball_state_demuxer->get_input_port(0));
+  builder.Connect(all_plant.get_continuous_state_output_port(robot_id_table), robot_state_demuxer->get_input_port(0));
+  builder.Connect(all_plant.get_continuous_state_output_port(ball_id_table), ball_state_demuxer->get_input_port(0));
   for (int i = 0; i < nq_ball; ++i)
     builder.Connect(ball_state_demuxer->get_output_port(i), ball_q_muxer->get_input_port(i));
   for (int i = 0; i < nv_ball; ++i)
@@ -225,12 +202,12 @@ int DoMainControlled() {
   builder.Connect(robot_state_demuxer->get_output_port(0), controller->get_input_port_estimated_robot_q());
   builder.Connect(robot_state_demuxer->get_output_port(1), controller->get_input_port_estimated_robot_qd());
   builder.Connect(controller->get_output_port_control(), iiwa_status_sender->get_commanded_torque_input_port());
-  builder.Connect(controller->get_output_port_control(), mb_plant.get_actuation_input_port());
+  builder.Connect(controller->get_output_port_control(), all_plant.get_actuation_input_port());
   builder.Connect(iiwa_status_sender->get_output_port(0), iiwa_status_pub->get_input_port());
 
   // Last thing before building the diagram; configure the system for
   // visualization.
-  geometry::ConnectVisualization(scene_graph, &builder, &lcm);
+  geometry::ConnectDrakeVisualizer(&builder, scene_graph, &lcm);
   auto diagram = builder.Build();
 
   ///////////////////////////
@@ -238,9 +215,6 @@ int DoMainControlled() {
   Eigen::Isometry3d target_pose;
   target_pose.setIdentity();
   Eigen::Vector3d tarPos;
-
-  // TODO(edrumwri): Add poses to draw.
-//  PublishFrames(poses_to_draw, pose_names, lcm);
 
   ////////////////////////////////
 
@@ -254,22 +228,30 @@ int DoMainControlled() {
   const ManipulationPlan& plan = controller->plan();
   const double t0 = 0;
   VectorXd q(nq_ball + nq_robot);
-  VectorXd v(nv_ball + nqd_robot);
+  VectorXd v(nv_ball + nv_robot);
   const VectorXd q_robot = plan.GetRobotQQdotAndQddot(t0).head(nq_robot);
-  const VectorXd qd_robot = plan.GetRobotQQdotAndQddot(t0).segment(
-      nq_robot, nqd_robot);
+  const VectorXd v_robot = plan.GetRobotQQdotAndQddot(t0).segment(
+      nq_robot, nv_robot);
   const VectorXd q_ball = plan.GetBallQVAndVdot(t0).head(nq_ball);
   const VectorXd v_ball = plan.GetBallQVAndVdot(t0).segment(nq_ball, nv_ball);
-  q.segment(controller->get_robot_position_start_index_in_q(), nq_robot) =
-      q_robot;
-  q.segment(controller->get_ball_position_start_index_in_q(), nq_ball) = q_ball;
-  v.segment(controller->get_robot_velocity_start_index_in_v(),
-      nqd_robot) = qd_robot;
-  v.segment(controller->get_ball_velocity_start_index_in_v(), nv_ball) = v_ball;
-  context.get_mutable_continuous_state().get_mutable_generalized_position().SetFromVector(q);
-  context.get_mutable_continuous_state().get_mutable_generalized_velocity().SetFromVector(v);
 
-  simulator.reset_integrator<systems::RungeKutta2Integrator<double>>(*diagram, 1e-3, &context);
+  // Set q and v for the robot and the ball.
+  const auto& all_tree = all_plant.tree();
+  const auto robot_instance = all_tree.GetModelInstanceByName(
+      std::string(robot_model_name));
+  const auto ball_instance = all_tree.GetModelInstanceByName(
+      std::string(ball_model_name));
+  VectorXd x(nq_robot + nv_robot + nq_ball + nv_ball);
+  all_tree.set_positions_in_array(robot_instance, q_robot, &q);
+  all_tree.set_positions_in_array(ball_instance, q_ball, &q);
+  all_tree.set_velocities_in_array(robot_instance, v_robot, &v);
+  all_tree.set_velocities_in_array(ball_instance, v_ball, &v);
+  x.head(q.size()) = q;
+  x.tail(v.size()) = v;
+  all_plant.tree().get_mutable_multibody_state_vector(&context) = x;
+  
+  simulator.reset_integrator<systems::RungeKutta2Integrator<double>>(
+      *diagram, 1e-3, &context);
   simulator.Initialize();
   simulator.StepTo(FLAGS_simulation_sec);
 

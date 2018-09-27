@@ -23,7 +23,6 @@
 #include "drake/multibody/multibody_tree/parsing/multibody_plant_sdf_parser.h"
 #include "drake/multibody/multibody_tree/uniform_gravity_field_element.h"
 #include "drake/multibody/parsers/urdf_parser.h"
-#include "drake/multibody/rigid_body_tree_construction.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/controllers/inverse_dynamics.h"
@@ -62,7 +61,6 @@ using drake::systems::Demultiplexer;
 using drake::systems::Diagram;
 using drake::systems::DiagramBuilder;
 using drake::systems::Multiplexer;
-using drake::systems::RigidBodyPlant;
 using drake::systems::Simulator;
 using drake::systems::controllers::InverseDynamics;
 using drake::trajectories::PiecewisePolynomial;
