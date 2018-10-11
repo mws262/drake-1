@@ -201,6 +201,8 @@ drake_cc_library(
         "symbolic_monomial_util.h",
         "symbolic_polynomial.cc",
         "symbolic_polynomial.h",
+        "symbolic_rational_function.cc",
+        "symbolic_rational_function.h",
         "symbolic_simplification.cc",
         "symbolic_simplification.h",
         "symbolic_variable.cc",
@@ -983,6 +985,24 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "symbolic_rational_function_test",
+    deps = [
+        ":symbolic",
+        "//common/test_utilities:expect_throws_message",
+        "//common/test_utilities:symbolic_test_util",
+    ],
+)
+
+drake_cc_googletest(
+    name = "symbolic_rational_function_matrix_test",
+    deps = [
+        ":essential",
+        ":symbolic",
+        "//common/test_utilities:symbolic_test_util",
+    ],
+)
+
+drake_cc_googletest(
     name = "symbolic_substitution_test",
     deps = [
         ":essential",
@@ -1045,10 +1065,36 @@ drake_cc_googletest(
     ],
 )
 
+# This version of text_logging_test is compiled with HAVE_SPDLOG enabled,
+# because that is what Drake's WORKSPACE provides for the @spdlog external.
 drake_cc_googletest(
     name = "text_logging_test",
+    defines = [
+        "TEXT_LOGGING_TEST_SPDLOG=1",
+    ],
+    use_default_main = False,
     deps = [
         ":essential",
+    ],
+)
+
+# This version of text_logging_test re-compiles all source files without
+# defining HAVE_SPDLOG, to ensure that the no-op stubs behave as desired.
+drake_cc_googletest(
+    name = "text_logging_no_spdlog_test",
+    srcs = [
+        "drake_copyable.h",
+        "never_destroyed.h",
+        "test/text_logging_test.cc",
+        "text_logging.cc",
+        "text_logging.h",
+    ],
+    defines = [
+        "TEXT_LOGGING_TEST_SPDLOG=0",
+    ],
+    use_default_main = False,
+    deps = [
+        "@fmt",
     ],
 )
 
@@ -1122,7 +1168,6 @@ drake_py_unittest(
 # TODO(jwnimmer-tri) These tests are currently missing...
 # - drake_assert_test in fancy variants
 # - drake_assert_test_compile in fancy variants
-# - text_logging_test in fancy variants
 # - drake_deprecated_test in fancy variants
 # - cpplint_wrapper_test.py
 

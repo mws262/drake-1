@@ -114,6 +114,11 @@ InverseDynamics<T>::InverseDynamics(const MultibodyPlant<T>* plant,
   }
 }
 
+// We need this in the *.cc file so that rigid_body_tree.h does not need to be
+// included by our header file.
+template <typename T>
+InverseDynamics<T>::~InverseDynamics() = default;
+
 template <typename T>
 void InverseDynamics<T>::CalcOutputForce(const Context<T>& context,
                                           BasicVector<T>* output) const {
@@ -151,14 +156,14 @@ void InverseDynamics<T>::CalcOutputForce(const Context<T>& context,
     DRAKE_DEMAND(multibody_plant_);
     const auto& tree = multibody_plant_->tree();
 
+    // Set the position and velocity in the context.
+    tree.get_mutable_multibody_state_vector(multibody_plant_context_.get()) = x;
+
     if (this->is_pure_gravity_compensation()) {
-      output->get_mutable_value() = tree.CalcGravityGeneralizedForces(
+      output->get_mutable_value() = -tree.CalcGravityGeneralizedForces(
           *multibody_plant_context_);
       return;
     }
-
-    // Set the position and velocity in the context.
-    tree.get_mutable_multibody_state_vector(multibody_plant_context_.get()) = x;
 
     // Compute the caches.
     PositionKinematicsCache<T> pcache(tree.get_topology());

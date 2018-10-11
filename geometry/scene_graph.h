@@ -246,7 +246,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
   /** Given a valid source `id`, returns a _pose_ input port associated
    with that `id`. This port is used to communicate _pose_ data for registered
    frames.
-   @throws  std::logic_error if the source_id is _not_ recognized. */
+   @throws std::logic_error if the source_id is _not_ recognized. */
   const systems::InputPort<T>& get_source_pose_port(SourceId id) const;
 
   /** Returns the output port which produces the PoseBundle for LCM
@@ -378,11 +378,11 @@ class SceneGraph final : public systems::LeafSystem<T> {
 
   /** Reports the identifier for the world frame. */
   static FrameId world_frame_id() {
-    return internal::InternalFrame::get_world_frame_id();
+    return internal::InternalFrame::world_frame_id();
   }
 
   /** Returns an inspector on the system's *model* scene graph data.
-   @throw std::logic_error If a context has been allocated.*/
+   @throws std::logic_error If a context has been allocated.*/
   const SceneGraphInspector<T>& model_inspector() const;
 
   /** @name         Collision filtering

@@ -18,6 +18,7 @@
 #include "drake/multibody/multibody_tree/multibody_plant/contact_results.h"
 #include "drake/multibody/multibody_tree/multibody_plant/coulomb_friction.h"
 #include "drake/multibody/multibody_tree/multibody_tree.h"
+#include "drake/multibody/multibody_tree/multibody_tree_system.h"
 #include "drake/multibody/multibody_tree/rigid_body.h"
 #include "drake/multibody/multibody_tree/uniform_gravity_field_element.h"
 #include "drake/systems/framework/leaf_system.h"
@@ -112,6 +113,7 @@ namespace multibody_plant {
 ///
 /// Clients of a %MultibodyPlant can add multibody elements with the following
 /// methods:
+///
 /// - Bodies: AddRigidBody().
 /// - Joints: AddJoint().
 ///
@@ -140,6 +142,7 @@ namespace multibody_plant {
 /// SceneGraph::get_query_output_port().
 /// In summary, if %MultibodyPlant registers collision geometry, the setup
 /// process will include:
+///
 /// 1. Call to RegisterAsSourceForSceneGraph().
 /// 2. Calls to RegisterCollisionGeometry(), as many as needed.
 /// 3. Call to Finalize(), user is done specifying the model.
@@ -152,11 +155,13 @@ namespace multibody_plant {
 ///
 /// Once the user is done adding modeling elements and registering geometry, a
 /// call to Finalize() must be performed. This call will:
+///
 /// - Build the underlying MultibodyTree topology, see MultibodyTree::Finalize()
 ///   for details,
 /// - declare the plant's state,
 /// - declare the plant's input and output ports,
 /// - declare input and output ports for communication with a SceneGraph.
+///
 /// @cond
 /// TODO(amcastro-tri): Consider making the actual geometry registration with GS
 /// AFTER Finalize() so that we can tell if there are any bodies welded to the
@@ -166,6 +171,7 @@ namespace multibody_plant {
 /// @endcond
 ///
 /// <h3> References </h3>
+///
 /// - [Featherstone 2008] Featherstone, R., 2008.
 ///     Rigid body dynamics algorithms. Springer.
 /// - [Jain 2010] Jain, A., 2010.
@@ -178,14 +184,15 @@ namespace multibody_plant {
 /// @tparam T The scalar type. Must be a valid Eigen scalar.
 ///
 /// Instantiated templates for the following kinds of T's are provided:
+///
 /// - double
 /// - AutoDiffXd
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
 /// @ingroup systems
-template<typename T>
-class MultibodyPlant : public systems::LeafSystem<T> {
+template <typename T>
+class MultibodyPlant : public MultibodyTreeSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MultibodyPlant)
 
@@ -199,16 +206,18 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   explicit MultibodyPlant(double time_step = 0);
 
   /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
-  template<typename U>
-  MultibodyPlant(const MultibodyPlant<U>& other) :
-      systems::LeafSystem<T>(systems::SystemTypeTag<
-          drake::multibody::multibody_plant::MultibodyPlant>()) {
+  template <typename U>
+  MultibodyPlant(const MultibodyPlant<U>& other)
+      : MultibodyTreeSystem<T>(
+            systems::SystemTypeTag<
+                multibody::multibody_plant::MultibodyPlant>{},
+            other.tree().template CloneToScalar<T>(), other.is_discrete()) {
     DRAKE_THROW_UNLESS(other.is_finalized());
-    tree_ = other.tree_->template CloneToScalar<T>();
     time_step_ = other.time_step_;
     // Copy of all members related with geometry registration.
     source_id_ = other.source_id_;
     body_index_to_frame_id_ = other.body_index_to_frame_id_;
+    frame_id_to_body_index_ = other.frame_id_to_body_index_;
     geometry_id_to_body_index_ = other.geometry_id_to_body_index_;
     geometry_id_to_visual_index_ = other.geometry_id_to_visual_index_;
     geometry_id_to_collision_index_ = other.geometry_id_to_collision_index_;
@@ -220,50 +229,49 @@ class MultibodyPlant : public systems::LeafSystem<T> {
     FinalizePlantOnly();
   }
 
-
   /// Returns the number of bodies in the model, including the "world" body,
   /// which is always part of the model.
   /// @see AddRigidBody().
   int num_bodies() const {
-    return tree_->num_bodies();
+    return tree().num_bodies();
   }
 
   /// Returns the number of joints in the model.
   /// @see AddJoint().
   int num_joints() const {
-    return tree_->num_joints();
+    return tree().num_joints();
   }
 
   /// Returns the number of joint actuators in the model.
   /// @see AddJointActuator().
   int num_actuators() const {
-    return tree_->num_actuators();
+    return tree().num_actuators();
   }
 
   /// Returns the number of model instances in the model.
   /// @see AddModelInstance().
   int num_model_instances() const {
-    return tree_->num_model_instances();
+    return tree().num_model_instances();
   }
 
   /// Returns the size of the generalized position vector `q` for `this`
   /// %MultibodyPlant.
-  int num_positions() const { return tree_->num_positions(); }
+  int num_positions() const { return tree().num_positions(); }
 
   /// Returns the size of the generalized position vector `q` for a specific
   /// model instance.
   int num_positions(ModelInstanceIndex model_instance) const {
-    return tree_->num_positions(model_instance);
+    return tree().num_positions(model_instance);
   }
 
   /// Returns the size of the generalized velocity vector `v` for `this`
   /// %MultibodyPlant.
-  int num_velocities() const { return tree_->num_velocities(); }
+  int num_velocities() const { return tree().num_velocities(); }
 
   /// Returns the size of the generalized velocity vector `v` for a specific
   /// model instance.
   int num_velocities(ModelInstanceIndex model_instance) const {
-    return tree_->num_velocities(model_instance);
+    return tree().num_velocities(model_instance);
   }
 
   /// Returns the size of the multibody system state vector `x = [q; v]` for
@@ -273,18 +281,18 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// Notice however that the state of a %MultibodyPlant, stored in its Context,
   /// can actually contain other variables such as integrated power and discrete
   /// states.
-  int num_multibody_states() const { return tree_->num_states(); }
+  int num_multibody_states() const { return tree().num_states(); }
 
   /// Returns the total number of actuated degrees of freedom.
   /// That is, the vector of actuation values u has this size.
   /// See AddJointActuator().
-  int num_actuated_dofs() const { return tree_->num_actuated_dofs(); }
+  int num_actuated_dofs() const { return tree().num_actuated_dofs(); }
 
   /// Returns the total number of actuated degrees of freedom for a specific
   /// model instance.  That is, the vector of actuation values u has this size.
   /// See AddJointActuator().
   int num_actuated_dofs(ModelInstanceIndex model_instance) const {
-    return tree_->num_actuated_dofs(model_instance);
+    return tree().num_actuated_dofs(model_instance);
   }
 
   /// @name Adding new multibody elements
@@ -327,7 +335,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
       const std::string& name, ModelInstanceIndex model_instance,
       const SpatialInertia<double>& M_BBo_B) {
     DRAKE_MBP_THROW_IF_FINALIZED();
-    const RigidBody<T>& body = tree_->AddRigidBody(
+    const RigidBody<T>& body = this->mutable_tree().AddRigidBody(
         name, model_instance, M_BBo_B);
     // Each entry of visual_geometries_, ordered by body index, contains a
     // std::vector of geometry ids for that body. The emplace_back() below
@@ -387,7 +395,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   ///          remain valid for the lifetime of `this` %MultibodyPlant.
   template <template<typename> class FrameType>
   const FrameType<T>& AddFrame(std::unique_ptr<FrameType<T>> frame) {
-    return tree_->AddFrame(std::move(frame));
+    return this->mutable_tree().AddFrame(std::move(frame));
   }
 
   /// This method adds a Joint of type `JointType` between two bodies.
@@ -397,7 +405,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   const JointType<T>& AddJoint(std::unique_ptr<JointType<T>> joint) {
     static_assert(std::is_convertible<JointType<T>*, Joint<T>*>::value,
                   "JointType must be a sub-class of Joint<T>.");
-    return tree_->AddJoint(std::move(joint));
+    return this->mutable_tree().AddJoint(std::move(joint));
   }
 
   /// This method adds a Joint of type `JointType` between two bodies.
@@ -465,8 +473,8 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   ///       Vector3d::UnitZ());     /* revolute axis in this case */
   /// @endcode
   ///
-  /// @throws if `this` %MultibodyPlant already contains a joint with the given
-  /// `name`.  See HasJointNamed(), Joint::name().
+  /// @throws std::exception if `this` %MultibodyPlant already contains a joint
+  /// with the given `name`.  See HasJointNamed(), Joint::name().
   ///
   /// @see The Joint class's documentation for further details on how a Joint
   /// is defined.
@@ -477,7 +485,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
       const Body<T>& child, const optional<Isometry3<double>>& X_BM,
       Args&&... args) {
     DRAKE_MBP_THROW_IF_FINALIZED();
-    return tree_->template AddJoint<JointType>(
+    return this->mutable_tree().template AddJoint<JointType>(
         name, parent, X_PF, child, X_BM, std::forward<Args>(args)...);
   }
 
@@ -507,24 +515,24 @@ class MultibodyPlant : public systems::LeafSystem<T> {
 #endif
   AddForceElement(Args&&... args) {
     DRAKE_MBP_THROW_IF_FINALIZED();
-    return tree_->template AddForceElement<ForceElementType>(
+    return this->mutable_tree().template AddForceElement<ForceElementType>(
         std::forward<Args>(args)...);
   }
 
   // SFINAE overload for ForceElementType = UniformGravityFieldElement.
   // This allow us to keep track of the gravity field parameters.
-  template<template<typename Scalar> class ForceElementType, typename... Args>
-  typename std::enable_if<std::is_same<
-      ForceElementType<T>,
-      UniformGravityFieldElement<T>>::value, const ForceElementType<T>&>::type
+  template <template <typename Scalar> class ForceElementType, typename... Args>
+  typename std::enable_if<
+      std::is_same<ForceElementType<T>, UniformGravityFieldElement<T>>::value,
+      const ForceElementType<T>&>::type
   AddForceElement(Args&&... args) {
     DRAKE_MBP_THROW_IF_FINALIZED();
     DRAKE_DEMAND(!gravity_field_.has_value());
     // We save the force element so that we can grant users access to it for
     // gravity field specific queries.
-    gravity_field_ =
-        &tree_->template AddForceElement<UniformGravityFieldElement>(
-            std::forward<Args>(args)...);
+    gravity_field_ = &this->mutable_tree()
+                          .template AddForceElement<UniformGravityFieldElement>(
+                              std::forward<Args>(args)...);
     return *gravity_field_.value();
   }
 
@@ -541,12 +549,12 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   ///   The Joint to be actuated by the new JointActuator.
   /// @returns A constant reference to the new JointActuator just added, which
   /// will remain valid for the lifetime of `this` plant.
-  /// @throws if `joint.num_velocities() > 1` since for now we only support
-  /// actuators for single dof joints.
+  /// @throws std::exception if `joint.num_velocities() > 1` since for now we
+  /// only support actuators for single dof joints.
   const JointActuator<T>& AddJointActuator(
       const std::string& name, const Joint<T>& joint) {
     DRAKE_THROW_UNLESS(joint.num_velocities() == 1);
-    return tree_->AddJointActuator(name, joint);
+    return this->mutable_tree().AddJointActuator(name, joint);
   }
 
   /// Creates a new model instance.  Returns the index for the model
@@ -557,7 +565,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   ///   model. An exception is thrown if an instance with the same name
   ///   already exists in the model. See HasModelInstanceNamed().
   ModelInstanceIndex AddModelInstance(const std::string& name) {
-    return tree_->AddModelInstance(name);
+    return this->mutable_tree().AddModelInstance(name);
   }
 
   /// Welds frames A and B with relative pose `X_AB`. That is, the pose of
@@ -585,17 +593,17 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @throws std::logic_error if the body name occurs in multiple model
   /// instances.
   bool HasBodyNamed(const std::string& name) const {
-    return tree_->HasBodyNamed(name);
+    return tree().HasBodyNamed(name);
   }
 
   /// @returns `true` if a body named `name` was added to the %MultibodyPlant
   /// in @p model_instance.
   /// @see AddRigidBody().
   ///
-  /// @throws if @p model_instance is not valid for this model.
+  /// @throws std::exception if @p model_instance is not valid for this model.
   bool HasBodyNamed(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->HasBodyNamed(name, model_instance);
+    return tree().HasBodyNamed(name, model_instance);
   }
 
   /// @returns `true` if a joint named `name` was added to the %MultibodyPlant.
@@ -604,17 +612,17 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @throws std::logic_error if the joint name occurs in multiple model
   /// instances.
   bool HasJointNamed(const std::string& name) const {
-    return tree_->HasJointNamed(name);
+    return tree().HasJointNamed(name);
   }
 
   /// @returns `true` if a joint named `name` was added to the %MultibodyPlant
   /// in @p model_instance.
   /// @see AddJoint().
   ///
-  /// @throws if @p model_instance is not valid for this model.
+  /// @throws std::exception if @p model_instance is not valid for this model.
   bool HasJointNamed(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->HasJointNamed(name, model_instance);
+    return tree().HasJointNamed(name, model_instance);
   }
 
   /// @returns `true` if an actuator named `name` was added to the
@@ -624,24 +632,24 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @throws std::logic_error if the actuator name occurs in multiple model
   /// instances.
   bool HasJointActuatorNamed(const std::string& name) const {
-    return tree_->HasJointActuatorNamed(name);
+    return tree().HasJointActuatorNamed(name);
   }
 
   /// @returns `true` if an actuator named `name` was added to the
   /// %MultibodyPlant in @p model_instance.
   /// @see AddJointActuator().
   ///
-  /// @throws if @p model_instance is not valid for this model.
+  /// @throws std::exception if @p model_instance is not valid for this model.
   bool HasJointActuatorNamed(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->HasJointActuatorNamed(name, model_instance);
+    return tree().HasJointActuatorNamed(name, model_instance);
   }
 
   /// @returns `true` if a model instance named `name` was added to the
   /// %MultibodyPlant.
   /// @see AddModelInstance().
   bool HasModelInstanceNamed(const std::string& name) const {
-    return tree_->HasModelInstanceNamed(name);
+    return tree().HasModelInstanceNamed(name);
   }
   /// @}
 
@@ -668,7 +676,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @see HasBodyNamed() to query if there exists a body in `this`
   /// %MultibodyPlant with a given specified name.
   const Body<T>& GetBodyByName(const std::string& name) const {
-    return tree_->GetBodyByName(name);
+    return tree().GetBodyByName(name);
   }
 
   /// Returns a constant reference to the body that is uniquely identified
@@ -678,7 +686,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// %MultibodyPlant with a given specified name.
   const Body<T>& GetBodyByName(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->GetBodyByName(name, model_instance);
+    return tree().GetBodyByName(name, model_instance);
   }
 
   /// Returns a constant reference to a frame that is identified by the
@@ -689,7 +697,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @see HasFrameNamed() to query if there exists a frame in `this` model with
   /// a given specified name.
   const Frame<T>& GetFrameByName(const std::string& name) const {
-    return tree_->GetFrameByName(name);
+    return tree().GetFrameByName(name);
   }
 
   /// Returns a constant reference to the frame that is uniquely identified
@@ -701,7 +709,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// a given specified name.
   const Frame<T>& GetFrameByName(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->GetFrameByName(name, model_instance);
+    return tree().GetFrameByName(name, model_instance);
   }
 
   /// Returns a constant reference to a joint that is identified
@@ -712,18 +720,18 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @see HasJointNamed() to query if there exists a joint in `this`
   /// %MultibodyPlant with a given specified name.
   const Joint<T>& GetJointByName(const std::string& name) const {
-    return tree_->GetJointByName(name);
+    return tree().GetJointByName(name);
   }
 
   /// Returns a constant reference to the joint that is uniquely identified
   /// by the string `name` and @p model_instance in `this` %MultibodyPlant.
   /// @throws std::logic_error if there is no joint with the requested name.
-  /// @throws if @p model_instance is not valid for this model.
+  /// @throws std::exception if @p model_instance is not valid for this model.
   /// @see HasJointNamed() to query if there exists a joint in `this`
   /// %MultibodyPlant with a given specified name.
   const Joint<T>& GetJointByName(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->GetJointByName(name, model_instance);
+    return tree().GetJointByName(name, model_instance);
   }
 
   /// A templated version of GetJointByName() to return a constant reference of
@@ -739,7 +747,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// %MultibodyPlant with a given specified name.
   template <template<typename> class JointType>
   const JointType<T>& GetJointByName(const std::string& name) const {
-    return tree_->template GetJointByName<JointType>(name);
+    return tree().template GetJointByName<JointType>(name);
   }
 
   /// A templated version of GetJointByName() to return a constant reference of
@@ -749,13 +757,13 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// be a subclass of Joint.
   /// @throws std::logic_error if the named joint is not of type `JointType` or
   /// if there is no Joint with that name.
-  /// @throws if @p model_instance is not valid for this model.
+  /// @throws std::exception if @p model_instance is not valid for this model.
   /// @see HasJointNamed() to query if there exists a joint in `this`
   /// %MultibodyPlant with a given specified name.
   template <template<typename> class JointType>
   const JointType<T>& GetJointByName(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->template GetJointByName<JointType>(name, model_instance);
+    return tree().template GetJointByName<JointType>(name, model_instance);
   }
 
   /// Returns a constant reference to an actuator that is identified
@@ -767,18 +775,18 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// `this` %MultibodyPlant with a given specified name.
   const JointActuator<T>& GetJointActuatorByName(
       const std::string& name) const {
-    return tree_->GetJointActuatorByName(name);
+    return tree().GetJointActuatorByName(name);
   }
 
   /// Returns a constant reference to the actuator that is uniquely identified
   /// by the string `name` and @p model_instance in `this` %MultibodyPlant.
   /// @throws std::logic_error if there is no actuator with the requested name.
-  /// @throws if @p model_instance is not valid for this model.
+  /// @throws std::exception if @p model_instance is not valid for this model.
   /// @see HasJointActuatorNamed() to query if there exists an actuator in
   /// `this` %MultibodyPlant with a given specified name.
   const JointActuator<T>& GetJointActuatorByName(
       const std::string& name, ModelInstanceIndex model_instance) const {
-    return tree_->GetJointActuatorByName(name, model_instance);
+    return tree().GetJointActuatorByName(name, model_instance);
   }
 
   /// Returns the index to the model instance that is uniquely identified
@@ -787,7 +795,7 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @see HasModelInstanceNamed() to query if there exists an instance in
   /// `this` %MultibodyPlant with a given specified name.
   ModelInstanceIndex GetModelInstanceByName(const std::string& name) const {
-    return tree_->GetModelInstanceByName(name);
+    return tree().GetModelInstanceByName(name);
   }
   /// @}
 
@@ -804,9 +812,9 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   ///   for further details.
   /// @returns the SourceId of `this` plant in `scene_graph`. It can also
   /// later on be retrieved with get_source_id().
-  /// @throws if called post-finalize.
-  /// @throws if `scene_graph` is the nullptr.
-  /// @throws if called more than once.
+  /// @throws std::exception if called post-finalize.
+  /// @throws std::exception if `scene_graph` is the nullptr.
+  /// @throws std::exception if called more than once.
   geometry::SourceId RegisterAsSourceForSceneGraph(
       geometry::SceneGraph<T>* scene_graph);
 
@@ -828,10 +836,10 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// @param[out] scene_graph
   ///   A valid non nullptr to a SceneGraph on which geometry will get
   ///   registered.
-  /// @throws if `scene_graph` is the nullptr.
-  /// @throws if called post-finalize.
-  /// @throws if `scene_graph` does not correspond to the same instance with
-  /// which RegisterAsSourceForSceneGraph() was called.
+  /// @throws std::exception if `scene_graph` is the nullptr.
+  /// @throws std::exception if called post-finalize.
+  /// @throws std::exception if `scene_graph` does not correspond to the same
+  /// instance with which RegisterAsSourceForSceneGraph() was called.
   /// @returns the id for the registered geometry.
   geometry::GeometryId RegisterVisualGeometry(
       const Body<T>& body, const Isometry3<double>& X_BG,
@@ -995,9 +1003,17 @@ class MultibodyPlant : public systems::LeafSystem<T> {
     return !!source_id_;
   }
 
+  /// Given a geometry frame identifier, returns a pointer to the body
+  /// associated with that id (nullptr if there is no such body).
+  const Body<T>* GetBodyFromFrameId(geometry::FrameId frame_id) const {
+    const auto it = frame_id_to_body_index_.find(frame_id);
+    if (it == frame_id_to_body_index_.end()) return nullptr;
+    return &tree().get_body(it->second);
+  }
+
   /// If the body with `body_index` has geometry registered with it, it returns
   /// the geometry::FrameId associated with it. Otherwise, it returns nullopt.
-  /// @throws if called pre-finalize.
+  /// @throws std::exception if called pre-finalize.
   optional<geometry::FrameId> GetBodyFrameIdIfExists(
       BodyIndex body_index) const {
     DRAKE_MBP_THROW_IF_NOT_FINALIZED();
@@ -1011,9 +1027,9 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// If the body with `body_index` has geometry registered with it, it returns
   /// the geometry::FrameId associated with it. Otherwise this method throws
   /// an exception.
-  /// @throws if no geometry has been registered with the body indicated by
-  /// `body_index`.
-  /// @throws if called pre-finalize.
+  /// @throws std::exception if no geometry has been registered with the body
+  /// indicated by `body_index`.
+  /// @throws std::exception if called pre-finalize.
   geometry::FrameId GetBodyFrameIdOrThrow(BodyIndex body_index) const {
     DRAKE_MBP_THROW_IF_NOT_FINALIZED();
     const auto it = body_index_to_frame_id_.find(body_index);
@@ -1039,17 +1055,17 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// port is a vector valued port, which can be set with
   /// JointActuator::set_actuation_vector().
   /// @pre Finalize() was already called on `this` plant.
-  /// @throws if called before Finalize(), if the model does not contain any
-  /// actuators, or if multiple model instances have actuated dofs.
+  /// @throws std::exception if called before Finalize(), if the model does not
+  /// contain any actuators, or if multiple model instances have actuated dofs.
   const systems::InputPort<T>& get_actuation_input_port() const;
 
   /// Returns a constant reference to the input port for external actuation for
   /// a specific model instance.  This input port is a vector valued port, which
   /// can be set with JointActuator::set_actuation_vector().
   /// @pre Finalize() was already called on `this` plant.
-  /// @throws if called before Finalize() or if the model instance does not
-  /// contain any actuators.
-  /// @throws if the model instance does not exist.
+  /// @throws std::exception if called before Finalize() or if the model
+  /// instance does not contain any actuators.
+  /// @throws std::exception if the model instance does not exist.
   const systems::InputPort<T>& get_actuation_input_port(
       ModelInstanceIndex model_instance) const;
 
@@ -1070,9 +1086,9 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   /// Returns a constant reference to the output port for the continuous
   /// state of a specific model instance.
   /// @pre Finalize() was already called on `this` plant.
-  /// @throws if called before Finalize() or if the model instance does not
-  /// have any state.
-  /// @throws if the model instance does not exist.
+  /// @throws std::exception if called before Finalize() or if the model
+  /// instance does not have any state.
+  /// @throws std::exception if the model instance does not exist.
   const systems::OutputPort<T>& get_continuous_state_output_port(
       ModelInstanceIndex model_instance) const;
   /// @}
@@ -1102,35 +1118,27 @@ class MultibodyPlant : public systems::LeafSystem<T> {
 
   /// Returns a constant reference to the *world* body.
   const RigidBody<T>& world_body() const {
-    return tree_->world_body();
+    return tree().world_body();
   }
 
   /// Returns a constant reference to the *world* frame.
   const BodyFrame<T>& world_frame() const {
-    return tree_->world_frame();
+    return tree().world_frame();
   }
 
   /// Returns a constant reference to the underlying MultibodyTree model for
   /// `this` plant.
-  /// @throws if called pre-finalize. See Finalize().
+  /// @throws std::exception if called pre-finalize. See Finalize().
   DRAKE_DEPRECATED("Please use tree().")
   const MultibodyTree<T>& model() const {
     DRAKE_MBP_THROW_IF_NOT_FINALIZED();
-    return *tree_;
-  }
-
-  /// Returns a constant reference to the underlying MultibodyTree model for
-  /// `this` plant.
-  /// @throws if called pre-finalize. See Finalize().
-  const MultibodyTree<T>& tree() const {
-    DRAKE_MBP_THROW_IF_NOT_FINALIZED();
-    return *tree_;
+    return tree();
   }
 
   /// Returns `true` if this %MultibodyPlant was finalized with a call to
   /// Finalize().
   /// @see Finalize().
-  bool is_finalized() const { return tree_->topology_is_valid(); }
+  bool is_finalized() const { return tree().topology_is_valid(); }
 
   /// This method must be called after all elements in the model (joints,
   /// bodies, force elements, constraints, etc.) are added and before any
@@ -1161,11 +1169,6 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   ///          3. a different scene_graph instance is provided than the one
   ///             for which this plant is a geometry source.
   void Finalize(geometry::SceneGraph<T>* scene_graph = nullptr);
-
-  /// Returns `true` if this plant is modeled as a discrete system.
-  /// This property of the plant is specified at construction and therefore this
-  /// query can be performed either pre- or post- finalize, see Finalize().
-  bool is_discrete() const { return time_step_ > 0.0; }
 
   /// The time step (or period) used to model `this` plant as a discrete system
   /// with periodic updates. Returns 0 (zero) if the plant is modeled as a
@@ -1320,13 +1323,18 @@ class MultibodyPlant : public systems::LeafSystem<T> {
 
   /// Sets the state in `context` so that generalized positions and velocities
   /// are zero.
-  /// @throws if called pre-finalize. See Finalize().
+  /// @throws std::exception if called pre-finalize. See Finalize().
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override {
     DRAKE_MBP_THROW_IF_NOT_FINALIZED();
     DRAKE_DEMAND(state != nullptr);
-    tree_->SetDefaultState(context, state);
+    tree().SetDefaultState(context, state);
   }
+
+  using MultibodyTreeSystem<T>::is_discrete;
+  using MultibodyTreeSystem<T>::tree;
+  using MultibodyTreeSystem<T>::EvalPositionKinematics;
+  using MultibodyTreeSystem<T>::EvalVelocityKinematics;
 
  private:
   // Allow different specializations to access each other's private data for
@@ -1390,17 +1398,13 @@ class MultibodyPlant : public systems::LeafSystem<T> {
     return false;
   }
 
-  // Helper method to declare state and ports after Finalize().
-  void DeclareStateAndPorts();
+  // Helper method to declare state, cache entries, and ports after Finalize().
+  void DeclareStateCacheAndPorts();
 
   // Helper method to assemble actuation input vector from the appropriate
   // ports.
   VectorX<T> AssembleActuationInput(
       const systems::Context<T>& context) const;
-
-  // This override gives System::AllocateContext() the chance to create a more
-  // specialized context type, in this case, a MultibodyTreeContext.
-  std::unique_ptr<systems::LeafContext<T>> DoMakeLeafContext() const override;
 
   // Implements the system dynamics according to this class's documentation.
   void DoCalcTimeDerivatives(
@@ -1449,14 +1453,6 @@ class MultibodyPlant : public systems::LeafSystem<T> {
       const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& generalized_velocity,
       systems::VectorBase<T>* qdot) const override;
-
-  // Helper method to Eval() position kinematics cached in the context.
-  const PositionKinematicsCache<T>& EvalPositionKinematics(
-      const systems::Context<T>& context) const;
-
-  // Helper method to Eval() velocity kinematics cached in the context.
-  const VelocityKinematicsCache<T>& EvalVelocityKinematics(
-      const systems::Context<T>& context) const;
 
   // Helper method to register geometry for a given body, either visual or
   // collision. The registration includes:
@@ -1621,9 +1617,6 @@ class MultibodyPlant : public systems::LeafSystem<T> {
       MatrixX<T>* Jn, MatrixX<T>* Jt,
       std::vector<Matrix3<T>>* R_WC_set = nullptr) const;
 
-  // The entire multibody model.
-  std::unique_ptr<drake::multibody::MultibodyTree<T>> tree_;
-
   // The gravity field force element.
   optional<const UniformGravityFieldElement<T>*> gravity_field_;
 
@@ -1729,6 +1722,10 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   // Iteration order on this map DOES matter, and therefore we use an std::map.
   std::map<BodyIndex, geometry::FrameId> body_index_to_frame_id_;
 
+  // Data to get back from a SceneGraph-reported frame id to its associated
+  // body.
+  std::unordered_map<geometry::FrameId, BodyIndex> frame_id_to_body_index_;
+
   // Map from GeometryId to BodyIndex. During contact queries, it allows to find
   // out to which body a given geometry corresponds to.
   std::unordered_map<geometry::GeometryId, BodyIndex>
@@ -1804,11 +1801,10 @@ class MultibodyPlant : public systems::LeafSystem<T> {
   std::unique_ptr<implicit_stribeck::ImplicitStribeckSolver<T>>
       implicit_stribeck_solver_;
 
-  // TODO(amcastro-tri): Remove this when caching lands and properly cache the
-  // contact results.
-  // Until caching lands, we use this variable as a "caching" entry.
-  // We make it mutable so we can change its values even from within const
-  // methods.
+  // TODO(sherm1) Add CacheIndex members here for cache entries that belong to
+  //              MBPlant, not MBTree.
+
+  // TODO(sherm1) Replace this mock cache entry with the real thing.
   mutable ContactResults<T> contact_results_;
 };
 

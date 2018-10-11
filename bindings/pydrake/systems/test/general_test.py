@@ -31,6 +31,7 @@ from pydrake.systems.framework import (
     DiscreteValues_,
     Event_,
     InputPort_,
+    kUseDefaultName,
     LeafContext_,
     LeafSystem_,
     OutputPort_,
@@ -87,6 +88,8 @@ class TestGeneral(unittest.TestCase):
         system = Adder(3, 10)
         self.assertEqual(system.get_num_input_ports(), 3)
         self.assertEqual(system.get_num_output_ports(), 1)
+        self.assertEqual(system.GetInputPort("u1").get_index(), 1)
+        self.assertEqual(system.GetOutputPort("sum").get_index(), 0)
         # Test deprecated methods.
         context = system.CreateDefaultContext()
         with warnings.catch_warnings(record=True) as w:
@@ -238,10 +241,11 @@ class TestGeneral(unittest.TestCase):
         builder.Connect(adder1.get_output_port(0),
                         integrator.get_input_port(0))
 
+        # Exercise naming variants.
         builder.ExportInput(adder0.get_input_port(0))
-        builder.ExportInput(adder0.get_input_port(1))
-        builder.ExportInput(adder1.get_input_port(1))
-        builder.ExportOutput(integrator.get_output_port(0))
+        builder.ExportInput(adder0.get_input_port(1), kUseDefaultName)
+        builder.ExportInput(adder1.get_input_port(1), "third_input")
+        builder.ExportOutput(integrator.get_output_port(0), "result")
 
         diagram = builder.Build()
         # TODO(eric.cousineau): Figure out unicode handling if needed.

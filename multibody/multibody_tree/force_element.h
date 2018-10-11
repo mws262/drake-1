@@ -12,6 +12,8 @@
 #include "drake/multibody/multibody_tree/multibody_tree_element.h"
 #include "drake/multibody/multibody_tree/multibody_tree_indexes.h"
 #include "drake/multibody/multibody_tree/multibody_tree_topology.h"
+#include "drake/multibody/multibody_tree/position_kinematics_cache.h"
+#include "drake/multibody/multibody_tree/velocity_kinematics_cache.h"
 
 namespace drake {
 namespace multibody {
@@ -22,6 +24,7 @@ namespace multibody {
 /// modeled with a %ForceElement.
 /// This abstract class provides an API that all force elements subclasses must
 /// implement in order to be fully defined. These are:
+///
 /// - CalcAndAddForceContribution(): computes the force contribution of a force
 ///   element in a %MultibodyTree model.
 /// - CalcPotentialEnergy(): computes a force element potential energy

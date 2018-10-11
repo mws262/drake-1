@@ -384,14 +384,42 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
 
   /// Returns a Graphviz fragment describing this Diagram. To obtain a complete
   /// Graphviz graph, call System<T>::GetGraphvizString.
-  void GetGraphvizFragment(std::stringstream* dot) const override {
-    // Open the Diagram.
+  void GetGraphvizFragment(int max_depth,
+                           std::stringstream* dot) const override {
     const int64_t id = this->GetGraphvizId();
+    std::string name = this->get_name();
+    if (name.empty()) name = std::to_string(id);
+
+    if (max_depth == 0) {
+      // Open the attributes and label.
+      *dot << id << " [shape=record, label=\"" << name << "|{";
+
+      // Append input ports to the label.
+      *dot << "{";
+      for (int i = 0; i < this->get_num_input_ports(); ++i) {
+        if (i != 0) *dot << "|";
+        *dot << "<u" << i << ">" << this->get_input_port(i).get_name();
+      }
+      *dot << "}";
+
+      // Append output ports to the label.
+      *dot << " | {";
+      for (int i = 0; i < this->get_num_output_ports(); ++i) {
+        if (i != 0) *dot << "|";
+        *dot << "<y" << i << ">" << this->get_output_port(i).get_name();
+      }
+      *dot << "}";
+
+      // Close the label and attributes.
+      *dot << "}\"];" << std::endl;
+
+      return;
+    }
+
+    // Open the Diagram.
     *dot << "subgraph cluster" << id << "diagram" " {" << std::endl;
     *dot << "color=black" << std::endl;
     *dot << "concentrate=true" << std::endl;
-    std::string name = this->get_name();
-    if (name.empty()) name = std::to_string(id);
     *dot << "label=\"" << name << "\";" << std::endl;
 
     // Add a cluster for the input port nodes.
@@ -401,7 +429,8 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     *dot << "style=filled" << std::endl;
     *dot << "label=\"input ports\"" << std::endl;
     for (int i = 0; i < this->get_num_input_ports(); ++i) {
-      this->GetGraphvizInputPortToken(this->get_input_port(i), dot);
+      this->GetGraphvizInputPortToken(this->get_input_port(i), max_depth,
+                                      dot);
       *dot << "[color=blue, label=\"u" << i << "\"];" << std::endl;
     }
     *dot << "}" << std::endl;
@@ -413,7 +442,8 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     *dot << "style=filled" << std::endl;
     *dot << "label=\"output ports\"" << std::endl;
     for (int i = 0; i < this->get_num_output_ports(); ++i) {
-      this->GetGraphvizOutputPortToken(this->get_output_port(i), dot);
+      this->GetGraphvizOutputPortToken(this->get_output_port(i), max_depth,
+                                       dot);
       *dot << "[color=green, label=\"y" << i << "\"];" << std::endl;
     }
     *dot << "}" << std::endl;
@@ -424,7 +454,7 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     *dot << "label=\"\"" << std::endl;
     // -- Add the subsystems themselves.
     for (const auto& subsystem : registered_systems_) {
-      subsystem->GetGraphvizFragment(dot);
+      subsystem->GetGraphvizFragment(max_depth - 1, dot);
     }
     // -- Add the connections as edges.
     for (const auto& edge : connection_map_) {
@@ -433,10 +463,10 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
       const InputPortLocator& dest = edge.first;
       const System<T>* dest_sys = dest.first;
       src_sys->GetGraphvizOutputPortToken(src_sys->get_output_port(src.second),
-                                          dot);
+                                          max_depth - 1, dot);
       *dot << " -> ";
       dest_sys->GetGraphvizInputPortToken(dest_sys->get_input_port(dest.second),
-                                          dot);
+                                          max_depth - 1, dot);
       *dot << ";" << std::endl;
     }
 
@@ -445,19 +475,21 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     //    (input) and green (output), matching the port nodes.
     for (int i = 0; i < this->get_num_input_ports(); ++i) {
       const auto& port_id = input_port_ids_[i];
-      this->GetGraphvizInputPortToken(this->get_input_port(i), dot);
+      this->GetGraphvizInputPortToken(this->get_input_port(i), max_depth,
+                                      dot);
       *dot << " -> ";
       port_id.first->GetGraphvizInputPortToken(
-          port_id.first->get_input_port(port_id.second), dot);
+          port_id.first->get_input_port(port_id.second), max_depth - 1, dot);
       *dot << " [color=blue];" << std::endl;
     }
 
     for (int i = 0; i < this->get_num_output_ports(); ++i) {
       const auto& port_id = output_port_ids_[i];
       port_id.first->GetGraphvizOutputPortToken(
-          port_id.first->get_output_port(port_id.second), dot);
+          port_id.first->get_output_port(port_id.second), max_depth - 1, dot);
       *dot << " -> ";
-      this->GetGraphvizOutputPortToken(this->get_output_port(i), dot);
+      this->GetGraphvizOutputPortToken(this->get_output_port(i),
+                                       max_depth, dot);
       *dot << " [color=green];" << std::endl;
     }
     *dot << "}" << std::endl;
@@ -467,15 +499,33 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
   }
 
   void GetGraphvizInputPortToken(const InputPort<T>& port,
-                                 std::stringstream* dot) const override {
+                                 int max_depth,
+                                 std::stringstream* dot) const final {
     DRAKE_DEMAND(port.get_system() == this);
-    *dot << "_" << this->GetGraphvizId() << "_u" << port.get_index();
+    // Note: ports are rendered in a fundamentally different way depending on
+    // max_depth.
+    if (max_depth > 0) {
+      // Ports are rendered as nodes in the "input ports" subgraph.
+      *dot << "_" << this->GetGraphvizId() << "_u" << port.get_index();
+    } else {
+      // Ports are rendered as a part of the system label.
+      *dot << this->GetGraphvizId() << ":u" << port.get_index();
+    }
   }
 
   void GetGraphvizOutputPortToken(const OutputPort<T>& port,
-                                  std::stringstream* dot) const override {
+                                  int max_depth,
+                                  std::stringstream* dot) const final {
     DRAKE_DEMAND(&port.get_system() == this);
-    *dot << "_" << this->GetGraphvizId() << "_y" << port.get_index();
+    // Note: ports are rendered in a fundamentally different way depending on
+    // max_depth.
+    if (max_depth > 0) {
+      // Ports are rendered as nodes in the "input ports" subgraph.
+      *dot << "_" << this->GetGraphvizId() << "_y" << port.get_index();
+    } else {
+      // Ports are rendered as a part of the system label.
+      *dot << this->GetGraphvizId() << ":y" << port.get_index();
+    }
   }
 
   //@}
@@ -1210,6 +1260,10 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
       const OutputPortIndex port = id.second;
       blueprint->output_port_ids.emplace_back(new_system, port);
     }
+    for (OutputPortIndex i{0}; i < this->get_num_output_ports(); i++) {
+      blueprint->output_port_names.emplace_back(
+          this->get_output_port(i).get_name());
+    }
     // Make all the connections.
     for (const auto& edge : connection_map_) {
       const InputPortLocator& old_dest = edge.first;
@@ -1293,6 +1347,9 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
 
     // The ordered subsystem ports that are outputs of the entire diagram.
     std::vector<OutputPortLocator> output_port_ids;
+    // The names should be the same length and ordering as the ids.
+    std::vector<std::string> output_port_names;
+
     // A map from the input ports of constituent systems to the output ports
     // on which they depend. This graph is possibly cyclic, but must not
     // contain an algebraic loop.
@@ -1359,8 +1416,11 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     for (const InputPortLocator& id : input_port_ids_) {
       ExportInput(id, *name_iter++);
     }
+    DRAKE_DEMAND(output_port_ids_.size() ==
+                 blueprint->output_port_names.size());
+    name_iter = blueprint->output_port_names.begin();
     for (const OutputPortLocator& id : output_port_ids_) {
-      ExportOutput(id);
+      ExportOutput(id, *name_iter++);
     }
 
     // Identify the intersection of the subsystems' scalar conversion support.
@@ -1384,7 +1444,7 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
   }
 
   // Exposes the given port as an input of the Diagram.
-  void ExportInput(const InputPortLocator& port, const std::string& name) {
+  void ExportInput(const InputPortLocator& port, std::string name) {
     const System<T>* const sys = port.first;
     const int port_index = port.second;
     // Fail quickly if this system is not part of the diagram.
@@ -1392,13 +1452,13 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
 
     // Add this port to our externally visible topology.
     const auto& subsystem_input_port = sys->get_input_port(port_index);
-    this->DeclareInputPort(subsystem_input_port.get_data_type(),
-                           subsystem_input_port.size(), name,
-                           subsystem_input_port.get_random_type());
+    this->DeclareInputPort(
+        std::move(name), subsystem_input_port.get_data_type(),
+        subsystem_input_port.size(), subsystem_input_port.get_random_type());
   }
 
   // Exposes the given subsystem output port as an output of the Diagram.
-  void ExportOutput(const OutputPortLocator& port) {
+  void ExportOutput(const OutputPortLocator& port, std::string name) {
     const System<T>* const sys = port.first;
     const int port_index = port.second;
     const auto& source_output_port = sys->get_output_port(port_index);
@@ -1406,9 +1466,8 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     auto diagram_port = std::make_unique<DiagramOutputPort<T>>(
         this,  // implicit_cast<const System<T>*>(this)
         this,  // implicit_cast<SystemBase*>(this)
-        OutputPortIndex(this->get_num_output_ports()),
-        this->assign_next_dependency_ticket(),
-        &source_output_port,
+        std::move(name), OutputPortIndex(this->get_num_output_ports()),
+        this->assign_next_dependency_ticket(), &source_output_port,
         GetSystemIndexOrAbort(&source_output_port.get_system()));
     this->AddOutputPort(std::move(diagram_port));
   }

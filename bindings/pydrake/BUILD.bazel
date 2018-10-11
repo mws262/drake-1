@@ -3,7 +3,7 @@
 load("@drake//tools/install:install.bzl", "install")
 load("//tools/lint:lint.bzl", "add_lint_tests")
 load(
-    "//tools:drake.bzl",
+    "@drake//tools/skylark:drake_cc.bzl",
     "drake_cc_googletest",
     "drake_cc_library",
 )
@@ -17,6 +17,7 @@ load(
 load(
     "//tools/skylark:pybind.bzl",
     "drake_pybind_library",
+    "generate_pybind_documentation_header",
     "get_drake_py_installs",
     "get_pybind_package_info",
 )
@@ -29,6 +30,49 @@ package(default_visibility = [
 # bindings.
 PACKAGE_INFO = get_pybind_package_info(base_package = "//bindings")
 
+# This provides `pydrake.__init__`, as well as `pydrake.common.__init__` (and
+# `.deprecation`). Downstream libraries should expect that these transitive
+# dependencies will be available, and thus do not need to explicitly depend on
+# these modules.
+drake_py_library(
+    name = "module_py",
+    srcs = [
+        "__init__.py",
+    ],
+    deps = [
+        # We use `common:_init_py` to avoid dependency cycles.
+        "//bindings:bazel_workaround_4594_libdrake_py",
+        "//bindings/pydrake/common:_init_py",
+        "//bindings/pydrake/util:deprecation_py",
+    ],
+)
+
+generate_pybind_documentation_header(
+    name = "generate_pybind_documentation_header",
+    out = "documentation_pybind.h",
+    exclude_hdr_patterns = [
+        "drake/common/text_logging_gflags.h",
+        # Exclude LCM-generated classes to reduce size of generated
+        # docstrings.
+        "drake/lcmtypes/**",
+    ],
+    root_name = "pydrake_doc",
+    targets = [
+        "//:drake_shared_library",
+        "//examples/acrobot:acrobot_plant",
+        "//examples/compass_gait:compass_gait",
+        "//examples/pendulum:pendulum_plant",
+        "//examples/rimless_wheel:rimless_wheel",
+        "//examples/van_der_pol:van_der_pol",
+    ],
+)
+
+drake_cc_library(
+    name = "documentation_pybind",
+    hdrs = ["documentation_pybind.h"],
+    tags = ["nolint"],
+)
+
 drake_cc_library(
     name = "pydrake_pybind",
     hdrs = ["pydrake_pybind.h"],
@@ -36,20 +80,6 @@ drake_cc_library(
     # here because we do not want these dependencies violating ODR (at both
     # development and install time).
     visibility = ["//visibility:public"],
-)
-
-drake_pybind_library(
-    name = "common_py",
-    cc_srcs = ["common_py.cc"],
-    package_info = PACKAGE_INFO,
-    py_deps = [
-        "//bindings/pydrake/util:deprecation_py",
-        "//bindings:bazel_workaround_4594_libdrake_py",
-    ],
-    py_srcs = [
-        "__init__.py",
-        "common.py",
-    ],
 )
 
 drake_cc_library(
@@ -62,13 +92,14 @@ drake_pybind_library(
     name = "autodiffutils_py",
     cc_deps = [
         ":autodiff_types_pybind",
+        "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/util:wrap_pybind",
     ],
     cc_srcs = ["autodiffutils_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        ":common_py",
         ":math_py",
+        ":module_py",
         "//bindings/pydrake/util:deprecation_py",
     ],
     py_srcs = [
@@ -80,6 +111,7 @@ drake_pybind_library(
 drake_pybind_library(
     name = "automotive_py",
     cc_deps = [
+        "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/systems:systems_pybind",
         "//bindings/pydrake/util:wrap_pybind",
     ],
@@ -103,37 +135,41 @@ drake_py_library(
 drake_pybind_library(
     name = "geometry_py",
     cc_deps = [
+        "//bindings/pydrake:documentation_pybind",
         "//lcmtypes:viewer",
     ],
     cc_so_name = "geometry",
     cc_srcs = ["geometry_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        ":common_py",
+        ":module_py",
         "//bindings/pydrake/systems:framework_py",
+        "//bindings/pydrake/systems:lcm_py",
     ],
 )
 
 drake_pybind_library(
     name = "lcm_py",
     cc_deps = [
+        "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/util:drake_optional_pybind",
     ],
     cc_so_name = "lcm",
     cc_srcs = ["lcm_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        ":common_py",
+        ":module_py",
     ],
 )
 
 drake_pybind_library(
     name = "math_py",
+    cc_deps = ["//bindings/pydrake:documentation_pybind"],
     cc_so_name = "math",
     cc_srcs = ["math_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        ":common_py",
+        ":module_py",
         "//bindings/pydrake/util:eigen_geometry_py",
     ],
 )
@@ -148,13 +184,14 @@ drake_pybind_library(
     name = "symbolic_py",
     cc_deps = [
         ":symbolic_types_pybind",
+        "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/util:wrap_pybind",
     ],
     cc_srcs = ["symbolic_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        ":common_py",
         ":math_py",
+        ":module_py",
         "//bindings/pydrake/util:compatibility_py",
         "//bindings/pydrake/util:deprecation_py",
     ],
@@ -163,23 +200,24 @@ drake_pybind_library(
 
 drake_pybind_library(
     name = "trajectories_py",
+    cc_deps = ["//bindings/pydrake:documentation_pybind"],
     cc_so_name = "trajectories",
     cc_srcs = ["trajectories_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        ":common_py",
+        ":module_py",
     ],
 )
 
 PY_LIBRARIES_WITH_INSTALL = [
     ":autodiffutils_py",
     ":automotive_py",
-    ":common_py",
     ":geometry_py",
     ":lcm_py",
     ":math_py",
     ":symbolic_py",
     ":trajectories_py",
+    "//bindings/pydrake/common",
     "//bindings/pydrake/examples",
     "//bindings/pydrake/maliput",
     "//bindings/pydrake/manipulation",
@@ -192,6 +230,7 @@ PY_LIBRARIES_WITH_INSTALL = [
 
 PY_LIBRARIES = [
     ":backwards_compatibility_py",
+    ":module_py",
 ]
 
 # Symbol roll-up (for user ease).
@@ -220,6 +259,13 @@ install(
     deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )
 
+drake_cc_googletest(
+    name = "documentation_pybind_test",
+    deps = [
+        ":documentation_pybind",
+    ],
+)
+
 drake_py_unittest(
     name = "all_test",
     data = ["//examples/pendulum:models"],
@@ -239,6 +285,7 @@ drake_pybind_library(
     add_install = False,
     cc_deps = [
         ":autodiff_types_pybind",
+        "//bindings/pydrake:documentation_pybind",
     ],
     cc_so_name = "test/autodiffutils_test_util",
     cc_srcs = ["test/autodiffutils_test_util_py.cc"],
@@ -261,6 +308,7 @@ drake_pybind_library(
     add_install = False,
     cc_deps = [
         ":symbolic_types_pybind",
+        "//bindings/pydrake:documentation_pybind",
     ],
     cc_so_name = "test/odr_test_module",
     cc_srcs = ["test/odr_test_module_py.cc"],
@@ -273,12 +321,6 @@ drake_py_unittest(
         ":odr_test_module_py",
         ":symbolic_py",
     ],
-)
-
-drake_py_unittest(
-    name = "common_test",
-    data = ["//examples/atlas:models"],
-    deps = [":common_py"],
 )
 
 drake_py_unittest(
