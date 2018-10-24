@@ -66,60 +66,47 @@ class ManipulationPlan:
     in_timings = open(timings_fname, 'r')
     in_timings_str = in_timings.read().split()
     for i in range(len(in_timings_str)):
-        t = in_timings_str[i]
+        t = float(in_timings_str[i])
         q_qdot_qddot_robot.Append((t, np.ones((kDim,1)) * float('nan')))
     in_timings.close()
 
     #  Read in joint angles.
-    in_q = open(q_fname);
+    in_q = open(q_fname, 'r')
     in_q_str = in_q.read()
-# TODO: continue me here....
-    for (size_t i = 0; i < q_qdot_qddot_robot.size(); ++i) {
-      for (int j = 0; j < kDim/3; ++j) {
-        in_q >> q_qdot_qddot_robot[i].second[j];
-        assert(!in_q.eof() && !in_q.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    double dummy;
-    in_q >> dummy;
-    assert(in_q.eof() || in_q.fail());
+    str_index = 0
+    for i in range(len(q_qdot_qddot_robot)):
+      for j in range(kDim/3):
+        q_qdot_qddot_robot[i][1][j] = float(in_q_str[str_index])
+        str_index = str_index + 1
+    assert str_index == len(q_qdot_qddot_robot) * kDim / 3
     in_q.close();
 
     #  Read in joint velocities.
-    std::ifstream in_qd(qd_fname);
-    for (size_t i = 0; i < q_qdot_qddot_robot.size(); ++i) {
-      for (int j = 0; j < kDim/3; ++j) {
-        in_qd >> q_qdot_qddot_robot[i].second[j + kDim/3];
-        assert(!in_qd.eof() && !in_qd.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    in_qd >> dummy;
-    assert(in_qd.eof() || in_qd.fail());
+    in_qd = open(qd_fname, 'r')
+    in_qd_str = in_qd.read()
+    str_index = 0 
+    for i in range(len(q_qdot_qddot_robot)):
+      for j in range(kDim/3):
+        q_qdot_qddot_robot[i][1][j + kDim/3] = float(in_qd_str[str_index])
+        str_index = str_index + 1
+    assert str_index == len(q_qdot_qddot_robot) * kDim / 3
     in_qd.close();
 
     #  Read in joint velocities.
-    std::ifstream in_qdd(qdd_fname);
-    for (size_t i = 0; i < q_qdot_qddot_robot.size(); ++i) {
-      for (int j = 0; j < kDim/3; ++j) {
-        in_qdd >> q_qdot_qddot_robot[i].second[j + 2 * kDim/3];
-        assert(!in_qdd.eof() && !in_qdd.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    in_qdd >> dummy;
-    assert(in_qdd.eof() || in_qdd.fail());
+    in_qdd = open(qdd_fname, 'r')
+    in_qdd_str = in_qdd.read()
+    str_index = 0 
+    for i in range(len(q_qdot_qddot_robot)):
+      for j in range(kDim/3):
+        q_qdot_qddot_robot[i][1][j + 2*kDim/3] = float(in_qdd_str[str_index])
+        str_index = str_index + 1
+    assert str_index == len(q_qdot_qddot_robot) * kDim / 3
     in_qdd.close();
 
     #  Make sure there are no NaN's.
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i)
-      for (int j = 0; j < q_v_vdot_ball[i].second.size(); ++j)
-        assert(!std::isnan(q_qdot_qddot_robot[i].second[j]));
-  }
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(len(q_v_vdot_ball[i][1])):
+        assert !math.isnan(q_qdot_qddot_robot[i][1][j])
 
   def ReadContactPoint(timings_fname, cp_fname, cp_dot_fname):
     kLocationDim = 3;
@@ -131,39 +118,35 @@ class ManipulationPlan:
     in_timings = file.read(timings_fname, 'r')
     in_timings_str = in_timings.read().split()
     for i in range(len(in_timings_str)):
-      t = in_timings_str[i]
-      contact_kinematics.Append((t, np.ones((kLocationDim * 2,1)) * float('nan')))
+      t = float(in_timings_str[i])
+      contact_kinematics.Append(
+          (t, np.ones((kLocationDim * 2,1)) * float('nan')))
     in_timings.close()
 
     #  Read in contact point location over time.
     in_x = file.read(cp_fname, 'r')
-    for (size_t i = 0; i < contact_kinematics.size(); ++i) {
-      for (int j = 0; j < kLocationDim; ++j) {
-        in_x >> contact_kinematics[i].second[j];
-        assert(!in_x.eof() && !in_x.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    double dummy;
-    in_x >> dummy;
-    assert(in_x.eof() || in_x.fail());
+    in_x_str = in_x.read().split()
+    str_index = 0
+    for i in range(len(contact_kinematics)):
+      for j in range(kLocationDim):
+        contact_kinematics[i][1][j] = float(in_x_str[str_index])
+        str_index = str_index + 1
+    assert str_index == range(len(contact_kinematics)) * kLocationDim  
     in_x.close();
     
     #  Read in contact point velocity over time.
     in_xdot = file.read(cp_dot_fname, 'r')
-    for (size_t i = 0; i < contact_kinematics.size(); ++i) {
-      for (int j = 0; j < kLocationDim; ++j) {
-        in_xdot >> contact_kinematics[i].second[j + kContactPointVelocityOffset];
-        assert(!in_xdot.eof() && !in_xdot.fail());
-      }
-    }
+    in_xdot_str = in_xdot.read().split()
+    str_index = 0
+    for i in range(len(contact_kinematics)):
+      for j in range(kLocationDim):
+        contact_kinematics[i][1][j + kContactPointVelocityOffest] =
+            float(in_xdot_str[str_index])
+        str_index = str_index + 1
+    assert str_index == range(len(contact_kinematics)) * kLocationDim
 
-    #  Make sure there is nothing else to read.
-    in_xdot >> dummy;
-    assert(in_xdot.eof() || in_xdot.fail());
-    in_xdot.close();
-  }
+  def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
 
   def ReadBallQVAndVdot(timings_fname,
                         com_locations_fname,
@@ -181,121 +164,91 @@ class ManipulationPlan:
     in_timings = file.open(timings_fname, 'r')
     in_timings_str = in_timings.read().split()
     for i in range(len(in_timings_str)):
-        t = in_timings_str[i]
+        t = float(in_timings_str[i])
         q_v_vdot_ball.Append((t, np.ones((kStatePlusAccelDim,1)) * float('nan')))
     in_timings.close()
 
     #  Read in com locations.
     in_x = file.open(com_locations_fname, 'r')
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i) {
-      for (int j = 0; j < 3; ++j) {
-        in_x >> q_v_vdot_ball[i].second[j];
-        assert(!in_x.eof() && !in_x.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    double dummy;
-    in_x >> dummy;
-    assert(in_x.eof() || in_x.fail());
+    in_x_str = in_x.read().split()
+    str_index = 0
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(3):
+        q_v_vdot_ball[i][1][j] = float(in_x_str[str_index])
+        str_index = str_index + 1
+    assert str_index == len(q_v_vdot_ball)*3
     in_x.close();
 
     #  Read in unit quaternions.
-    double quat_tol = 1e-7;
-    int kQuatOffset = 3;
+    quat_tol = 1e-7;
+    kQuatOffset = 3;
     in_quat = file.read(quats_fname, 'r')
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i) {
-      for (int j = 0; j < 4; ++j) {
-        in_quat >> q_v_vdot_ball[i].second[j + kQuatOffset];
-        assert(!in_quat.eof() && !in_quat.fail());
-      }
-      assert(std::abs(q_v_vdot_ball[i].second.segment(
-          kQuatOffset, 4).norm() - 1.0) < quat_tol);
-    }
-
-    #  Make sure there is nothing else to read.
-    in_quat >> dummy;
-    assert(in_quat.eof() || in_quat.fail());
+    in_quat_str = in_quat.read().split()
+    str_index = 0
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(4):
+        q_v_vdot_ball[i][1][j + kQuatOffset] = float(in_quat_str[str_index])
+        str_index = str_index + 1
+      # TODO: verify that the quaternion is normalized.
+    assert str_index == len(q_v_vdot_ball)*4
     in_quat.close();
 
     #  Read in translational velocities.
-    int kVOffset = 7;
+    kVOffset = 7;
     in_v = file.read(com_velocity_fname, 'r')
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i) {
-      for (int j = 0; j < 3; ++j) {
-        in_v >> q_v_vdot_ball[i].second[j + kVOffset];
-        assert(!in_v.eof() && !in_v.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    in_v >> dummy;
-    assert(in_v.eof() || in_v.fail());
+    in_v_str = in_v.read().split()
+    str_index = 0
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(3):
+        q_v_vdot_ball[i][1][j + kVOffset] = float(in_v_str[str_index])
+        str_index = str_index + 1
     in_v.close();
 
     #  Read in angular velocities.
     int kWOffset = 10;
-    std::ifstream in_w(angular_velocity_fname);
-    assert(!in_w.fail());
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i) {
-      for (int j = 0; j < 3; ++j) {
-        in_w >> q_v_vdot_ball[i].second[j + kWOffset];
-        assert(!in_w.eof() && !in_w.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    in_w >> dummy;
-    assert(in_w.eof() || in_w.fail());
+    in_w = file.open(angular_velocity_fname, 'r')
+    in_w_str = in_w.read().split()
+    str_index = 0
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(3):
+        q_v_vdot_ball[i][1][j + kWOffset] = float(in_w_str[str_index])
+        str_index = str_index + 1
     in_w.close();
 
     #  Read in translational acceleration.
-    int kVDotOffset = 13;
+    kVDotOffset = 13;
     in_vdot = file.open(com_accel_fname, 'r')
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i) {
-      for (int j = 0; j < 3; ++j) {
-        in_vdot >> q_v_vdot_ball[i].second[j + kVDotOffset];
-        assert(!in_vdot.eof() && !in_vdot.fail());
-      }
-    }
-
-    #  Make sure there is nothing else to read.
-    in_vdot >> dummy;
-    assert(in_vdot.eof() || in_vdot.fail());
+    in_vdot_str = in_vdot.read().split()
+    str_index = 0
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(3):
+        q_v_vdot_ball[i][1][j + kVDotOffset] = float(in_vdot_str[str_index])
+        str_index = str_index + 1
     in_vdot.close();
     
     #  Read in angular accelerations.
-    int kAlphaOffset = 16;
+    kAlphaOffset = 16;
     in_alpha = file.read(angular_accel_fname, 'r')
-    assert(!in_alpha.fail());
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i) {
-      for (int j = 0; j < 3; ++j) {
-        in_alpha >> q_v_vdot_ball[i].second[j + kAlphaOffset];
-        assert(!in_alpha.eof() && !in_alpha.fail());
-      }
-    }
+    in_alpha_str = in_alpha.read().split()
+    str_index = 0
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(3):
+        q_v_vdot_ball[i][1][j + kVDotOffset] = float(in_alpha_str[str_index])
+        str_index = str_index + 1
 
     #  Make sure there are no NaN's.
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i)
-      for (int j = 0; j < q_v_vdot_ball[i].second.size(); ++j)
-        assert(!std::isnan(q_v_vdot_ball[i].second[j]));
+    for i in range(len(q_v_vdot_ball)):
+      for j in range(len(q_v_vdot_ball[i][1])):
+        assert !math.isnan(q_v_vdot_ball[i][1][j])
 
-    #  Make sure there is nothing else to read.
-    in_alpha >> dummy;
-    assert(in_alpha.eof() || in_alpha.fail());
-    in_alpha.close();
-    
     #  Read in the contact indicators.
     in_contact_indicator = file.read(contact_indicator_fname, 'r')
-    for (size_t i = 0; i < q_v_vdot_ball.size(); ++i) {
-      bool status;
-      in_contact_indicator >> status;
-      assert(!in_contact_indicator.eof() && !in_contact_indicator.fail());
-      contact_desired_.emplace_back(
-          std::make_pair(q_v_vdot_ball[i].first, status));
-    }
+    in_contact_indicator_str = in_contact_indictor.read().split()
+    str_index = 0
+    for i in range(len(q_v_vdot_ball)):
+      contact_desired.Append((q_v_vdot_ball[i][0], str2bool(in_contact_indicator_str[str_index])))
+      str_index = str_index + 1
     in_contact_indicator.close();
-  }
 
   def SearchBinary(t, vec):
     int left = 0
