@@ -8,19 +8,19 @@ class BoxController(LeafSystem):
   # Loads all plans into the controller.
   def LoadPlans():
     # Read in the plans for the robot.
-    plan_.ReadRobotQQdotAndQddot(
+    plan.ReadRobotQQdotAndQddot(
         "examples/iiwa_soccer/plan/joint_timings_fit.mat",
         "examples/iiwa_soccer/plan/joint_angle_fit.mat",
         "examples/iiwa_soccer/plan/joint_vel_fit.mat",
         "examples/iiwa_soccer/plan/joint_accel_fit.mat")
 
     # Read in the plans for the point of contact.
-    plan_.ReadContactPoint("examples/iiwa_soccer/plan/contact_pt_timings.mat",
+    plan.ReadContactPoint("examples/iiwa_soccer/plan/contact_pt_timings.mat",
         "examples/iiwa_soccer/plan/contact_pt_positions.mat",
         "examples/iiwa_soccer/plan/contact_pt_velocities.mat")
 
     # Read in the plans for the ball kinematics.
-    plan_.ReadBallQVAndVdot(
+    plan.ReadBallQVAndVdot(
         "examples/iiwa_soccer/plan/ball_timings.mat",
         "examples/iiwa_soccer/plan/ball_com_positions.mat",
         "examples/iiwa_soccer/plan/ball_quats.mat",
@@ -33,96 +33,91 @@ class BoxController(LeafSystem):
 
 # TODO: create scenegraph+plant context.
 # TODO: populate the mapping from geometry IDs to bodies.
-# TODO: set geometry_query_input_port_
+# TODO: set geometry_query_input_port
 
-# Constructs the Jacobian matrices.
-  def ConstructJacobians(
-    const Context<double>& context,
-    const std::vector<geometry::PenetrationAsPointPair<double>>& contacts,
-    MatrixXd* N, MatrixXd* S, MatrixXd* T,
-    MatrixXd* Ndot_v, MatrixXd* Sdot_v, MatrixXd* Tdot_v): 
+  # Constructs the Jacobian matrices.
+  def ConstructJacobians(context, contacts):
 
-  # Get the tree.
-  tree = robot_and_ball_plant.tree()
+    # Get the tree.
+    tree = robot_and_ball_plant.tree()
 
-  # Get the numbers of contacts and generalized velocities.
-  nc = len(contacts) 
+    # Get the numbers of contacts and generalized velocities.
+    nc = len(contacts) 
 
-  # Set the number of generalized velocities.
-  nv = tree.num_velocities() 
+    # Set the number of generalized velocities.
+    nv = tree.num_velocities() 
 
-  # Resize the matrices.
-  N->resize(nc, nv)
-  S->resize(nc, nv)
-  T->resize(nc, nv)
-  Ndot_v->resize(nc, 1)
-  Sdot_v->resize(nc, 1)
-  Tdot_v->resize(nc, 1)
+    # TODO: Size the matrices.
+    N = Matrix->resize(nc, nv)
+    S->resize(nc, nv)
+    T->resize(nc, nv)
+    Ndot_v->resize(nc, 1)
+    Sdot_v->resize(nc, 1)
+    Tdot_v->resize(nc, 1)
 
-  # Get the two body indices.
-  for i in range(nc):
-    point_pair = contacts[i]
+    # Get the two body indices.
+    for i in range(nc):
+      point_pair = contacts[i]
 
-    # Get the surface normal in the world frame.
-    n_BA_W = point_pair.nhat_BA_W
+      # Get the surface normal in the world frame.
+      n_BA_W = point_pair.nhat_BA_W
 
-    # Get the two bodies.
-    geometry_A_id = point_pair.id_A
-    geometry_B_id = point_pair.id_B
-    ody_A_index = geometry_id_to_body_index_.at(geometry_A_id)
-    ody_B_index = geometry_id_to_body_index_.at(geometry_B_id)
-    body_A = tree.get_body(body_A_index)
-    body_B = tree.get_body(body_B_index)
+      # Get the two bodies.
+      geometry_A_id = point_pair.id_A
+      geometry_B_id = point_pair.id_B
+      body_A_index = geometry_id_to_body_index_.at(geometry_A_id)
+      body_B_index = geometry_id_to_body_index_.at(geometry_B_id)
+      body_A = tree.get_body(body_A_index)
+      body_B = tree.get_body(body_B_index)
 
-    # The reported point on A's surface (As) in the world frame (W).
-    p_WAs = point_pair.p_WCa
+      # The reported point on A's surface (As) in the world frame (W).
+      p_WAs = point_pair.p_WCa
 
-    # The reported point on B's surface (Bs) in the world frame (W).
-    p_WBs = point_pair.p_WCb
+      # The reported point on B's surface (Bs) in the world frame (W).
+      p_WBs = point_pair.p_WCb
 
-    # Get the point of contact in the world frame.
-    p_W = (p_WAs + p_WBs) * 0.5
+      # Get the point of contact in the world frame.
+      p_W = (p_WAs + p_WBs) * 0.5
 
-    # Get the geometric Jacobian for the velocity of the contact point
-    # as moving with Body A.
-    J_WAc = tree.CalcPointsGeometricJacobianExpressedInWorld(
-        context, body_A.body_frame(), p_W) 
+      # Get the geometric Jacobian for the velocity of the contact point
+      # as moving with Body A.
+      J_WAc = tree.CalcPointsGeometricJacobianExpressedInWorld(
+          context, body_A.body_frame(), p_W) 
 
-    # Get the geometric Jacobian for the velocity of the contact point
-    # as moving with Body B.
-    J_WBc = tree.CalcPointsGeometricJacobianExpressedInWorld(
-        context, body_B.body_frame(), p_W) 
+      # Get the geometric Jacobian for the velocity of the contact point
+      # as moving with Body B.
+      J_WBc = tree.CalcPointsGeometricJacobianExpressedInWorld(
+          context, body_B.body_frame(), p_W) 
 
-    # Compute the linear components of the Jacobian.
-    J = J_WAc - J_WBc
+      # Compute the linear components of the Jacobian.
+      J = J_WAc - J_WBc
 
-    # Compute an orthonormal basis using the contact normal.
-    kXAxisIndex = 0, kYAxisIndex = 1, kZAxisIndex = 2
-    R_WC = math::ComputeBasisFromAxis(kXAxisIndex, n_BA_W)
-    t1_BA_W = R_WC.col(kYAxisIndex)
-    t2_BA_W = R_WC.col(kZAxisIndex)
+      # Compute an orthonormal basis using the contact normal.
+      kXAxisIndex = 0, kYAxisIndex = 1, kZAxisIndex = 2
+      R_WC = math::ComputeBasisFromAxis(kXAxisIndex, n_BA_W)
+      t1_BA_W = R_WC.col(kYAxisIndex)
+      t2_BA_W = R_WC.col(kZAxisIndex)
 
-    # Set N, S, and T.
-    N->row(i) = n_BA_W.transpose() * J
-    S->row(i) = t1_BA_W.transpose() * J
-    T->row(i) = t2_BA_W.transpose() * J
+      # Set N, S, and T.
+      N->row(i) = n_BA_W.transpose() * J
+      S->row(i) = t1_BA_W.transpose() * J
+      T->row(i) = t2_BA_W.transpose() * J
 
-    # TODO: Set Ndot_v, Sdot_v, Tdot_v properly.
-    Ndot_v->row(i).setZero() # = n_BA_W.transpose() * Jdot_v
-    Sdot_v->row(i).setZero() # = t1_BA_W.transpose() * Jdot_v
-    Tdot_v->row(i).setZero() # = t2_BA_W.transpose() * Jdot_v
+      # TODO: Set Ndot_v, Sdot_v, Tdot_v properly.
+      Ndot_v->row(i).setZero() # = n_BA_W.transpose() * Jdot_v
+      Sdot_v->row(i).setZero() # = t1_BA_W.transpose() * Jdot_v
+      Tdot_v->row(i).setZero() # = t2_BA_W.transpose() * Jdot_v
 
 
 # TODO: What should the box be doing when it is not supposed to make contact?
 # Computes the control torques when contact is not desired.
-  def ComputeTorquesForContactNotDesired(
-      const Context<double>& context): 
+  def ComputeTorquesForContactNotDesired(context): 
     # Get the desired robot acceleration.
-    q_robot_des = plan_.GetRobotQQdotAndQddot(
+    q_robot_des = plan.GetRobotQQdotAndQddot(
         context.get_time()).head(nv_robot())
-    qdot_robot_des = plan_.GetRobotQQdotAndQddot(
+    qdot_robot_des = plan.GetRobotQQdotAndQddot(
         context.get_time()).segment(nv_robot(), nv_robot())
-    qddot_robot_des = plan_.GetRobotQQdotAndQddot(
+    qddot_robot_des = plan.GetRobotQQdotAndQddot(
         context.get_time()).tail(nv_robot())
 
     # Get the robot current generalized position and velocity.
@@ -136,19 +131,19 @@ class BoxController(LeafSystem):
         joint_kd_ * (qdot_robot_des - qd_robot)
 
     # Set the state in the robot context to q_robot and qd_robot. 
-    x = robot_mbp_.tree().get_mutable_multibody_state_vector(
+    x = robot_mbp.tree().get_mutable_multibody_state_vector(
       robot_context.get())
-  assert len(x) == len(q_robot) + len(qd_robot)
-  x.head(q_robot.size()) = q_robot
-  x.tail(qd_robot.size()) = qd_robot
+    assert len(x) == len(q_robot) + len(qd_robot)
+    x.head(q_robot.size()) = q_robot
+    x.tail(qd_robot.size()) = qd_robot
 
-  # Get the generalized inertia matrix.
-  M = robot_mbp_.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
-  lltM = Eigen::LLT(M)
-  assert lltM.info() == Eigen::Success
+    # Get the generalized inertia matrix.
+    M = robot_mbp.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
+    lltM = Eigen::LLT(M)
+    assert lltM.info() == Eigen::Success
 
   # Compute the contribution from force elements.
-  robot_tree = robot_mbp_.tree()
+  robot_tree = robot_mbp.tree()
   link_wrenches = MultibodyForces(robot_tree)
   pcache = PositionKinematicsCache(robot_tree.get_topology())
   vcache = VelocityKinematicsCache(robot_tree.get_topology())
@@ -173,7 +168,7 @@ ComputeTorquesForContactDesiredButNoContact(
 
   # Get the relevant trees.
   const auto& all_tree = robot_and_ball_plant.tree()
-  const auto& robot_tree = robot_mbp_.tree()
+  const auto& robot_tree = robot_mbp.tree()
 
   # Set the joint velocities for the robot to zero.
   all_tree.set_velocities_in_array(
@@ -198,7 +193,7 @@ ComputeTorquesForContactDesiredButNoContact(
 
   # Evaluate scene graph's output port, getting a SceneGraph reference.
   const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(
-      *scenegraph_and_mbp_query_context_, geometry_query_input_port_)->
+      *scenegraph_and_mbp_query_context, geometry_query_input_port)->
       GetValue<geometry::QueryObject<double>>()
 
   # Get the box and the ball bodies.
@@ -250,9 +245,9 @@ ComputeTorquesForContactDesiredButNoContact(
   # Transform the points in the body frames corresponding to q1 to the
   # world frame.
   X_wa = all_tree.EvalBodyPoseInWorld(
-      *scenegraph_and_mbp_query_context_, *body_A)
+      *scenegraph_and_mbp_query_context, *body_A)
   X_wb = all_tree.EvalBodyPoseInWorld(
-      *scenegraph_and_mbp_query_context_, *body_B)
+      *scenegraph_and_mbp_query_context, *body_B)
   closest_Aw = X_wa * closest_Aa
   closest_Bw = X_wb * closest_Bb
 
@@ -364,12 +359,12 @@ ComputeTorquesForContactDesiredButNoContact(
   P = ConstructWeightingMatrix()
 
   # Get the generalized inertia matrix.
-  M = robot_mbp_.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
+  M = robot_mbp.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
   lltM = Eigen::LLT(M)
   assert lltM.info() == Eigen::Success
 
   # Compute the contribution from force elements.
-  robot_tree = robot_mbp_.tree()
+  robot_tree = robot_mbp.tree()
   multibody::MultibodyForces<double> link_wrenches(robot_tree)
   PositionKinematicsCache<double> pcache(robot_tree.get_topology())
   VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
@@ -388,9 +383,7 @@ ComputeTorquesForContactDesiredButNoContact(
       tail(nv_ball())
 
   # Construct the Jacobians and the Jacobians times the velocity.
-  MatrixXd N, S, T
-  MatrixXd Ndot_v, Sdot_v, Tdot_v
-  ConstructJacobians(context, contacts, &N, &S, &T, &Ndot_v, &Sdot_v, &Tdot_v)
+  jacobians = ConstructJacobians(context, contacts)
 
   # Get the Jacobians at the point of contact: N, S, T, and construct Z and
   # Zdot_v.
@@ -407,9 +400,9 @@ ComputeTorquesForContactDesiredButNoContact(
   assert Zdot_v.cols() == 1
 
   # Primal variables are motor torques and contact force magnitudes.
-  nc = static_cast<int>(contacts.size())
+  nc = len(contacts)
 #  nprimal = num_actuators + nc * 3
-nprimal = num_actuators + nc
+  nprimal = num_actuators + nc
 
   # Dual variables (Lagrange multipliers) correspond to number of linear
   # constraint equations.
@@ -430,7 +423,7 @@ nprimal = num_actuators + nc
   lltH = Eigen::LDLT(lltH)
 
   # Verify that the Hessian is positive semi-definite.
-  H += Eigen::MatrixXd::Identity(H.rows(), H.cols()) * 1e-8
+  H = H + Eigen::MatrixXd::Identity(H.rows(), H.cols()) * 1e-8
   assert lltH.compute(H).info() == Eigen::Success
 
   # Compute the linear terms.
@@ -502,34 +495,34 @@ cf = z.tail(nc)
   return z.head(nv_robot())
 
 
-# Gets the vector of contacts.
-std::vector<geometry::PenetrationAsPointPair<double>>
-FindContacts() const {
-  # TODO: Update the state of the query context to that in the true context.
+  # Gets the vector of contacts.
+  def FindContacts():
+    # TODO: Update the state of the query context to that in the true context.
 
-  # Get the tree corresponding to all bodies.
-  all_tree = robot_and_ball_plant.tree()
+    # Get the tree corresponding to all bodies.
+    all_tree = robot_and_ball_plant.tree()
 
-  # Evaluate scene graph's output port, getting a SceneGraph reference.
-  query_object = self.EvalAbstractInput(
-      *scenegraph_and_mbp_query_context_, geometry_query_input_port_)->
-      GetValue<geometry::QueryObject<double>>()
+    # Evaluate scene graph's output port, getting a SceneGraph reference.
+    query_object = self.EvalAbstractInput(
+        *scenegraph_and_mbp_query_context, geometry_query_input_port)->
+        GetValue<geometry::QueryObject<double>>()
 
-  # Determine the set of contacts.
-  contacts = query_object.ComputePointPairPenetration()
+    # Determine the set of contacts.
+    contacts = query_object.ComputePointPairPenetration()
 
-  # Get the ball body and foot bodies.
-  ball_body = &get_ball_from_robot_and_ball_tree()
-  box_body = &get_box_from_robot_and_ball_tree()
-  world_body = &get_world_from_robot_and_ball_tree()
+    # Get the ball body and foot bodies.
+    ball_body = &get_ball_from_robot_and_ball_tree()
+    box_body = &get_box_from_robot_and_ball_tree()
+    world_body = &get_world_from_robot_and_ball_tree()
 
-  # Make sorted pairs to check.
-  ball_box_pair = MakeSortedPair(ball_body, box_body)
-  ball_world_pair = MakeSortedPair(ball_body, world_body)
+    # Make sorted pairs to check.
+    ball_box_pair = MakeSortedPair(ball_body, box_body)
+    ball_world_pair = MakeSortedPair(ball_body, world_body)
 
-  # Remove contacts between all but the robot foot and the ball and the
-  # ball and the ground.
-  for (int i = 0 i < static_cast<int>(contacts.size()) ++i) {
+    # Remove contacts between all but the robot foot and the ball and the
+    # ball and the ground.
+#    for i in range(len(contacts)):
+    for (int i = 0 i < static_cast<int>(contacts.size()) ++i) {
     geometry_A_id = contacts[i].id_A
     geometry_B_id = contacts[i].id_B
     ody_A_index = geometry_id_to_body_index_.at(geometry_A_id)
@@ -550,44 +543,42 @@ FindContacts() const {
   return contacts
 
 # Calculate what torques to apply to the joints.
-  def DoControlCalc(
-    const Context<double>& context,
-    BasicVector<double>* const output):
-  # Determine whether we're in a contacting or not-contacting phase.
-  contact_desired = plan_.IsContactDesired(context.get_time())
+  def DoControlCalc(context):
+    # Determine whether we're in a contacting or not-contacting phase.
+    contact_desired = plan.IsContactDesired(context.get_time())
 
-  # Get the number of generalized positions, velocities, and actuators.
-  nv = robot_and_ball_plant.tree().num_velocities()
-  assert nv == nv_robot() + nv_ball()
-  num_actuators = robot_and_ball_plant.tree().num_actuators()
-  assert num_actuators == nv_robot()
+    # Get the number of generalized positions, velocities, and actuators.
+    nv = robot_and_ball_plant.tree().num_velocities()
+    assert nv == nv_robot() + nv_ball()
+    num_actuators = robot_and_ball_plant.tree().num_actuators()
+    assert num_actuators == nv_robot()
 
-  # Get the generalized positions and velocities.
-  q = get_all_q(context)
-  v = get_all_v(context)
+    # Get the generalized positions and velocities.
+    q = get_all_q(context)
+    v = get_all_v(context)
 
-  # Compute tau.
-  if (contact_desired) {
-    # Find contacts.
-    contacts = FindContacts()
+    # Compute tau.
+    if contact_desired == True:
+      # Find contacts.
+      contacts = FindContacts()
 
-    # Get the number of points of contact.
-    nc = len(contacts)
+      # Get the number of points of contact.
+      nc = len(contacts)
 
-    # Two cases: in the first, the robot and the ball are already in contact,
-    # as desired. In the second, the robot desires to be in contact, but the
-    # ball and the robot are not contacting: the robot must intercept the ball.
-    if nc >= 2:
-      tau = ComputeTorquesForContactDesiredAndContacting(context, contacts)
+      # Two cases: in the first, the robot and the ball are already in contact,
+      # as desired. In the second, the robot desires to be in contact, but the
+      # ball and robot are not contacting: the robot must intercept the ball.
+      if nc >= 2:
+        tau = ComputeTorquesForContactDesiredAndContacting(context, contacts)
+      else:
+        tau = ComputeTorquesForContactDesiredButNoContact(context)
     else:
-      tau = ComputeTorquesForContactDesiredButNoContact(context)
-  else:
-    # No contact desired.
-    tau = ComputeTorquesForContactNotDesired(context)
+      # No contact desired.
+      tau = ComputeTorquesForContactNotDesired(context)
 
-  # Set the torque output.
-  torque_out = BasicVector(tau)
-  output->SetFrom(torque_out)
+    # Set the torque output.
+    torque_out = BasicVector(tau)
+    output->SetFrom(torque_out)
 
   # Gets the value of the integral term in the state.
   def get_integral_value(const Context<double>& context): 
@@ -595,21 +586,19 @@ FindContacts() const {
 
   # Sets the value of the integral term in the state.
   def set_integral_value(
-      Context<double>* context, const VectorXd& qint): 
+      Context<double>* context, qint): 
     assert qint.size() == nv_robot()
     context->get_mutable_continuous_state_vector().SetFromVector(qint)
 
-  def DoCalcTimeDerivatives(
-    const Context<double>& context,
-    ContinuousState<double>* derivatives): 
-  # Determine whether we're in a contacting or not-contacting phase.
-  contact_intended = plan_.IsContactDesired(context.get_time())
+  def DoCalcTimeDerivatives(context, derivatives): 
+    # Determine whether we're in a contacting or not-contacting phase.
+    contact_intended = plan.IsContactDesired(context.get_time())
 
-  if contact_intended:
+    if contact_intended:
       derivatives->get_mutable_vector().SetFromVector(VectorXd::Zero(nv_robot()))
     else:
       # Get the desired robot configuration.
-      q_robot_des = plan_.GetRobotQQdotAndQddot(
+      q_robot_des = plan.GetRobotQQdotAndQddot(
           context.get_time()).head(nv_robot())
 
       # Get the current robot configuration.
@@ -637,8 +626,8 @@ FindContacts() const {
     VectorXd q(nq_ball() + nv_robot())
 
     # Sanity check.
-    for (int i = 0 i < q.size() ++i)
-      q[i] = std::numeric_limits<double>::quiet_NaN()
+    for i in range(len(q)):
+      q[i] = float("nan")
 
     all_tree = robot_and_ball_plant.tree()
     all_tree.set_positions_in_array(robot_instance_, robot_q, &q)
@@ -657,8 +646,8 @@ FindContacts() const {
     VectorXd v(nv_ball() + nv_robot())
 
     # Sanity check.
-    for (int i = 0 i < v.size() ++i)
-      v[i] = std::numeric_limits<double>::quiet_NaN()
+    for i in range(len(v)): 
+      v[i] = float("nan") 
 
     all_tree = robot_and_ball_plant.tree()
     all_tree.set_velocities_in_array(robot_instance_, robot_qd, &v)
@@ -666,8 +655,7 @@ FindContacts() const {
     return v
 
 
-  def DoPublish(
-    const Context<double>&,
+  def DoPublish(context,
     const std::vector<const PublishEvent<double>*>&): 
 
 
