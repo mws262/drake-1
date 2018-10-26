@@ -1,3 +1,4 @@
+import numpy as np
 from pydrake.all import (LeafSystem)
 
 class BoxController(LeafSystem):
@@ -47,13 +48,13 @@ class BoxController(LeafSystem):
     # Set the number of generalized velocities.
     nv = tree.num_velocities() 
 
-    # TODO: Size the matrices.
-    N = Matrix->resize(nc, nv)
-    S->resize(nc, nv)
-    T->resize(nc, nv)
-    Ndot_v->resize(nc, 1)
-    Sdot_v->resize(nc, 1)
-    Tdot_v->resize(nc, 1)
+    # Size the matrices.
+    N = np.empty([nc, nv])
+    S = np.empty([nc, nv])
+    T = np.empty([nc, nv])
+    Ndot_v = np.empty([nc, 1])
+    Sdot_v = np.empty([nc, 1])
+    Tdot_v = np.empty([nc, 1])
 
     # Get the two body indices.
     for i in range(nc):
@@ -95,18 +96,18 @@ class BoxController(LeafSystem):
       # Compute an orthonormal basis using the contact normal.
       kXAxisIndex = 0, kYAxisIndex = 1, kZAxisIndex = 2
       R_WC = math::ComputeBasisFromAxis(kXAxisIndex, n_BA_W)
-      t1_BA_W = R_WC.col(kYAxisIndex)
-      t2_BA_W = R_WC.col(kZAxisIndex)
+      t1_BA_W = R_WC[:,kYAxisIndex]
+      t2_BA_W = R_WC[:,kZAxisIndex]
 
       # Set N, S, and T.
-      N->row(i) = n_BA_W.transpose() * J
-      S->row(i) = t1_BA_W.transpose() * J
-      T->row(i) = t2_BA_W.transpose() * J
+      N[i,:] = n_BA_W.T * J
+      S[i,:] = t1_BA_W.T * J
+      T[i,:] = t2_BA_W.T * J
 
       # TODO: Set Ndot_v, Sdot_v, Tdot_v properly.
-      Ndot_v->row(i).setZero() # = n_BA_W.transpose() * Jdot_v
-      Sdot_v->row(i).setZero() # = t1_BA_W.transpose() * Jdot_v
-      Tdot_v->row(i).setZero() # = t2_BA_W.transpose() * Jdot_v
+      Ndot_v *= 0 # = n_BA_W.T * Jdot_v
+      Sdot_v *= 0 # = t1_BA_W.T * Jdot_v
+      Tdot_v *= 0 # = t2_BA_W.T * Jdot_v
 
 
 # TODO: What should the box be doing when it is not supposed to make contact?
@@ -134,196 +135,190 @@ class BoxController(LeafSystem):
     x = robot_mbp.tree().get_mutable_multibody_state_vector(
       robot_context.get())
     assert len(x) == len(q_robot) + len(qd_robot)
-    x.head(q_robot.size()) = q_robot
-    x.tail(qd_robot.size()) = qd_robot
+    x[0:len(q_robot)-1] = q_robot
+    x[-len(qd_robot):] = qd_robot
 
     # Get the generalized inertia matrix.
-    M = robot_mbp.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
-    lltM = Eigen::LLT(M)
-    assert lltM.info() == Eigen::Success
+    M = robot_mbp.tree().CalcMassMatrixViaInverseDynamics(robot_context)
+    lltM = np.linalg.cholesky(M)
 
-  # Compute the contribution from force elements.
-  robot_tree = robot_mbp.tree()
-  link_wrenches = MultibodyForces(robot_tree)
-  pcache = PositionKinematicsCache(robot_tree.get_topology())
-  vcache = VelocityKinematicsCache(robot_tree.get_topology())
-  robot_tree.CalcPositionKinematicsCache(*robot_context, &pcache)
-  robot_tree.CalcVelocityKinematicsCache(*robot_context, pcache, &vcache)
+    # Compute the contribution from force elements.
+    robot_tree = robot_mbp.tree()
+    link_wrenches = MultibodyForces(robot_tree)
+    pcache = PositionKinematicsCache(robot_tree.get_topology())
+    vcache = VelocityKinematicsCache(robot_tree.get_topology())
+    robot_tree.CalcPositionKinematicsCache(robot_context, &pcache)
+    robot_tree.CalcVelocityKinematicsCache(robot_context, pcache, &vcache)
 
-  # Compute the external forces.
-  fext = -robot_tree.CalcInverseDynamics(
-      *robot_context, VectorXd::Zero(nv_robot()), link_wrenches)
+    # Compute the external forces.
+    fext = -robot_tree.CalcInverseDynamics(
+        robot_context, np.zeros([nv_robot(), 1]), link_wrenches)
 
-  # Compute inverse dynamics.
-  return M * qddot - fext
+    # Compute inverse dynamics.
+    return M * qddot - fext
 
+  # Computes the control torques when contact is desired and the robot and the
+  # ball are *not* in contact.
+  def ComputeTorquesForContactDesiredButNoContact(context):
+    # Get the generalized positions for the robot and the ball.
+    q0 = get_all_q(context)
+    v0 = get_all_v(context)
 
-# Computes the control torques when contact is desired and the robot and the
-# ball are *not* in contact.
-ComputeTorquesForContactDesiredButNoContact(
-    const Context<double>& context) const {
-  # Get the generalized positions for the robot and the ball.
-  q0 = get_all_q(context)
-  v0 = get_all_v(context)
+    # Get the relevant trees.
+    all_tree = robot_and_ball_plant.tree()
+    robot_tree = robot_mbp.tree()
 
-  # Get the relevant trees.
-  const auto& all_tree = robot_and_ball_plant.tree()
-  const auto& robot_tree = robot_mbp.tree()
+    # Set the joint velocities for the robot to zero.
+    all_tree.set_velocities_in_array(
+        robot_instance, np.zeros([nv_robot, 1]), &v0)
 
-  # Set the joint velocities for the robot to zero.
-  all_tree.set_velocities_in_array(
-      robot_instance_, VectorXd::Zero(nv_robot()), &v0)
+    # Transform the velocities to time derivatives of generalized
+    # coordinates.
+    qdot0 = BasicVector(robot_and_ball_plant.tree().num_positions())
+    robot_and_ball_plant.MapVelocityToQDot(context, v0, &qdot0)
 
-  # Transform the velocities to time derivatives of generalized
-  # coordinates.
-  BasicVector<double> qdot0(robot_and_ball_plant.tree().num_positions())
-  robot_and_ball_plant.MapVelocityToQDot(context, v0, &qdot0)
+    # TODO(edrumwri): turn this system into an actual discrete system.
+    control_freq = 100.0  # 100 Hz.
+    dt = 1.0/control_freq
 
-  # TODO(edrumwri): turn this system into an actual discrete system.
-  const double control_freq = 100.0  # 100 Hz.
-  const double dt = 1.0/control_freq
+    # Get the estimated position of the ball and the robot at the next time
+    # step using a first order approximation to position and the current
+    # velocities.
+    q1 = q0 + dt * qdot0.CopyToVector()
 
-  # Get the estimated position of the ball and the robot at the next time
-  # step using a first order approximation to position and the current
-  # velocities.
-  q1 = q0 + dt * qdot0.CopyToVector()
+    # Update the context to use configuration q1 in the query.
+    UpdateRobotAndBallConfigurationForGeometricQueries(q1)
 
-  # Update the context to use configuration q1 in the query.
-  UpdateRobotAndBallConfigurationForGeometricQueries(q1)
+    # Evaluate scene graph's output port, getting a SceneGraph reference.
+    query_object = self.EvalAbstractInput(
+        scenegraph_and_mbp_query_context, geometry_query_input_port).
+        GetValue<geometry::QueryObject<double>>()
 
-  # Evaluate scene graph's output port, getting a SceneGraph reference.
-  const geometry::QueryObject<double>& query_object = this->EvalAbstractInput(
-      *scenegraph_and_mbp_query_context, geometry_query_input_port)->
-      GetValue<geometry::QueryObject<double>>()
+    # Get the box and the ball bodies.
+    ball_body = &get_ball_from_robot_and_ball_tree()
+    box_body = &get_box_from_robot_and_ball_tree()
+    box_and_ball = MakeSortedPair(ball_body, box_body)
 
-  # Get the box and the ball bodies.
-  ball_body = &get_ball_from_robot_and_ball_tree()
-  box_body = &get_box_from_robot_and_ball_tree()
-  box_and_ball = MakeSortedPair(ball_body, box_body)
+    # Get the closest points on the robot foot and the ball corresponding to q1
+    # and v0.
+    closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
+    assert len(closest_points) > 0
+    found_index = -1
+    for i in range(len(closest_points)):
+      # Get the two bodies in contact.
+      point_pair = closest_points[i]
+      geometry_A_id = point_pair.id_A
+      geometry_B_id = point_pair.id_B
+      body_A_index = geometry_id_to_body_index_.at(geometry_A_id)
+      body_B_index = geometry_id_to_body_index_.at(geometry_B_id)
+      body_A = &all_tree.get_body(body_A_index)
+      body_B = &all_tree.get_body(body_B_index)
+      bodies = MakeSortedPair(body_A, body_B)
 
-  # Get the closest points on the robot foot and the ball corresponding to q1
-  # and v0.
-  closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
-  assert len(closest_points) > 0
-  int found_index = -1
-  for i in range(len(closest_points)):
-    # Get the two bodies in contact.
-    point_pair = closest_points[i]
-    geometry_A_id = point_pair.id_A
-    geometry_B_id = point_pair.id_B
-    body_A_index = geometry_id_to_body_index_.at(geometry_A_id)
-    body_B_index = geometry_id_to_body_index_.at(geometry_B_id)
+      # If the two bodies correspond to the foot (box) and the ball, mark the
+      # found index and stop looping.
+      if bodies == box_and_ball:
+        found_index = i
+        break
+
+    # Get the signed distance data structure.
+    assert found_index >= 0
+    closest = closest_points[found_index]
+
+    # Make A be the body belonging to the robot.
+    body_A_index = geometry_id_to_body_index_.at(closest.id_A)
+    body_B_index = geometry_id_to_body_index_.at(closest.id_B)
     body_A = &all_tree.get_body(body_A_index)
     body_B = &all_tree.get_body(body_B_index)
-    bodies = MakeSortedPair(body_A, body_B)
+    if body_A != ball_body:
+      # Swap A and B.
+      body_A, body_B = body_B, body_A
+      closest.id_A, closest.id_B = closest.id_B, closest.id_A
+      closest.p_ACa, closest.p_BCb = closest.p_BCb, closest.p_ACa
 
-    # If the two bodies correspond to the foot (box) and the ball, mark the
-    # found index and stop looping.
-    if bodies == box_and_ball:
-      found_index = i
-      break
-  assert found_index >= 0
+    # Get the closest points on the bodies. They'll be in their respective body
+    # frames.
+    closest_Aa = closest.p_ACa
+    closest_Bb = closest.p_BCb
 
-  # Get the signed distance data structure. 
-  closest = closest_points[found_index]
+    # Transform the points in the body frames corresponding to q1 to the
+    # world frame.
+    X_wa = all_tree.EvalBodyPoseInWorld(
+        scenegraph_and_mbp_query_context, body_A)
+    X_wb = all_tree.EvalBodyPoseInWorld(
+        scenegraph_and_mbp_query_context, body_B)
+    closest_Aw = X_wa * closest_Aa
+    closest_Bw = X_wb * closest_Bb
 
-  # Make A be the body belonging to the robot.
-  body_A_index = geometry_id_to_body_index_.at(closest.id_A)
-  body_B_index = geometry_id_to_body_index_.at(closest.id_B)
-  body_A = &all_tree.get_body(body_A_index)
-  body_B = &all_tree.get_body(body_B_index)
-  if body_A != ball_body:
-    std::swap(body_A, body_B)
-    std::swap(closest.id_A, closest.id_B)
-    std::swap(closest.p_ACa, closest.p_BCb)
+    # Get the vector from the closest point on the foot to the closest point
+    # on the ball in the body frames.
+    linear_v_des = (closest_Bw - closest_Aw) / dt
 
-  # Get the closest points on the bodies. They'll be in their respective body
-  # frames. 
-  closest_Aa = closest.p_ACa 
-  closest_Bb = closest.p_BCb
+    # Get the robot current generalized position and velocity.
+    q_robot = get_robot_q(context)
+    qd_robot = get_robot_qd(context)
 
-  # Transform the points in the body frames corresponding to q1 to the
-  # world frame.
-  X_wa = all_tree.EvalBodyPoseInWorld(
-      *scenegraph_and_mbp_query_context, *body_A)
-  X_wb = all_tree.EvalBodyPoseInWorld(
-      *scenegraph_and_mbp_query_context, *body_B)
-  closest_Aw = X_wa * closest_Aa
-  closest_Bw = X_wb * closest_Bb
+    # Set the state in the robot context to q_robot and qd_robot.
+    x = robot_tree.get_mutable_multibody_state_vector(robot_context)
+    assert x.size() == q_robot.size() + qd_robot.size()
+    x[0:len(q_robot)-1] = q_robot
+    x[-len(qd_robot):] = qd_robot
 
-  # Get the vector from the closest point on the foot to the closest point
-  # on the ball in the body frames.
-  linear_v_des = (closest_Bw - closest_Aw) / dt
+    # Get the geometric Jacobian for the velocity of the closest point on the
+    # robot as moving with the robot Body A.
+    J_WAc = robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
+        robot_context, box_body.body_frame(), closest_Aw)
 
-  # Get the robot current generalized position and velocity.
-  q_robot = get_robot_q(context)
-  qd_robot = get_robot_qd(context)
+    # Set the rigid body constraints.
+    '''
+    num_constraints = 1
+    WorldPositionConstraint constraint()
 
-  # Set the state in the robot context to q_robot and qd_robot. 
-  x = robot_tree.get_mutable_multibody_state_vector(
-      robot_context.get())
-  assert x.size() == q_robot.size() + qd_robot.size()
-  x.head(q_robot.size()) = q_robot
-  x.tail(qd_robot.size()) = qd_robot
+    # Set the inverse kinematics options.
+    IKoptions ik_options
 
-  # Get the geometric Jacobian for the velocity of the closest point on the
-  # robot as moving with the robot Body A.
-  J_WAc = robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
-      *robot_context, box_body->body_frame(), closest_Aw)
-
-  # Set the rigid body constraints.
-  '''
-  num_constraints = 1
-  WorldPositionConstraint constraint()
-
-  # Set the inverse kinematics options.
-  IKoptions ik_options
-
-  # Compute the desired robot configuration.
-  q_robot_des = q_robot
-  RigidBodyTree<double>* robot_tree_nc =
-      const_cast<RigidBodyTree<double>*>(&robot_tree_)
-  int info
-  std::vector<std::string> infeasible_constraint
-  inverseKin(robot_tree_nc, q_robot_des, q_robot_des,
-             num_constraints, constraint_array, ik_options,
-             &q_robot_des, &info, &infeasible_constraint)
-
-  # Just use the current configuration if not successful.
-  if (info > 6)
+    # Compute the desired robot configuration.
     q_robot_des = q_robot
-  '''
-  q_robot_des = q_robot
+    RigidBodyTree<double>* robot_tree_nc =
+        const_cast<RigidBodyTree<double>*>(&robot_tree_)
+    int info
+    std::vector<std::string> infeasible_constraint
+    inverseKin(robot_tree_nc, q_robot_des, q_robot_des,
+               num_constraints, constraint_array, ik_options,
+               &q_robot_des, &info, &infeasible_constraint)
 
-  # Use resolved-motion rate control to determine the robot velocity that
-  # would be necessary to realize the desired end-effector velocity.
-  svd = Eigen::JacobiSVD(
-      J_WAc, Eigen::ComputeThinU | Eigen::ComputeThinV)
-  qdot_robot_des = svd.solve(linear_v_des)
+    # Just use the current configuration if not successful.
+    if (info > 6)
+      q_robot_des = q_robot
+    '''
+    q_robot_des = q_robot
 
-  # Set qddot_robot_des using purely error feedback.
-  qddot =
-      joint_kp_ * (q_robot_des - q_robot) +
-          joint_kd_ * (qdot_robot_des - qd_robot)
+    # Use resolved-motion rate control to determine the robot velocity that
+    # would be necessary to realize the desired end-effector velocity.
+    qdot_robot_des = np.linalg.lstsq(J_WAc, linear_v_des)
 
-  # Get the generalized inertia matrix.
-  M = robot_tree.CalcMassMatrixViaInverseDynamics(*robot_context)
-  lltM = Eigen::LLT(M)
-  assert lltM.info() == Eigen::Success
+    # Set qddot_robot_des using purely error feedback.
+    qddot =
+        joint_kp_ * (q_robot_des - q_robot) +
+            joint_kd_ * (qdot_robot_des - qd_robot)
 
-  # Compute the contribution from force elements.
-  link_wrenches = MultibodyForces(robot_tree)
-  PositionKinematicsCache<double> pcache(robot_tree.get_topology())
-  VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
-  robot_tree.CalcPositionKinematicsCache(*robot_context, &pcache)
-  robot_tree.CalcVelocityKinematicsCache(*robot_context, pcache, &vcache)
+    # Get the generalized inertia matrix.
+    M = robot_tree.CalcMassMatrixViaInverseDynamics(*robot_context)
+    lltM = np.linalg.cholesky(M)
 
-  # Compute the external forces.
-  fext = -robot_tree.CalcInverseDynamics(
-      *robot_context, VectorXd::Zero(nv_robot()), link_wrenches)
+    # Compute the contribution from force elements.
+    link_wrenches = MultibodyForces(robot_tree)
+    PositionKinematicsCache<double> pcache(robot_tree.get_topology())
+    VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
+    robot_tree.CalcPositionKinematicsCache(*robot_context, &pcache)
+    robot_tree.CalcVelocityKinematicsCache(*robot_context, pcache, &vcache)
 
-  # Compute inverse dynamics.
-  return M * qddot - fext
+    # Compute the external forces.
+    fext = -robot_tree.CalcInverseDynamics(
+        robot_context, np.zeros([nv_robot(), 1]), link_wrenches)
+
+    # Compute inverse dynamics.
+    return M * qddot - fext
 
   # Constructs the robot actuation matrix.
   def ConstructActuationMatrix(): 
@@ -336,9 +331,7 @@ ComputeTorquesForContactDesiredButNoContact(
 
   # Computes the control torques when contact is desired and the robot and the
   # ball are in contact.
-  def ComputeTorquesForContactDesiredAndContacting(
-      const Context<double>& context,
-      const std::vector<geometry::PenetrationAsPointPair<double>>& contacts): 
+  def ComputeTorquesForContactDesiredAndContacting(context, contacts):
     # ***************************************************************
     # Note: This code is specific to this example/system.
     # ***************************************************************
@@ -349,11 +342,11 @@ ComputeTorquesForContactDesiredButNoContact(
     num_actuators = robot_and_ball_plant.tree().num_actuators()
     assert num_actuators == nv_robot()
 
-  # Get the generalized positions and velocities.
-  q = get_all_q(context)
-  v = get_all_v(context)
+    # Get the generalized positions and velocities.
+    q = get_all_q(context)
+    v = get_all_v(context)
 
-  # Construct the actuation and weighting matrices.
+    # Construct the actuation and weighting matrices.
 #  B = MatrixXd::Zero(nv, num_actuators)
   B = ConstructActuationMatrix()
   P = ConstructWeightingMatrix()
@@ -414,11 +407,11 @@ ComputeTorquesForContactDesiredButNoContact(
   MatrixXd D(nv, num_actuators + nc)
   D.setZero()
   D.topLeftCorner(B.rows(), B.cols()) = B
-#  D.bottomRightCorner(Z.cols(), Z.rows()) = Z.transpose()
-  D.bottomRightCorner(N.cols(), N.rows()) = N.transpose()
+#  D.bottomRightCorner(Z.cols(), Z.rows()) = Z.T
+  D.bottomRightCorner(N.cols(), N.rows()) = N.T
 
   # Set the Hessian matrix for the QP.
-  H = D.transpose() * lltM.solve(P.transpose()) * P *
+  H = D.T * lltM.solve(P.T) * P *
       lltM.solve(D)
   lltH = Eigen::LDLT(lltH)
 
@@ -427,7 +420,7 @@ ComputeTorquesForContactDesiredButNoContact(
   assert lltH.compute(H).info() == Eigen::Success
 
   # Compute the linear terms.
-  c = D.transpose() * lltM.solve(P.transpose()) * (
+  c = D.T * lltM.solve(P.T) * (
       -vdot_ball_des + P * lltM.solve(fext))
 
   # Set the affine constraint matrix.
@@ -440,7 +433,7 @@ ComputeTorquesForContactDesiredButNoContact(
   # Prepare to solve the QP using the direct solution to the KKT system.
   MatrixXd K(nprimal + ndual, nprimal + ndual)
   K.block(0, 0, nprimal, nprimal) = H
-  K.block(0, nprimal, nprimal, ndual) = -A.transpose()
+  K.block(0, nprimal, nprimal, ndual) = -A.T
   K.block(nprimal, ndual, ndual, nprimal).setZero()
   K.block(nprimal, 0, ndual, nprimal) = A
 
@@ -473,23 +466,23 @@ cf = z.tail(nc)
   # Output some logging information.
   vdot = lltM.solve(D*z.head(nprimal) + fext)
   P_vdot = P * vdot
-  print "N * v: " + (N * v).transpose()
-  print "S * v: " + (S * v).transpose()
-  print "T * v: " + (T * v).transpose()
+  print "N * v: " + (N * v).T
+  print "S * v: " + (S * v).T
+  print "T * v: " + (T * v).T
   print "Ndot * v: " + Ndot_v
   print "Zdot * v: " + Zdot_v
-  print "fext: " + fext.transpose()
+  print "fext: " + fext.T
   print "M: " + M
   print "P: " + P
   print "D: " + D
   print "B: " + B
   print "N: " + N
   print "Z: " + Z
-  print "contact forces: " + cf.transpose()
-  print "vdot: " + vdot.transpose()
-  print "vdot (desired): " + vdot_ball_des.transpose()
-  print "P * vdot: " + P_vdot.transpose()
-  print "torque: " + z.head(nv_robot()).transpose()
+  print "contact forces: " + cf.T
+  print "vdot: " + vdot.T
+  print "vdot (desired): " + vdot_ball_des.T
+  print "P * vdot: " + P_vdot.T
+  print "torque: " + z.head(nv_robot()).T
 
   # First nv_robot() primal variables are the torques.
   return z.head(nv_robot())
@@ -605,7 +598,7 @@ cf = z.tail(nc)
       x = dynamic_cast<const BasicVector<double>&>(
           context.get_continuous_state_vector()).get_value()
       q_robot = robot_and_ball_plant.tree().
-          get_positions_from_array(robot_instance_, x)
+          get_positions_from_array(robot_instance, x)
       derivatives->get_mutable_vector().SetFromVector(q_robot_des - q_robot)
 
   # Gets the ball body from the robot and ball tree.
@@ -630,7 +623,7 @@ cf = z.tail(nc)
       q[i] = float("nan")
 
     all_tree = robot_and_ball_plant.tree()
-    all_tree.set_positions_in_array(robot_instance_, robot_q, &q)
+    all_tree.set_positions_in_array(robot_instance, robot_q, &q)
     all_tree.set_positions_in_array(ball_instance_, ball_q, &q)
 
     # Sanity check.
@@ -650,7 +643,7 @@ cf = z.tail(nc)
       v[i] = float("nan") 
 
     all_tree = robot_and_ball_plant.tree()
-    all_tree.set_velocities_in_array(robot_instance_, robot_qd, &v)
+    all_tree.set_velocities_in_array(robot_instance, robot_qd, &v)
     all_tree.set_velocities_in_array(ball_instance_, ball_v, &v)
     return v
 

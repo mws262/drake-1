@@ -6,16 +6,16 @@ load(
     "drake_cc_binary",
     "drake_cc_googletest",
 )
-#load(
-#    "//tools/skylark:drake_py.bzl",
-#    "drake_py_unittest",
-#)
-#load("//tools/install:install_data.bzl", "install", "install_data")
-#load("//tools/lint:lint.bzl", "add_lint_tests")
-#load(
-#    "//tools/skylark:drake_py.bzl",
-#    "drake_py_test",
-#)
+load(
+    "//tools/skylark:pybind.bzl",
+    "get_drake_py_installs",
+    "get_pybind_package_info",
+)
+load(
+    "//tools/skylark:drake_py.bzl",
+    "drake_py_binary",
+    "drake_py_library",
+)
 
 package(
     default_visibility = [":__subpackages__"],
@@ -93,6 +93,26 @@ drake_cc_library(
         "//systems/lcm",
         "@lcmtypes_bot2_core",
         "@lcmtypes_robotlocomotion",
+    ],
+)
+
+drake_py_binary(
+    name = "box_soccer_simulation_py",
+    srcs = ["box_soccer_simulation.py"],
+    add_test_rule = 1,
+    data = [
+        ":models",
+        "//examples/contact_model:bowling_ball",
+    ],
+    test_rule_args = [
+        "--target_realtime_rate=0",
+        "--simulation_time=0.1",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake:lcm_py",
+        "//bindings/pydrake/multibody:multibody_tree_py",
+        "//bindings/pydrake/systems:analysis_py",
     ],
 )
 
