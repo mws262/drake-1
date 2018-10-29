@@ -1,10 +1,26 @@
+# TODO: populate the mapping from geometry IDs to bodies.
+# TODO: set geometry_query_input_port
+# TODO: add bindings for set_/get_X_in_array()
+# TODO: add bindings for kinematics computations
+# TODO: add bindings for actuation and weighting matrices
+# TODO: add bindings for velocity/qdot mapping
+# TODO: determine proper context for each function
+# TODO: replace MakeSortedPair
+# TODO: fix removing undesirable contacts
+
 import numpy as np
 from pydrake.all import (LeafSystem)
 
 class BoxController(LeafSystem):
-  def __init__(self):
+  def __init__(self, all_plant, robot_plant, mbw):
     self.plan = ManipulationPlan()
+    self.robot_plant = robot_plant
+    self.robot_and_ball_plant = all_plant
+    self.mbw = mbw
 
+    # Create contexts.
+    self.mbw_context = mbw.CreateDefaultContext()
+    self.robot_context = robot_plant.CreateDefaultContext()
 
   # Loads all plans into the controller.
   def LoadPlans():
@@ -32,15 +48,11 @@ class BoxController(LeafSystem):
         "examples/iiwa_soccer/plan/contact_status.mat")
 
 
-# TODO: create scenegraph+plant context.
-# TODO: populate the mapping from geometry IDs to bodies.
-# TODO: set geometry_query_input_port
-
   # Constructs the Jacobian matrices.
-  def ConstructJacobians(context, contacts):
+  def ConstructJacobians(robot_and_ball_plant_context, contacts):
 
     # Get the tree.
-    tree = robot_and_ball_plant.tree()
+    tree = self.robot_and_ball_plant.tree()
 
     # Get the numbers of contacts and generalized velocities.
     nc = len(contacts) 
@@ -83,12 +95,12 @@ class BoxController(LeafSystem):
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body A.
       J_WAc = tree.CalcPointsGeometricJacobianExpressedInWorld(
-          context, body_A.body_frame(), p_W) 
+          robot_and_ball_plant_context, body_A.body_frame(), p_W)
 
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body B.
       J_WBc = tree.CalcPointsGeometricJacobianExpressedInWorld(
-          context, body_B.body_frame(), p_W) 
+          robot_and_ball_plant_context, body_B.body_frame(), p_W)
 
       # Compute the linear components of the Jacobian.
       J = J_WAc - J_WBc
@@ -112,14 +124,14 @@ class BoxController(LeafSystem):
 
 # TODO: What should the box be doing when it is not supposed to make contact?
 # Computes the control torques when contact is not desired.
-  def ComputeTorquesForContactNotDesired(context): 
+  def ComputeTorquesForContactNotDesired(context):
     # Get the desired robot acceleration.
     q_robot_des = plan.GetRobotQQdotAndQddot(
-        context.get_time()).head(nv_robot())
+        context.get_time())[0:nv_robot()-1]
     qdot_robot_des = plan.GetRobotQQdotAndQddot(
-        context.get_time()).segment(nv_robot(), nv_robot())
+        context.get_time())[nv_robot(), 2*nv_robot()-1]
     qddot_robot_des = plan.GetRobotQQdotAndQddot(
-        context.get_time()).tail(nv_robot())
+        context.get_time())[-nv_robot():]
 
     # Get the robot current generalized position and velocity.
     q_robot = get_robot_q(context)
@@ -132,18 +144,18 @@ class BoxController(LeafSystem):
         joint_kd_ * (qdot_robot_des - qd_robot)
 
     # Set the state in the robot context to q_robot and qd_robot. 
-    x = robot_mbp.tree().get_mutable_multibody_state_vector(
-      robot_context.get())
+    x = self.robot_plant.tree().get_mutable_multibody_state_vector(
+      robot_context)
     assert len(x) == len(q_robot) + len(qd_robot)
     x[0:len(q_robot)-1] = q_robot
     x[-len(qd_robot):] = qd_robot
 
     # Get the generalized inertia matrix.
-    M = robot_mbp.tree().CalcMassMatrixViaInverseDynamics(robot_context)
+    M = self.robot_plant.tree().CalcMassMatrixViaInverseDynamics(robot_context)
     lltM = np.linalg.cholesky(M)
 
     # Compute the contribution from force elements.
-    robot_tree = robot_mbp.tree()
+    robot_tree = self.robot_plant.tree()
     link_wrenches = MultibodyForces(robot_tree)
     pcache = PositionKinematicsCache(robot_tree.get_topology())
     vcache = VelocityKinematicsCache(robot_tree.get_topology())
@@ -165,8 +177,8 @@ class BoxController(LeafSystem):
     v0 = get_all_v(context)
 
     # Get the relevant trees.
-    all_tree = robot_and_ball_plant.tree()
-    robot_tree = robot_mbp.tree()
+    all_tree = self.robot_and_ball_plant.tree()
+    robot_tree = self.robot_plant.tree()
 
     # Set the joint velocities for the robot to zero.
     all_tree.set_velocities_in_array(
@@ -174,8 +186,8 @@ class BoxController(LeafSystem):
 
     # Transform the velocities to time derivatives of generalized
     # coordinates.
-    qdot0 = BasicVector(robot_and_ball_plant.tree().num_positions())
-    robot_and_ball_plant.MapVelocityToQDot(context, v0, &qdot0)
+    qdot0 = BasicVector(self.robot_and_ball_plant.tree().num_positions())
+    self.robot_and_ball_plant.MapVelocityToQDot(context, v0, &qdot0)
 
     # TODO(edrumwri): turn this system into an actual discrete system.
     control_freq = 100.0  # 100 Hz.
@@ -260,7 +272,7 @@ class BoxController(LeafSystem):
 
     # Set the state in the robot context to q_robot and qd_robot.
     x = robot_tree.get_mutable_multibody_state_vector(robot_context)
-    assert x.size() == q_robot.size() + qd_robot.size()
+    assert x.shape[0] == q_robot.size() + qd_robot.size()
     x[0:len(q_robot)-1] = q_robot
     x[-len(qd_robot):] = qd_robot
 
@@ -303,7 +315,7 @@ class BoxController(LeafSystem):
             joint_kd_ * (qdot_robot_des - qd_robot)
 
     # Get the generalized inertia matrix.
-    M = robot_tree.CalcMassMatrixViaInverseDynamics(*robot_context)
+    M = robot_tree.CalcMassMatrixViaInverseDynamics(self.robot_context)
     lltM = np.linalg.cholesky(M)
 
     # Compute the contribution from force elements.
@@ -337,9 +349,9 @@ class BoxController(LeafSystem):
     # ***************************************************************
 
     # Get the number of generalized positions, velocities, and actuators.
-    nv = robot_and_ball_plant.tree().num_velocities()
+    nv = self.robot_and_ball_plant.tree().num_velocities()
     assert nv == nv_robot() + nv_ball()
-    num_actuators = robot_and_ball_plant.tree().num_actuators()
+    num_actuators = self.robot_and_ball_plant.tree().num_actuators()
     assert num_actuators == nv_robot()
 
     # Get the generalized positions and velocities.
@@ -351,13 +363,12 @@ class BoxController(LeafSystem):
   B = ConstructActuationMatrix()
   P = ConstructWeightingMatrix()
 
-  # Get the generalized inertia matrix.
-  M = robot_mbp.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
-  lltM = Eigen::LLT(M)
-  assert lltM.info() == Eigen::Success
+  # Get the generalized inertia matrix and compute its Cholesky factorization.
+  M = self.robot_plant.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
+  lltM = np.linalg.cholesky(M)
 
   # Compute the contribution from force elements.
-  robot_tree = robot_mbp.tree()
+  robot_tree = self.robot_plant.tree()
   multibody::MultibodyForces<double> link_wrenches(robot_tree)
   PositionKinematicsCache<double> pcache(robot_tree.get_topology())
   VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
@@ -366,31 +377,30 @@ class BoxController(LeafSystem):
 
   # Compute the external forces.
   fext = -robot_tree.CalcInverseDynamics(
-      *robot_context, VectorXd::Zero(nv_robot()), link_wrenches)
+      *robot_context, np.zeros([nv_robot(), 1], link_wrenches)
 
   # TODO(edrumwri): Check whether desired ball acceleration is in the right
   # format to match with layout of M.
 
   # Get the desired ball acceleration.
-  vdot_ball_des = plan.GetBallQVAndVdot(context.get_time()).
-      tail(nv_ball())
+  vdot_ball_des = plan.GetBallQVAndVdot(context.get_time())[-nv_ball():]
 
   # Construct the Jacobians and the Jacobians times the velocity.
   jacobians = ConstructJacobians(context, contacts)
 
   # Get the Jacobians at the point of contact: N, S, T, and construct Z and
   # Zdot_v.
-  MatrixXd Z(N.rows() * 3, N.cols())
-  Z.topRows(N.rows()) = N
-  Z.middleRows(N.rows(), N.rows()) = S
-  Z.bottomRows(N.rows()) = T
+  Z = np.zeros([N.shape[0] * 3, N.shape[1]])
+  Z[0,N.shape[0]-1,:] = N
+  Z[N.shape[0]:N.shape[0]*2-1,:] = S
+  Z[-N.shape[0]:,:] = T
 
   # Set the time-derivatives of the Jacobians times the velocity.
-  MatrixXd Zdot_v(Ndot_v.rows() * 3, Ndot_v.cols())
-  Zdot_v.topRows(Ndot_v.rows()) = Ndot_v
-  Zdot_v.middleRows(Ndot_v.rows(), Ndot_v.rows()) = Sdot_v
-  Zdot_v.bottomRows(Ndot_v.rows()) = Tdot_v
-  assert Zdot_v.cols() == 1
+  Zdot_v = np.zeros([Ndot_v.shape[0] * 3, Ndot_v.shape[1]])
+  Zdot_v[0:Ndot_v.shape[0],:] = Ndot_v
+  Zdot_v[Ndot_v.shape[0]:Ndot_v.shape[0]*2-1,:] = Sdot_v
+  Zdot_v[-Ndot_v.shape[0],:] = Tdot_v
+  assert Zdot_v.shape[1] == 1
 
   # Primal variables are motor torques and contact force magnitudes.
   nc = len(contacts)
@@ -404,47 +414,43 @@ class BoxController(LeafSystem):
 
   # Construct the matrices necessary to construct the Hessian.
 #  MatrixXd D(nv, num_actuators + nc * 3)
-  MatrixXd D(nv, num_actuators + nc)
-  D.setZero()
-  D.topLeftCorner(B.rows(), B.cols()) = B
-#  D.bottomRightCorner(Z.cols(), Z.rows()) = Z.T
-  D.bottomRightCorner(N.cols(), N.rows()) = N.T
+  D = np.zeros([nv, num_actuators + nc])
+  D[0:B.shape[0]-1, 0:B.shape[1]-1] = B
+#  D.bottomRightCorner(Z.shape[1], Z.shape[0]) = Z.T
+  D[-N.shape[1]:, -N.shape[0]:] = N.T
 
   # Set the Hessian matrix for the QP.
-  H = D.T * lltM.solve(P.T) * P *
-      lltM.solve(D)
-  lltH = Eigen::LDLT(lltH)
+  H = D.T * np.linalg.cho_solve(lltM, P.T) * P *
+      np.linalg.cho_solve(lltM, D)
 
   # Verify that the Hessian is positive semi-definite.
-  H = H + Eigen::MatrixXd::Identity(H.rows(), H.cols()) * 1e-8
-  assert lltH.compute(H).info() == Eigen::Success
+  H = H + np.eye(H.shape[0]) * 1e-8
+  np.linalg.cholesky(H)
 
   # Compute the linear terms.
-  c = D.T * lltM.solve(P.T) * (
-      -vdot_ball_des + P * lltM.solve(fext))
+  c = D.T * np.linalg.cho_solve(lltM, P.T) * (
+      -vdot_ball_des + P * np.linalg.cho_solve(lltM, fext))
 
   # Set the affine constraint matrix.
-#  const MatrixXd A = Z * lltM.solve(D)
-#  b = -Z * lltM.solve(fext) - Zdot_v
-  MatrixXd A = N * lltM.solve(D)
-  b = -N * lltM.solve(fext) - Ndot_v
-  assert b.rows() == ndual
+#  const MatrixXd A = Z * np.linalg.cho_solve(lltM, D)
+#  b = -Z * np.linalg.cho_solve(lltM, fext) - Zdot_v
+  A = N * np.linalg.cho_solve(lltM, D)
+  b = -N * np.linalg.cho_solve(lltM, fext) - Ndot_v
+  assert b.shape[0] == ndual
 
   # Prepare to solve the QP using the direct solution to the KKT system.
-  MatrixXd K(nprimal + ndual, nprimal + ndual)
-  K.block(0, 0, nprimal, nprimal) = H
-  K.block(0, nprimal, nprimal, ndual) = -A.T
-  K.block(nprimal, ndual, ndual, nprimal).setZero()
-  K.block(nprimal, 0, ndual, nprimal) = A
+  K = np.zeros([nprimal + ndual, nprimal + ndual])
+  K[0:nprimal-1,0:nprimal-1] = H
+  K[0:nprimal-1,nprimal:nprimal+ndual-1] = -A.T
+  K[nprimal:nprimal+ndual-1,0:nprimal-1] = A
 
   # Set the right hand side for the KKT solutoin.
-  rhs(nprimal + ndual)
-  rhs.segment(0, nprimal) = -c
-  rhs.segment(nprimal, ndual) = b
+  rhs = np.zeros([nprimal + ndual, 1])
+  rhs[0:nprimal-1] = -c
+  rhs[nprimal:nprimal+ndual-1] = b
 
   # Solve the KKT system.
-  const Eigen::PartialPivLU<MatrixXd> lu(K)
-  z = lu.solve(rhs)
+  z = np.linalg.solve(K, rhs)
 
   # Verify that the solution is reasonably accurate.
   tol = 1e-8
@@ -462,9 +468,11 @@ class BoxController(LeafSystem):
     }
   }
   '''
-cf = z.tail(nc)
+
+  # TODO: Temporary- fix me!
+  cf = z[-nc:]
   # Output some logging information.
-  vdot = lltM.solve(D*z.head(nprimal) + fext)
+  vdot = np.linalg.cho_solve(lltM, D*z[0:nprimal-1] + fext)
   P_vdot = P * vdot
   print "N * v: " + (N * v).T
   print "S * v: " + (S * v).T
@@ -482,10 +490,10 @@ cf = z.tail(nc)
   print "vdot: " + vdot.T
   print "vdot (desired): " + vdot_ball_des.T
   print "P * vdot: " + P_vdot.T
-  print "torque: " + z.head(nv_robot()).T
+  print "torque: " + z[0:nv_robot-1].T
 
   # First nv_robot() primal variables are the torques.
-  return z.head(nv_robot())
+  return z[0:nv_robot()-1]
 
 
   # Gets the vector of contacts.
@@ -493,7 +501,7 @@ cf = z.tail(nc)
     # TODO: Update the state of the query context to that in the true context.
 
     # Get the tree corresponding to all bodies.
-    all_tree = robot_and_ball_plant.tree()
+    all_tree = self.robot_and_ball_plant.tree()
 
     # Evaluate scene graph's output port, getting a SceneGraph reference.
     query_object = self.EvalAbstractInput(
@@ -541,9 +549,9 @@ cf = z.tail(nc)
     contact_desired = plan.IsContactDesired(context.get_time())
 
     # Get the number of generalized positions, velocities, and actuators.
-    nv = robot_and_ball_plant.tree().num_velocities()
+    nv = self.robot_and_ball_plant.tree().num_velocities()
     assert nv == nv_robot() + nv_ball()
-    num_actuators = robot_and_ball_plant.tree().num_actuators()
+    num_actuators = self.robot_and_ball_plant.tree().num_actuators()
     assert num_actuators == nv_robot()
 
     # Get the generalized positions and velocities.
@@ -574,55 +582,52 @@ cf = z.tail(nc)
     output->SetFrom(torque_out)
 
   # Gets the value of the integral term in the state.
-  def get_integral_value(const Context<double>& context): 
+  def get_integral_value(context):
     return context.get_continuous_state_vector().CopyToVector()
 
   # Sets the value of the integral term in the state.
-  def set_integral_value(
-      Context<double>* context, qint): 
-    assert qint.size() == nv_robot()
-    context->get_mutable_continuous_state_vector().SetFromVector(qint)
+  def set_integral_value(context, qint):
+    assert len(qint) == nv_robot()
+    context.get_mutable_continuous_state_vector().SetFromVector(qint)
 
   def DoCalcTimeDerivatives(context, derivatives): 
     # Determine whether we're in a contacting or not-contacting phase.
     contact_intended = plan.IsContactDesired(context.get_time())
 
     if contact_intended:
-      derivatives->get_mutable_vector().SetFromVector(VectorXd::Zero(nv_robot()))
+      derivatives.get_mutable_vector().SetFromVector(np.zeros([nv_robot(), 1]))
     else:
       # Get the desired robot configuration.
       q_robot_des = plan.GetRobotQQdotAndQddot(
-          context.get_time()).head(nv_robot())
+          context.get_time())[0:nv_robot()-1]
 
       # Get the current robot configuration.
-      x = dynamic_cast<const BasicVector<double>&>(
-          context.get_continuous_state_vector()).get_value()
-      q_robot = robot_and_ball_plant.tree().
-          get_positions_from_array(robot_instance, x)
-      derivatives->get_mutable_vector().SetFromVector(q_robot_des - q_robot)
+      x = context.get_continuous_state_vector()
+      q_robot = self.robot_and_ball_plant.tree().get_positions_from_array(robot_instance, x)
+      derivatives.get_mutable_vector().SetFromVector(q_robot_des - q_robot)
 
   # Gets the ball body from the robot and ball tree.
   def get_ball_from_robot_and_ball_tree():
-    return robot_and_ball_plant.tree().GetBodyByName("ball") 
+    return self.robot_and_ball_plant.tree().GetBodyByName("ball")
 
   # Gets the box link from the robot and ball tree.
   def get_box_from_robot_and_ball_tree(): 
-    return robot_and_ball_plant.tree().GetBodyByName("box") 
+    return self.robot_and_ball_plant.tree().GetBodyByName("box")
 
   # Gets the world body from the robot and ball tree.
   def get_world_from_robot_and_ball_tree(): 
-    return robot_and_ball_plant.tree().world_body()
+    return self.robot_and_ball_plant.tree().world_body()
 
-  def get_all_q(const Context<double>& context):
+  def get_all_q(context):
     robot_q = get_robot_q(context)
     ball_q = get_ball_q(context)
-    VectorXd q(nq_ball() + nv_robot())
+    q = np.zeros([nq_ball() + nv_robot(), 1])
 
     # Sanity check.
     for i in range(len(q)):
       q[i] = float("nan")
 
-    all_tree = robot_and_ball_plant.tree()
+    all_tree = self.robot_and_ball_plant.tree()
     all_tree.set_positions_in_array(robot_instance, robot_q, &q)
     all_tree.set_positions_in_array(ball_instance_, ball_q, &q)
 
@@ -636,20 +641,16 @@ cf = z.tail(nc)
   def get_all_v(const Context<double>& context):
     robot_qd = get_robot_qd(context)
     ball_v = get_ball_v(context)
-    VectorXd v(nv_ball() + nv_robot())
+    v = np.zeros([nv_ball() + nv_robot(), 1])
 
     # Sanity check.
     for i in range(len(v)): 
       v[i] = float("nan") 
 
-    all_tree = robot_and_ball_plant.tree()
+    all_tree = self.robot_and_ball_plant.tree()
     all_tree.set_velocities_in_array(robot_instance, robot_qd, &v)
     all_tree.set_velocities_in_array(ball_instance_, ball_v, &v)
     return v
 
 
-  def DoPublish(context,
-    const std::vector<const PublishEvent<double>*>&): 
-
-
-
+  def DoPublish(context, publish_events):
