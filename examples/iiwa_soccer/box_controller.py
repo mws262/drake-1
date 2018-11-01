@@ -1,19 +1,19 @@
 # TODO: populate the mapping from geometry IDs to bodies.
-# TODO: set geometry_query_input_port
 # TODO: add bindings for set_/get_X_in_array()
 # TODO: add bindings for kinematics computations
 # TODO: add bindings for actuation and weighting matrices
 # TODO: add bindings for velocity/qdot mapping
-# TODO: determine proper context for each function
-# TODO: replace MakeSortedPair
-# TODO: fix removing undesirable contacts
 
 import numpy as np
-from pydrake.all import (LeafSystem)
+from pydrake.all import (LeafSystem, ComputeBasisFromAxis)
 
 class BoxController(LeafSystem):
   def __init__(self, all_plant, robot_plant, mbw):
+    # Construct the plan.
     self.plan = ManipulationPlan()
+    LoadPlans()
+
+    # Get the plants.
     self.robot_plant = robot_plant
     self.robot_and_ball_plant = all_plant
     self.mbw = mbw
@@ -22,22 +22,59 @@ class BoxController(LeafSystem):
     self.mbw_context = mbw.CreateDefaultContext()
     self.robot_context = robot_plant.CreateDefaultContext()
 
+    # Declare states and ports.
+    self.DeclareContinuousState(nq_robot()); # For integral control state.
+    self.input_port_index_estimated_robot_q = self.DeclareVectorInputPort(
+        BasicVector(nq_robot())).get_index()
+    self.input_port_index_estimated_robot_qd = self.DeclareVectorInputPort(
+        BasicVector(nv_robot())).get_index()
+    self.input_port_index_estimated_ball_q = self.DeclareVectorInputPort(
+        BasicVector(nq_ball())).get_index()
+    self.input_port_index_estimated_ball_v = self.DeclareVectorInputPort(
+        BasicVector(nv_ball())).get_index()
+    self.DeclareVectorOutputPort(
+        BasicVector(self.command_output_size),
+        self.DoControlCalc) # Output 0.
+
+  # Gets the robot configuration.
+  def get_robot_q(self, context):
+    return self.EvalVectorInput(self.input_port_index_estimated_robot_q)
+
+  # Gets the ball configuration.
+  def get_ball_q(self, context):
+    return self.EvalVectorInput(self.input_port_index_estimated_ball_q)
+
+  # Gets the robot velocity.
+  def get_robot_qd(self, context):
+    return self.EvalVectorInput(self.input_port_index_estimated_robot_qd)
+
+  # Gets the ball velocity
+  def get_ball_qd(self, context):
+    return self.EvalVectorInput(self.input_port_index_estimated_ball_v)
+
+  # Makes a sorted pair.
+  def MakeSortedPair(self, a, b):
+    if b > a:
+      return (b, a)
+    else:
+      return (a, b)
+
   # Loads all plans into the controller.
-  def LoadPlans():
+  def LoadPlans(self):
     # Read in the plans for the robot.
-    plan.ReadRobotQQdotAndQddot(
+    self.plan.ReadRobotQQdotAndQddot(
         "examples/iiwa_soccer/plan/joint_timings_fit.mat",
         "examples/iiwa_soccer/plan/joint_angle_fit.mat",
         "examples/iiwa_soccer/plan/joint_vel_fit.mat",
         "examples/iiwa_soccer/plan/joint_accel_fit.mat")
 
     # Read in the plans for the point of contact.
-    plan.ReadContactPoint("examples/iiwa_soccer/plan/contact_pt_timings.mat",
+    self.plan.ReadContactPoint("examples/iiwa_soccer/plan/contact_pt_timings.mat",
         "examples/iiwa_soccer/plan/contact_pt_positions.mat",
         "examples/iiwa_soccer/plan/contact_pt_velocities.mat")
 
     # Read in the plans for the ball kinematics.
-    plan.ReadBallQVAndVdot(
+    self.plan.ReadBallQVAndVdot(
         "examples/iiwa_soccer/plan/ball_timings.mat",
         "examples/iiwa_soccer/plan/ball_com_positions.mat",
         "examples/iiwa_soccer/plan/ball_quats.mat",
@@ -49,7 +86,11 @@ class BoxController(LeafSystem):
 
 
   # Constructs the Jacobian matrices.
-  def ConstructJacobians(robot_and_ball_plant_context, contacts):
+  def ConstructJacobians(mbw_context, contacts):
+
+    # Get the robot and ball multibody-plant context.
+    robot_and_ball_context = self.mbw.GetMutableSubsystemContext(
+      self.robot_and_ball_plant, mbw_context)
 
     # Get the tree.
     tree = self.robot_and_ball_plant.tree()
@@ -107,7 +148,7 @@ class BoxController(LeafSystem):
 
       # Compute an orthonormal basis using the contact normal.
       kXAxisIndex = 0, kYAxisIndex = 1, kZAxisIndex = 2
-      R_WC = math::ComputeBasisFromAxis(kXAxisIndex, n_BA_W)
+      R_WC = ComputeBasisFromAxis(kXAxisIndex, n_BA_W)
       t1_BA_W = R_WC[:,kYAxisIndex]
       t2_BA_W = R_WC[:,kZAxisIndex]
 
@@ -203,12 +244,12 @@ class BoxController(LeafSystem):
 
     # Evaluate scene graph's output port, getting a SceneGraph reference.
     query_object = self.EvalAbstractInput(
-        scenegraph_and_mbp_query_context, geometry_query_input_port).
-        GetValue<geometry::QueryObject<double>>()
+        scenegraph_and_mbp_query_context, geometry_query_input_port).GetValue()
+        #        GetValue<geometry::QueryObject<double>>()
 
     # Get the box and the ball bodies.
-    ball_body = &get_ball_from_robot_and_ball_tree()
-    box_body = &get_box_from_robot_and_ball_tree()
+    ball_body = get_ball_from_robot_and_ball_tree()
+    box_body = get_box_from_robot_and_ball_tree()
     box_and_ball = MakeSortedPair(ball_body, box_body)
 
     # Get the closest points on the robot foot and the ball corresponding to q1
@@ -223,8 +264,8 @@ class BoxController(LeafSystem):
       geometry_B_id = point_pair.id_B
       body_A_index = geometry_id_to_body_index_.at(geometry_A_id)
       body_B_index = geometry_id_to_body_index_.at(geometry_B_id)
-      body_A = &all_tree.get_body(body_A_index)
-      body_B = &all_tree.get_body(body_B_index)
+      body_A = all_tree.get_body(body_A_index)
+      body_B = all_tree.get_body(body_B_index)
       bodies = MakeSortedPair(body_A, body_B)
 
       # If the two bodies correspond to the foot (box) and the ball, mark the
@@ -240,8 +281,8 @@ class BoxController(LeafSystem):
     # Make A be the body belonging to the robot.
     body_A_index = geometry_id_to_body_index_.at(closest.id_A)
     body_B_index = geometry_id_to_body_index_.at(closest.id_B)
-    body_A = &all_tree.get_body(body_A_index)
-    body_B = &all_tree.get_body(body_B_index)
+    body_A = all_tree.get_body(body_A_index)
+    body_B = all_tree.get_body(body_B_index)
     if body_A != ball_body:
       # Swap A and B.
       body_A, body_B = body_B, body_A
@@ -360,63 +401,65 @@ class BoxController(LeafSystem):
 
     # Construct the actuation and weighting matrices.
 #  B = MatrixXd::Zero(nv, num_actuators)
-  B = ConstructActuationMatrix()
-  P = ConstructWeightingMatrix()
+    B = ConstructActuationMatrix()
+    P = ConstructWeightingMatrix()
 
-  # Get the generalized inertia matrix and compute its Cholesky factorization.
-  M = self.robot_plant.tree().CalcMassMatrixViaInverseDynamics(*robot_context)
-  lltM = np.linalg.cholesky(M)
+    # TODO: set the proper entries in the robot context.
 
-  # Compute the contribution from force elements.
-  robot_tree = self.robot_plant.tree()
-  multibody::MultibodyForces<double> link_wrenches(robot_tree)
-  PositionKinematicsCache<double> pcache(robot_tree.get_topology())
-  VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
-  robot_tree.CalcPositionKinematicsCache(*robot_context, &pcache)
-  robot_tree.CalcVelocityKinematicsCache(*robot_context, pcache, &vcache)
+    # Get the generalized inertia matrix and compute its Cholesky factorization.
+    M = self.robot_plant.tree().CalcMassMatrixViaInverseDynamics(robot_context)
+    lltM = np.linalg.cholesky(M)
 
-  # Compute the external forces.
-  fext = -robot_tree.CalcInverseDynamics(
-      *robot_context, np.zeros([nv_robot(), 1], link_wrenches)
+    # Compute the contribution from force elements.
+    robot_tree = self.robot_plant.tree()
+    multibody::MultibodyForces<double> link_wrenches(robot_tree)
+    PositionKinematicsCache<double> pcache(robot_tree.get_topology())
+    VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
+    robot_tree.CalcPositionKinematicsCache(robot_context, &pcache)
+    robot_tree.CalcVelocityKinematicsCache(robot_context, pcache, &vcache)
 
-  # TODO(edrumwri): Check whether desired ball acceleration is in the right
-  # format to match with layout of M.
+    # Compute the external forces.
+    fext = -robot_tree.CalcInverseDynamics(
+        robot_context, np.zeros([nv_robot(), 1], link_wrenches)
 
-  # Get the desired ball acceleration.
-  vdot_ball_des = plan.GetBallQVAndVdot(context.get_time())[-nv_ball():]
+    # TODO(edrumwri): Check whether desired ball acceleration is in the right
+    # format to match with layout of M.
 
-  # Construct the Jacobians and the Jacobians times the velocity.
-  jacobians = ConstructJacobians(context, contacts)
+    # Get the desired ball acceleration.
+    vdot_ball_des = plan.GetBallQVAndVdot(context.get_time())[-nv_ball():]
 
-  # Get the Jacobians at the point of contact: N, S, T, and construct Z and
-  # Zdot_v.
-  Z = np.zeros([N.shape[0] * 3, N.shape[1]])
-  Z[0,N.shape[0]-1,:] = N
-  Z[N.shape[0]:N.shape[0]*2-1,:] = S
-  Z[-N.shape[0]:,:] = T
+    # Construct the Jacobians and the Jacobians times the velocity.
+    jacobians = ConstructJacobians(context, contacts)
 
-  # Set the time-derivatives of the Jacobians times the velocity.
-  Zdot_v = np.zeros([Ndot_v.shape[0] * 3, Ndot_v.shape[1]])
-  Zdot_v[0:Ndot_v.shape[0],:] = Ndot_v
-  Zdot_v[Ndot_v.shape[0]:Ndot_v.shape[0]*2-1,:] = Sdot_v
-  Zdot_v[-Ndot_v.shape[0],:] = Tdot_v
-  assert Zdot_v.shape[1] == 1
+    # Get the Jacobians at the point of contact: N, S, T, and construct Z and
+    # Zdot_v.
+    Z = np.zeros([N.shape[0] * 3, N.shape[1]])
+    Z[0,N.shape[0]-1,:] = N
+    Z[N.shape[0]:N.shape[0]*2-1,:] = S
+    Z[-N.shape[0]:,:] = T
 
-  # Primal variables are motor torques and contact force magnitudes.
-  nc = len(contacts)
-#  nprimal = num_actuators + nc * 3
-  nprimal = num_actuators + nc
+    # Set the time-derivatives of the Jacobians times the velocity.
+    Zdot_v = np.zeros([Ndot_v.shape[0] * 3, Ndot_v.shape[1]])
+    Zdot_v[0:Ndot_v.shape[0],:] = Ndot_v
+    Zdot_v[Ndot_v.shape[0]:Ndot_v.shape[0]*2-1,:] = Sdot_v
+    Zdot_v[-Ndot_v.shape[0],:] = Tdot_v
+    assert Zdot_v.shape[1] == 1
 
-  # Dual variables (Lagrange multipliers) correspond to number of linear
-  # constraint equations.
-#  ndual = nc * 3
-  ndual = nc
+    # Primal variables are motor torques and contact force magnitudes.
+    nc = len(contacts)
+    #  nprimal = num_actuators + nc * 3
+    nprimal = num_actuators + nc
+
+    # Dual variables (Lagrange multipliers) correspond to number of linear
+    # constraint equations.
+    #  ndual = nc * 3
+    ndual = nc
 
   # Construct the matrices necessary to construct the Hessian.
-#  MatrixXd D(nv, num_actuators + nc * 3)
+  #  MatrixXd D(nv, num_actuators + nc * 3)
   D = np.zeros([nv, num_actuators + nc])
   D[0:B.shape[0]-1, 0:B.shape[1]-1] = B
-#  D.bottomRightCorner(Z.shape[1], Z.shape[0]) = Z.T
+  #  D.bottomRightCorner(Z.shape[1], Z.shape[0]) = Z.T
   D[-N.shape[1]:, -N.shape[0]:] = N.T
 
   # Set the Hessian matrix for the QP.
@@ -432,8 +475,8 @@ class BoxController(LeafSystem):
       -vdot_ball_des + P * np.linalg.cho_solve(lltM, fext))
 
   # Set the affine constraint matrix.
-#  const MatrixXd A = Z * np.linalg.cho_solve(lltM, D)
-#  b = -Z * np.linalg.cho_solve(lltM, fext) - Zdot_v
+  #  const MatrixXd A = Z * np.linalg.cho_solve(lltM, D)
+  #  b = -Z * np.linalg.cho_solve(lltM, fext) - Zdot_v
   A = N * np.linalg.cho_solve(lltM, D)
   b = -N * np.linalg.cho_solve(lltM, fext) - Ndot_v
   assert b.shape[0] == ndual
@@ -497,24 +540,32 @@ class BoxController(LeafSystem):
 
 
   # Gets the vector of contacts.
-  def FindContacts():
-    # TODO: Update the state of the query context to that in the true context.
+  def FindContacts(all_q, all_v):
+    # Get the robot and ball multibody-plant context.
+    robot_and_ball_context = self.mbw.GetMutableSubsystemContext(
+      self.robot_and_ball_plant, mbw_context)
+
+    # Set q and v in the context.
+    x = self.robot_plant.tree().get_mutable_multibody_state_vector(
+      robot_context)
+    x[0:len(all_q)-1] = all_q
+    x[-len(all_v):] = all_v
 
     # Get the tree corresponding to all bodies.
     all_tree = self.robot_and_ball_plant.tree()
 
     # Evaluate scene graph's output port, getting a SceneGraph reference.
     query_object = self.EvalAbstractInput(
-        *scenegraph_and_mbp_query_context, geometry_query_input_port)->
-        GetValue<geometry::QueryObject<double>>()
+        mbw_context, geometry_query_input_port).GetValue()
+        #GetValue<geometry::QueryObject<double>>()
 
     # Determine the set of contacts.
     contacts = query_object.ComputePointPairPenetration()
 
     # Get the ball body and foot bodies.
-    ball_body = &get_ball_from_robot_and_ball_tree()
-    box_body = &get_box_from_robot_and_ball_tree()
-    world_body = &get_world_from_robot_and_ball_tree()
+    ball_body = get_ball_from_robot_and_ball_tree()
+    box_body = get_box_from_robot_and_ball_tree()
+    world_body = get_world_from_robot_and_ball_tree()
 
     # Make sorted pairs to check.
     ball_box_pair = MakeSortedPair(ball_body, box_body)
@@ -522,28 +573,26 @@ class BoxController(LeafSystem):
 
     # Remove contacts between all but the robot foot and the ball and the
     # ball and the ground.
-#    for i in range(len(contacts)):
-    for (int i = 0 i < static_cast<int>(contacts.size()) ++i) {
-    geometry_A_id = contacts[i].id_A
-    geometry_B_id = contacts[i].id_B
-    ody_A_index = geometry_id_to_body_index_.at(geometry_A_id)
-    ody_B_index = geometry_id_to_body_index_.at(geometry_B_id)
-    body_a = &all_tree.get_body(body_A_index)
-    body_b = &all_tree.get_body(body_B_index)
-    body_a_b_pair = MakeSortedPair(body_a, body_b)
-    if (body_a_b_pair != ball_box_pair && body_a_b_pair != ball_world_pair) {
-      contacts[i] = contacts.back()
-      contacts.pop_back()
-      --i
-    } else {
-#      std::cout << "Contact detected between " << body_a->get_name() <<
-#                " and " << body_b->get_name() << std::endl
-    }
-  }
+    i = 0
+    while i < len(contacts):
+      geometry_A_id = contacts[i].id_A
+      geometry_B_id = contacts[i].id_B
+      body_A_index = geometry_id_to_body_index_.at(geometry_A_id)
+      body_B_index = geometry_id_to_body_index_.at(geometry_B_id)
+      body_a = all_tree.get_body(body_A_index)
+      body_b = all_tree.get_body(body_B_index)
+      body_a_b_pair = MakeSortedPair(body_a, body_b)
+      if body_a_b_pair != ball_box_pair && body_a_b_pair != ball_world_pair:
+        contacts[i] = contacts[-1]
+        del contacts[-1]
+      else:
+        i += 1
+        #      std::cout << "Contact detected between " << body_a->get_name() <<
+        #                " and " << body_b->get_name() << std::endl
 
-  return contacts
+    return contacts
 
-# Calculate what torques to apply to the joints.
+  # Calculate what torques to apply to the joints.
   def DoControlCalc(context):
     # Determine whether we're in a contacting or not-contacting phase.
     contact_desired = plan.IsContactDesired(context.get_time())
@@ -579,7 +628,7 @@ class BoxController(LeafSystem):
 
     # Set the torque output.
     torque_out = BasicVector(tau)
-    output->SetFrom(torque_out)
+    output.SetFrom(torque_out)
 
   # Gets the value of the integral term in the state.
   def get_integral_value(context):
@@ -638,7 +687,7 @@ class BoxController(LeafSystem):
     return q
 
 
-  def get_all_v(const Context<double>& context):
+  def get_all_v(context):
     robot_qd = get_robot_qd(context)
     ball_v = get_ball_v(context)
     v = np.zeros([nv_ball() + nv_robot(), 1])
