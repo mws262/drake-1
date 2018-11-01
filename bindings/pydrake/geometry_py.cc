@@ -4,6 +4,8 @@
 
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/bindings/pydrake/systems/systems_pybind.h"
+#include "drake/bindings/pydrake/util/deprecation_pybind.h"
 #include "drake/geometry/geometry_ids.h"
 #include "drake/geometry/geometry_visualization.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
@@ -20,13 +22,25 @@ using T = double;
 
 template <typename Class>
 void BindIdentifier(py::module m, const std::string& name) {
-  py::class_<Class>(m, name.c_str())
-      .def(py::init<>())
-      .def("get_value", &Class::get_value)
-      .def("is_valid", &Class::is_valid)
+  auto& cls_doc = pydrake_doc.drake.geometry.Identifier;
+
+  py::class_<Class> cls(m, name.c_str());
+  py::handle cls_handle = cls;
+  cls  // BR
+      .def(py::init([cls_handle]() {
+             WarnDeprecated(
+                 py::str("The constructor for {} in Python is deprecated. "
+                         "Use `get_new_id()` if necessary.")
+                     .format(cls_handle));
+             return Class{};
+           }),
+           cls_doc.ctor.doc_3)
+      .def("get_value", &Class::get_value, cls_doc.get_value.doc)
+      .def("is_valid", &Class::is_valid, cls_doc.is_valid.doc)
       .def(py::self == py::self)
       .def(py::self != py::self)
-      .def(py::self < py::self);
+      .def(py::self < py::self)
+      .def_static("get_new_id", &Class::get_new_id, cls_doc.get_new_id.doc);
 }
 
 PYBIND11_MODULE(geometry, m) {
@@ -34,7 +48,17 @@ PYBIND11_MODULE(geometry, m) {
   using namespace drake::geometry;
   constexpr auto& doc = pydrake_doc.drake.geometry;
 
+  // TODO(m-chaturvedi) Add Pybind11 documentation to aliases (#9599).
+  BindIdentifier<SourceId>(m, "SourceId");
+  BindIdentifier<FrameId>(m, "FrameId");
+  BindIdentifier<GeometryId>(m, "GeometryId");
+
   py::module::import("pydrake.systems.framework");
+  py::class_<SceneGraphInspector<T>>(m, "SceneGraphInspector",
+                                     doc.SceneGraphInspector.doc)
+      .def("GetFrameId", &SceneGraphInspector<T>::GetFrameId,
+           py::arg("geometry_id"), doc.SceneGraphInspector.GetFrameId.doc);
+
   py::class_<SceneGraph<T>, LeafSystem<T>>(m, "SceneGraph", doc.SceneGraph.doc)
       .def(py::init<>(), doc.SceneGraph.ctor.doc_4)
       .def("get_source_pose_port", &SceneGraph<T>::get_source_pose_port,
@@ -43,51 +67,59 @@ PYBIND11_MODULE(geometry, m) {
            &SceneGraph<T>::get_pose_bundle_output_port, py_reference_internal,
            doc.SceneGraph.get_pose_bundle_output_port.doc)
       .def("get_query_output_port", &SceneGraph<T>::get_query_output_port,
-           py_reference_internal, doc.SceneGraph.get_query_output_port.doc);
+           py_reference_internal, doc.SceneGraph.get_query_output_port.doc)
+      .def("RegisterSource",
+           py::overload_cast<const std::string&>(  // BR
+               &SceneGraph<T>::RegisterSource),
+           py::arg("name") = "", doc.SceneGraph.RegisterSource.doc);
 
-  // TODO(m-chaturvedi) Add Pybind11 documentation.
-  BindIdentifier<SourceId>(m, "SourceId");
-  BindIdentifier<FrameId>(m, "FrameId");
-  BindIdentifier<GeometryId>(m, "GeometryId");
+  py::class_<QueryObject<T>>(m, "QueryObject", doc.QueryObject.doc)
+      .def("inspector", &QueryObject<T>::inspector, py_reference_internal,
+           doc.QueryObject.inspector.doc)
+      .def("ComputePointPairPenetration",
+           &QueryObject<T>::ComputePointPairPenetration,
+           doc.QueryObject.ComputePointPairPenetration.doc);
+  pysystems::AddValueInstantiation<QueryObject<T>>(m);
 
   py::module::import("pydrake.systems.lcm");
   m.def("ConnectDrakeVisualizer",
         py::overload_cast<systems::DiagramBuilder<double>*,
-            const SceneGraph<double>&, lcm::DrakeLcmInterface*>(
-                &ConnectDrakeVisualizer),
+                          const SceneGraph<double>&, lcm::DrakeLcmInterface*>(
+            &ConnectDrakeVisualizer),
         py::arg("builder"), py::arg("scene_graph"), py::arg("lcm") = nullptr,
         // Keep alive, ownership: `return` keeps `builder` alive.
         py::keep_alive<0, 1>(),
         // TODO(eric.cousineau): Figure out why this is necessary (#9398).
         py_reference, doc.ConnectDrakeVisualizer.doc);
   m.def("ConnectDrakeVisualizer",
-        py::overload_cast<systems::DiagramBuilder<double>*,
-            const SceneGraph<double>&, const systems::OutputPort<double>&,
-                lcm::DrakeLcmInterface*>(&ConnectDrakeVisualizer),
-    py::arg("builder"), py::arg("scene_graph"), py::arg
-            ("pose_bundle_output_port"), py::arg("lcm") = nullptr,
-    // Keep alive, ownership: `return` keeps `builder` alive.
-    py::keep_alive<0, 1>(),
-    // TODO(eric.cousineau): Figure out why this is necessary (#9398).
-    py_reference, doc.ConnectDrakeVisualizer.doc);
-  m.def("DispatchLoadMessage", &DispatchLoadMessage,
-        py::arg("scene_graph"), py::arg("lcm"), doc.DispatchLoadMessage.doc);
+        py::overload_cast<
+            systems::DiagramBuilder<double>*, const SceneGraph<double>&,
+            const systems::OutputPort<double>&, lcm::DrakeLcmInterface*>(
+            &ConnectDrakeVisualizer),
+        py::arg("builder"), py::arg("scene_graph"),
+        py::arg("pose_bundle_output_port"), py::arg("lcm") = nullptr,
+        // Keep alive, ownership: `return` keeps `builder` alive.
+        py::keep_alive<0, 1>(),
+        // TODO(eric.cousineau): Figure out why this is necessary (#9398).
+        py_reference, doc.ConnectDrakeVisualizer.doc);
+  m.def("DispatchLoadMessage", &DispatchLoadMessage, py::arg("scene_graph"),
+        py::arg("lcm"), doc.DispatchLoadMessage.doc);
 
   // PenetrationAsPointPair
   py::class_<PenetrationAsPointPair<T>>(m, "PenetrationAsPointPair")
-    .def(py::init<>(), doc.PenetrationAsPointPair.ctor.doc_3)
-    .def_readwrite("id_A", &PenetrationAsPointPair<T>::id_A,
-      doc.PenetrationAsPointPair.id_A.doc)
-    .def_readwrite("id_B", &PenetrationAsPointPair<T>::id_B,
-      doc.PenetrationAsPointPair.id_B.doc)
-    .def_readwrite("p_WCa", &PenetrationAsPointPair<T>::p_WCa,
-      doc.PenetrationAsPointPair.p_WCa.doc)
-    .def_readwrite("p_WCb", &PenetrationAsPointPair<T>::p_WCb,
-      doc.PenetrationAsPointPair.p_WCb.doc)
-    .def_readwrite("nhat_BA_W", &PenetrationAsPointPair<T>::nhat_BA_W,
-      doc.PenetrationAsPointPair.nhat_BA_W.doc)
-    .def_readwrite("depth", &PenetrationAsPointPair<T>::depth,
-      doc.PenetrationAsPointPair.depth.doc);
+      .def(py::init<>(), doc.PenetrationAsPointPair.ctor.doc_3)
+      .def_readwrite("id_A", &PenetrationAsPointPair<T>::id_A,
+                     doc.PenetrationAsPointPair.id_A.doc)
+      .def_readwrite("id_B", &PenetrationAsPointPair<T>::id_B,
+                     doc.PenetrationAsPointPair.id_B.doc)
+      .def_readwrite("p_WCa", &PenetrationAsPointPair<T>::p_WCa,
+                     doc.PenetrationAsPointPair.p_WCa.doc)
+      .def_readwrite("p_WCb", &PenetrationAsPointPair<T>::p_WCb,
+                     doc.PenetrationAsPointPair.p_WCb.doc)
+      .def_readwrite("nhat_BA_W", &PenetrationAsPointPair<T>::nhat_BA_W,
+                     doc.PenetrationAsPointPair.nhat_BA_W.doc)
+      .def_readwrite("depth", &PenetrationAsPointPair<T>::depth,
+                     doc.PenetrationAsPointPair.depth.doc);
 }
 
 }  // namespace

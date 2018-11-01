@@ -39,7 +39,7 @@ class CustomAdder(LeafSystem):
     # Reimplements `Adder`.
     def __init__(self, num_inputs, size):
         LeafSystem.__init__(self)
-        for i in xrange(num_inputs):
+        for i in range(num_inputs):
             self._DeclareInputPort(kUseDefaultName, PortDataType.kVectorValued,
                                    size)
         self._DeclareVectorOutputPort("sum", BasicVector(size), self._calc_sum)
@@ -49,7 +49,7 @@ class CustomAdder(LeafSystem):
         # since they are not stored densely.
         sum = sum_data.get_mutable_value()
         sum[:] = 0
-        for i in xrange(context.get_num_input_ports()):
+        for i in range(context.get_num_input_ports()):
             input_vector = self.EvalVectorInput(context, i)
             sum += input_vector.get_value()
 
@@ -268,9 +268,22 @@ class TestCustom(unittest.TestCase):
         self.assertTrue(
             context.get_continuous_state_vector() is
             context.get_mutable_continuous_state_vector())
+        self.assertEqual(context.get_num_discrete_state_groups(), 1)
         self.assertTrue(
             context.get_discrete_state_vector() is
             context.get_mutable_discrete_state_vector())
+        self.assertTrue(
+            context.get_discrete_state(0) is
+            context.get_discrete_state_vector())
+        self.assertTrue(
+            context.get_discrete_state(0) is
+            context.get_discrete_state().get_vector(0))
+        self.assertTrue(
+            context.get_mutable_discrete_state(0) is
+            context.get_mutable_discrete_state_vector())
+        self.assertTrue(
+            context.get_mutable_discrete_state(0) is
+            context.get_mutable_discrete_state().get_vector(0))
         self.assertEqual(context.get_num_abstract_states(), 1)
         self.assertTrue(
             context.get_abstract_state() is
@@ -343,9 +356,8 @@ class TestCustom(unittest.TestCase):
             class CustomAbstractSystem(LeafSystem_[T]):
                 def __init__(self):
                     LeafSystem_[T].__init__(self)
-                    test_input_type = AbstractValue.Make(
-                        default_value)
-                    self.input_port = self._DeclareAbstractInputPort("in")
+                    self.input_port = self._DeclareAbstractInputPort(
+                        "in", AbstractValue.Make(default_value))
                     self.output_port = self._DeclareAbstractOutputPort(
                         "out",
                         lambda: AbstractValue.Make(default_value),
@@ -371,3 +383,23 @@ class TestCustom(unittest.TestCase):
             system.CalcOutput(context, output)
             value = output.get_data(0)
             self.assertEqual(value.get_value(), expected_output_value)
+
+    def test_deprecated_abstract_input_port(self):
+        # A system that takes a Value[object] on its input, and parses it to a
+        # float on its output.
+        class ParseFloatSystem(LeafSystem_[float]):
+            def __init__(self):
+                LeafSystem_[float].__init__(self)
+                self._DeclareAbstractInputPort("in")
+                self._DeclareVectorOutputPort("out", BasicVector(1), self._Out)
+
+            def _Out(self, context, y_data):
+                py_obj = self.EvalAbstractInput(context, 0).get_value()
+                y_data.SetAtIndex(0, float(py_obj))
+
+        system = ParseFloatSystem()
+        context = system.CreateDefaultContext()
+        output = system.AllocateOutput()
+        context.FixInputPort(0, AbstractValue.Make("22.2"))
+        system.CalcOutput(context, output)
+        self.assertEqual(output.get_vector_data(0).GetAtIndex(0), 22.2)

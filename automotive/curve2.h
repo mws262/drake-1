@@ -23,7 +23,8 @@ namespace automotive {
 ///
 /// They are already available to link against in the containing library.
 ///
-/// TODO(jwnimmer-tri) We will soon trace the path using a spline, but
+/// <!-- TODO(jwnimmer-tri) -->
+/// @note We will soon trace the path using a spline, but
 /// for now it's easiest to just interpolate straight segments, as a
 /// starting point.  Callers should not yet rely on <em>how</em> we
 /// are traversing between the waypoints.
@@ -72,8 +73,11 @@ class Curve2 {
   /// The @p position_dot derivative, when evaluated exactly at a waypoint,
   /// will be congruent with the direction of one of the (max two) segments
   /// that neighbor the waypoint.  (At the first and last waypoints, there
-  /// is only one neighboring segment.)  TODO(jwnimmer-tri) This will no
+  /// is only one neighboring segment.)
+  /// @cond
+  /// TODO(jwnimmer-tri) This will no
   /// longer be true once this class uses a spline.
+  /// @endcond
   PositionResult GetPosition(const T& path_distance) const {
     using std::max;
 
