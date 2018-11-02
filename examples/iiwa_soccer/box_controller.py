@@ -197,8 +197,6 @@ class BoxController(LeafSystem):
     # Compute the contribution from force elements.
     robot_tree = self.robot_plant.tree()
     link_wrenches = MultibodyForces(robot_tree)
-    pcache = robot_tree.CalcPositionKinematicsCache(robot_context)
-    vcache = robot_tree.CalcVelocityKinematicsCache(robot_context, pcache)
 
     # Compute the external forces.
     fext = -robot_tree.CalcInverseDynamics(
@@ -358,8 +356,6 @@ class BoxController(LeafSystem):
 
     # Compute the contribution from force elements.
     link_wrenches = MultibodyForces(robot_tree)
-    pcache = robot_tree.CalcPositionKinematicsCache(robot_context)
-    vcache = robot_tree.CalcVelocityKinematicsCache(robot_context, pcache)
 
     # Compute the external forces.
     fext = -robot_tree.CalcInverseDynamics(
@@ -408,8 +404,6 @@ class BoxController(LeafSystem):
     # Compute the contribution from force elements.
     robot_tree = self.robot_plant.tree()
     link_wrenches = MultibodyForces(robot_tree)
-    pcache = robot_tree.CalcPositionKinematicsCache(robot_context)
-    vcache = robot_tree.CalcVelocityKinematicsCache(robot_context)
 
     # Compute the external forces.
     fext = -robot_tree.CalcInverseDynamics(
