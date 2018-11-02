@@ -127,6 +127,7 @@ modules should not re-define this alias at global scope.
 may use `using namespace drake::systems::sensors` within functions or
 anonymous namespaces. Avoid `using namespace` directives otherwise.
 
+@anchor PydrakeDoc
 ## Documentation
 
 Drake uses a modified version of `mkdoc.py` from `pybind11`, where `libclang`
@@ -151,6 +152,14 @@ An example of incorporating docstrings:
                doc.RigidTransform.set_rotation.doc)
       ...
     }
+
+To view the documentation rendered in Sphinx:
+
+    bazel run //bindings/pydrake/doc:serve_sphinx [-- --browser=false]
+
+@note Drake's online Python documentation is generated on Ubuntu Bionic, and it
+is suggested to preview documentation using this platform. Other platforms may
+have slightly different generated documentation.
 
 To see what indices are present, generate and open the docstring header:
 
@@ -181,6 +190,7 @@ the top of its definition, and then defines a custom constructor below this,
 the custom constructor's documentation will be accessible as
 `{symbol}.ctor.doc_3`.
 
+@anchor PydrakeKeepAlive
 ## Keep Alive Behavior
 
 `py::keep_alive` is used heavily throughout this code. For more
@@ -200,10 +210,12 @@ objects from one container to another (e.g. transferring all `System`s
 from `DiagramBuilder` to `Diagram` when calling
 `DiagramBuilder.Build()`).
 
+@anchor PydrakeOverloads
 ## Function Overloads
 
 To bind function overloads, please try the following (in order):
-- `py::overload_cast<Args>(func)`: See [the pybind11 documentation](http://pybind11.readthedocs.io/en/stable/classes.html#overloaded-methods).
+- `py::overload_cast<Args>(func)`: See [the pybind11
+documentation](http://pybind11.readthedocs.io/en/stable/classes.html#overloaded-methods).
 This works about 80% of the time.
 - `pydrake::overload_cast_explicit<Return, Args...>(func)`: When
 `py::overload_cast` does not work (not always guaranteed to work).
@@ -232,6 +244,7 @@ Some aliases are provided; prefer these to the full spellings.
 this may create ambiguous aliases (especially for GCC). Instead, consider
 an alias.
 
+@anchor PydrakeBazelDebug
 # Interactive Debugging with Bazel
 
 If you would like to interactively debug binding code (using IPython for
@@ -284,8 +297,7 @@ const auto py_reference = py::return_value_policy::reference;
 /// Used when returning references to objects that are internally owned by
 /// `self`. Implies both `py_reference` and `py::keep_alive<0, 1>`, which
 /// implies "Keep alive, reference: `return` keeps` self` alive".
-const auto py_reference_internal =
-    py::return_value_policy::reference_internal;
+const auto py_reference_internal = py::return_value_policy::reference_internal;
 
 // Implementation for `overload_cast_explicit`. We must use this structure so
 // that we can constrain what is inferred. Otherwise, the ambiguity confuses
@@ -309,6 +321,32 @@ struct overload_cast_impl {
 /// `py::overload_cast<Args...>` fails to infer the Return argument.
 template <typename Return, typename... Args>
 constexpr auto overload_cast_explicit = overload_cast_impl<Return, Args...>{};
+
+/// Executes Python code to introduce additional symbols for a given module.
+/// For a module with local name `{name}`, the code executed will be
+/// `_{name}_extra.py`. See #9599 for relevant background.
+inline void ExecuteExtraPythonCode(py::module m) {
+  py::module::import("pydrake").attr("_execute_extra_python_code")(m);
+}
+
+#if PY_MAJOR_VERSION >= 3
+// The following works around pybind11 modules getting reconstructed /
+// reimported in Python3. See pybind/pybind11#1559 for more details.
+// Use this ONLY when necessary (e.g. when using a utility method which imports
+// the module, within the module itself).
+#define PYDRAKE_PREVENT_PYTHON3_MODULE_REIMPORT(variable)                 \
+  {                                                                       \
+    static py::handle variable##_original;                                \
+    if (variable##_original) {                                            \
+      variable = py::reinterpret_borrow<py::module>(variable##_original); \
+      return;                                                             \
+    } else {                                                              \
+      variable##_original = variable;                                     \
+    }                                                                     \
+  }
+#else  // PY_MAJOR_VERSION >= 3
+#define PYDRAKE_PREVENT_PYTHON3_MODULE_REIMPORT(variable)
+#endif  // PY_MAJOR_VERSION >= 3
 
 }  // namespace pydrake
 }  // namespace drake

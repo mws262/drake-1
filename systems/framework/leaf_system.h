@@ -76,6 +76,100 @@ static T GetNextSampleTime(
 /// A superclass template that extends System with some convenience utilities
 /// that are not applicable to Diagrams.
 ///
+/// <h2>Designing discrete systems</h2>
+/// Drake has been designed to admit discrete systems, which are modeled by
+/// difference equations, in addition to continuous systems (modeled by ordinary
+/// differential equations). A simple difference equation is:
+/// @verbatim
+/// x[n+1] = x[n] + 1
+/// @endverbatim
+/// where `x` ∈ ℝ is the discrete variable ("discrete" refers to the
+/// countability of the elements of the sequence, x[1], ..., x[n] and not the
+/// values that x can take) and `n` ∈ ℤ is the variable iterate. The
+/// initial conditions of the difference equation are usually denoted `x[0]`.
+/// We will use this difference equation above for pedagogical purposes.
+///
+/// In Drake, discrete systems possess one or more discrete variables
+/// (DiscreteValues) and are usually updated at a specified periodicity (which
+/// we will denote `h`) as time advances. For example, the following class
+/// describes a simple discrete system whose evolution is described by the above
+/// difference equation:
+/// @code
+/// class SimpleDiscreteSystem : public LeafSystem<double> {
+///  public:
+///   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SimpleDiscreteSystem)
+///   SimpleDiscreteSystem() {
+///     this->DeclarePeriodicDiscreteUpdate(kPeriod, kOffset);
+///     this->DeclareDiscreteState(1 /* single state variable */);
+///   }
+///
+///  private:
+///   void DoCalcDiscreteVariableUpdates(
+///       const Context<double>& context,
+///       const std::vector<const DiscreteUpdateEvent<double>*>&,
+///       DiscreteValues<double>* x_next) const override {
+///     const double x = context.get_discrete_state()[0];
+///     (*x_next)[0] = x + 1;
+///   }
+///   const double kPeriod = 1.0;  // Update every second (h=1).
+///   const double kOffset = 1.0;  // First update is at one second.
+/// };
+/// @endcode
+/// Using time in place of iteration count allows Drake to
+/// model the evolution of hybrid continuous/discrete systems using a single
+/// independent variable (time). But this decision gives rise to particular
+/// implications which we will now describe.
+///
+/// <h3>(a) Discrete variables take on two values at their update times</h3>
+/// The discrete system represented in our pedagogical example takes on two
+/// values at `t = 1.0`: `x[0]` (pre-update `x`) and `x[1]` (post-update `x`).
+/// We distinguish between pre-update and post-update times using `t⁻` and `t⁺`,
+/// respectively. Likewise, we can distinguish between the value of `x` at pre-
+/// and post-update times as `x(1.0⁻) = x[0]` and `x(1.0⁺) = x[1]`. The
+/// parenthesis notation refers to the value of the variable at a _time_ while
+/// the bracket notation refers to the value of the variable at an _iteration_.
+///
+/// <h3>(b) Should the first update be at time zero?</h3>
+/// The discrete system `x[n+1] = x[n] + 1` can be modeled two different ways
+/// (resulting in slightly different evolutions) in Drake: the first update can
+/// happen at time zero or it can happen at time `h`. The two sequences below
+/// show the result of applying both strategies to `x[0] = x(0⁻) = 0`.
+/// @verbatim
+/// x(0⁺) = 1, x(1⁺) = 2, ..., x(i⁺) = i + 1    (first update at time zero)
+/// x(1⁺) = 1, x(2⁺) = 2, ..., x(i⁺) = i        (first update at time h)
+/// @endverbatim
+/// Note that the first element in each sequence is `x[1]`, the second `x[2]`,
+/// etc. Although the aggregate behavior differs, the two sequences do match
+/// at the pre-update time for the first sequence and the post-update time of
+/// the second sequence, i.e., `x(1⁻)` {first} `= x(1⁺)` {second}` = 1`.
+///
+/// In order to understand the full implications of the choice of update
+/// time, we must examine how discrete and continuous systems interact.
+/// Consider the hybrid continuous-discrete system: `x[n+1] = x[n] + u(t)` where
+/// `h = 1`, `x[0] = 0`, and `u(t) = t`. Applying the two strategies to
+/// initial conditions `x[0] = x(0⁻) = 0` (i.e., advancing the system through
+/// time using Drake's Simulator)  yields:
+/// @verbatim
+/// x(0⁺) = 0, x(1⁺) = 1, x(2⁺) = 3 ...        (first update at time zero)
+/// x(1⁺) = 1, x(2⁺) = 3, x(3⁺) = 6 ...        (first update at time h)
+/// @endverbatim
+/// See the class documentation for Simulator for a detailed understanding of
+/// the stepping process.
+///
+/// Examining the two pedagogical examples, the following characteristics
+/// should become apparent.
+///
+/// _For the case of updates starting at time zero_:
+/// 1. Advancing time and state to that at `t = 1e-16` results in the discrete
+///    value being advanced to `x[1]`.
+/// 2. The input is evaluated at the left end of each discrete interval, e.g.,
+///    x(0⁺) is computed using u(0).
+///
+/// _For the case of updates starting at time `h`_:
+/// 1. The discrete value is only advanced to `x[1]` when `t=h`.
+/// 2. The input is evaluated at the right end of each interval, e.g.,
+///    x(h⁺) is computed using u(h).
+///
 /// @tparam T The vector element type, which must be a valid Eigen scalar.
 template <typename T>
 class LeafSystem : public System<T> {
@@ -397,44 +491,6 @@ class LeafSystem : public System<T> {
     for (const Event<T>* event : next_events) {
       event->add_to_composite(events);
     }
-  }
-
-  /// Allocates a vector that is suitable as an input value for @p input_port.
-  /// The default implementation in this class either clones the model_vector
-  /// (if the port was declared via DeclareVectorInputPort) or else allocates a
-  /// BasicVector (if the port was declared via DeclareInputPort(kVectorValued,
-  /// size).  Subclasses can override this method if the default behavior is
-  /// not sufficient.
-  BasicVector<T>* DoAllocateInputVector(
-      const InputPort<T>& input_port) const override {
-    std::unique_ptr<BasicVector<T>> model_result =
-        model_input_values_.CloneVectorModel<T>(input_port.get_index());
-    if (model_result) {
-      return model_result.release();
-    }
-    return new BasicVector<T>(input_port.size());
-  }
-
-  /// Allocates an AbstractValue suitable as an input value for @p input_port.
-  /// The default implementation in this class either clones the model_value
-  /// (if the port was declared via DeclareAbstractInputPort) or else aborts.
-  ///
-  /// Subclasses with abstract input ports must either provide a model_value
-  /// when declaring the port, or else override this method.
-  AbstractValue* DoAllocateInputAbstract(
-      const InputPort<T>& input_port) const override {
-    std::unique_ptr<AbstractValue> model_result =
-        model_input_values_.CloneModel(input_port.get_index());
-    if (model_result) {
-      return model_result.release();
-    }
-    throw std::logic_error(fmt::format(
-        "System::AllocateInputAbstract(): a System with abstract input ports "
-        "should pass a model_value to DeclareAbstractInputPort, or else must "
-        "override DoAllocateInputAbstract; the input port[{}] named '{}' did "
-        "not do either one (System {})",
-        input_port.get_index(), input_port.get_name(),
-        this->GetSystemPathname()));
   }
 
   /// Emits a graphviz fragment for this System. Leaf systems are visualized as
@@ -856,9 +912,8 @@ class LeafSystem : public System<T> {
 
   /// Declares a vector-valued input port using the given @p model_vector.
   /// This is the best way to declare LeafSystem input ports that require
-  /// subclasses of BasicVector.  The port's size will be model_vector.size(),
-  /// and LeafSystem's default implementation of DoAllocateInputVector will be
-  /// model_vector.Clone(). If the port is intended to model a random noise or
+  /// subclasses of BasicVector.  The port's size and type will be the same as
+  /// model_vector. If the port is intended to model a random noise or
   /// disturbance input, @p random_type can (optionally) be used to label it
   /// as such.  If the @p model_vector declares any
   /// VectorBase::CalcInequalityConstraint() constraints, they will be
@@ -883,20 +938,20 @@ class LeafSystem : public System<T> {
                                   kVectorValued, size, random_type);
   }
 
-  // Avoid shadowing out the no-arg DeclareAbstractInputPort().
+  // Avoid shadowing out the no-arg DeclareAbstractInputPort().  (This line
+  // should be removed when the deprecated base class methods disappear.)
   using System<T>::DeclareAbstractInputPort;
 
   /// Declares an abstract-valued input port using the given @p model_value.
   /// This is the best way to declare LeafSystem abstract input ports.
-  /// LeafSystem's default implementation of DoAllocateInputAbstract will be
-  /// model_value.Clone().
   ///
   /// @see System::DeclareInputPort() for more information.
   const InputPort<T>& DeclareAbstractInputPort(
       std::string name, const AbstractValue& model_value) {
     const int next_index = this->get_num_input_ports();
     model_input_values_.AddModel(next_index, model_value.Clone());
-    return this->DeclareAbstractInputPort(NextInputPortName(std::move(name)));
+    return this->DeclareInputPort(NextInputPortName(std::move(name)),
+                                  kAbstractValued, 0 /* size */);
   }
   //@}
 
@@ -1642,6 +1697,26 @@ class LeafSystem : public System<T> {
  private:
   using SystemBase::NextInputPortName;
   using SystemBase::NextOutputPortName;
+
+  // Either clones the model_value, or else for vector ports allocates a
+  // BasicVector, or else for abstract ports throws an exception.
+  std::unique_ptr<AbstractValue> DoAllocateInput(
+      const InputPort<T>& input_port) const final {
+    std::unique_ptr<AbstractValue> model_result =
+        model_input_values_.CloneModel(input_port.get_index());
+    if (model_result) {
+      return model_result;
+    }
+    if (input_port.get_data_type() == kVectorValued) {
+      return std::make_unique<Value<BasicVector<T>>>(input_port.size());
+    }
+    throw std::logic_error(fmt::format(
+        "System::AllocateInputAbstract(): a System with abstract input ports "
+        "must pass a model_value to DeclareAbstractInputPort; the port[{}] "
+        "named '{}' did not do so (System {})",
+        input_port.get_index(), input_port.get_name(),
+        this->GetSystemPathname()));
+  }
 
   std::map<PeriodicEventData, std::vector<const Event<T>*>,
       PeriodicEventDataComparator> DoGetPeriodicEvents() const override {

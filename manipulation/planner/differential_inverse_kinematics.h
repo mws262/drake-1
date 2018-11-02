@@ -9,9 +9,10 @@
 
 #include "drake/common/copyable_unique_ptr.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/drake_optional.h"
 #include "drake/common/eigen_types.h"
-#include "drake/multibody/multibody_tree/multibody_tree.h"
+#include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
 #include "drake/multibody/rigid_body_tree.h"
 #include "drake/solvers/mathematical_program.h"
 
@@ -225,11 +226,41 @@ class DifferentialInverseKinematicsParameters {
 };
 
 /**
- * Computes a generalized velocity v, s.t. J * v has the same direction as
- * V, and the difference between |V| and |J * v| is minimized while all
+ * Computes a generalized velocity v_next, via the following
+ * MathematicalProgram:
+ *
+ *   min_{v_next,alpha}   100 * | alpha - |V| |^2
+ *                        // iff J.rows() < J.cols(), then
+ *                          + | q_current + v_next*dt - q_nominal |^2
+ *
+ *   s.t. J*v_next = alpha * V / |V|  // J*v_next has the same direction as V
+ *        joint_lim_min <= q_current + v_next*dt <= joint_lim_max
+ *        joint_vel_lim_min <= v_next <= joint_vel_lim_max
+ *        joint_accel_lim_min <= (v_next - v_current)/dt <=
+ *          joint_accel_lim_max
+ *        for all i > J.rows(),
+ *          -unconstrained_vel_lim <= S.col(i)' v_next <= unconstrained_vel_lim
+ *          where J = UΣS' is the SVD, with the singular values in decreasing
+ *          order.  Note that the constraint is imposed on each column
+ *          independently.
+ *
+ *        and any additional linear constraints added via
+ *          AddLinearVelocityConstraint() in the
+ *          DifferentialInverseKinematicsParameters.
+ *   where J.rows() == V.size() and
+ *   J.cols() == v_current.size() == q_current.size() == v_next.size().  V
+ *   can have any size, with each element representing a constraint on the
+ *   solution (6 constraints specifying an end-effector pose is typical, but
+ *   not required).
+ *
+ * Intuitively, this finds a v_next such that J*v_next is in the same direction
+ * as V, and the difference between |V| and |J * v_next| is minimized while all
  * constraints in @p parameters are satisfied as well. If the problem is
- * redundant, a secondary objective to minimize |q_current + v * dt - q_nominal|
- * is added to the problem. It is possible that the solver is unable to find
+ * redundant, a secondary objective to minimize
+ *   |q_current + v_next * dt - q_nominal|
+ * is added to the problem.
+ *
+ * It is possible that the solver is unable to find
  * such a generalized velocity while not violating the constraints, in which
  * case, status will be set to kStuck in the returned
  * DifferentialInverseKinematicsResult.
@@ -305,8 +336,9 @@ DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
  * transforming @p V_WE to V_WE_E, then taking the element-wise product between
  * V_WE_E and the gains (specified in frame E) in @p parameters, and only
  * selecting the non zero elements. J is computed similarly.
- * @param robot A MultibodyTree model.
- * @param context Contains the current generalized position and velocity.
+ * @param robot A MultibodyPlant model.
+ * @param context Must be the Context of the MultibodyPlant. Contains the
+ * current generalized position and velocity.
  * @param V_WE_desired Desired world frame spatial velocity of @p frame_E.
  * @param frame_E End effector frame.
  * @param parameters Collection of various problem specific constraints and
@@ -315,7 +347,7 @@ DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
  * be set to v, otherwise it will be nullopt.
  */
 DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
-    const multibody::MultibodyTree<double>& robot,
+    const multibody::multibody_plant::MultibodyPlant<double>& robot,
     const systems::Context<double>& context,
     const Vector6<double>& V_WE_desired,
     const multibody::Frame<double>& frame_E,
@@ -328,8 +360,9 @@ DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
  * q_current and v_current are taken from @p cache. V_WE is computed by
  * ComputePoseDiffInCommonFrame(X_WE, X_WE_desired) / dt, where X_WE is computed
  * from @p context, and dt is taken from @p parameters.
- * @param robot A MultibodyTree model.
- * @param context Contains the current generalized position and velocity.
+ * @param robot A MultibodyPlant model.
+ * @param context Must be the Context of the MultibodyPlant. Contains the
+ * current generalized position and velocity.
  * @param X_WE_desired Desired pose of @p frame_E in the world frame.
  * @param frame_E End effector frame.
  * @param parameters Collection of various problem specific constraints and
@@ -337,6 +370,28 @@ DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
  * @return If the solver successfully finds a solution, joint_velocities will
  * be set to v, otherwise it will be nullopt.
  */
+DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
+    const multibody::multibody_plant::MultibodyPlant<double>& robot,
+    const systems::Context<double>& context,
+    const Isometry3<double>& X_WE_desired,
+    const multibody::Frame<double>& frame_E,
+    const DifferentialInverseKinematicsParameters& parameters);
+
+/**
+ * Deprecated: Please use the MultibodyPlant version.
+ */
+DRAKE_DEPRECATED("Please use the MultibodyPlant version.")
+DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
+    const multibody::MultibodyTree<double>& robot,
+    const systems::Context<double>& context,
+    const Vector6<double>& V_WE_desired,
+    const multibody::Frame<double>& frame_E,
+    const DifferentialInverseKinematicsParameters& parameters);
+
+/**
+ * Deprecated: Please use the MultibodyPlant version.
+ */
+DRAKE_DEPRECATED("Please use the MultibodyPlant version.")
 DifferentialInverseKinematicsResult DoDifferentialInverseKinematics(
     const multibody::MultibodyTree<double>& robot,
     const systems::Context<double>& context,

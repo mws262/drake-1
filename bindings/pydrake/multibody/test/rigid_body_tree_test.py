@@ -120,8 +120,8 @@ class TestRigidBodyTree(unittest.TestCase):
         # - Check QDotToVelocity and VelocityToQDot methods
         q = tree.getZeroConfiguration()
         v_real = np.zeros(num_v)
-        q_ad = np.array(map(AutoDiffXd, q))
-        v_real_ad = np.array(map(AutoDiffXd, v_real))
+        q_ad = np.array(list(map(AutoDiffXd, q)))
+        v_real_ad = np.array(list(map(AutoDiffXd, v_real)))
 
         kinsol = tree.doKinematics(q)
         kinsol_ad = tree.doKinematics(q_ad)
@@ -211,6 +211,18 @@ class TestRigidBodyTree(unittest.TestCase):
                                    expressed_in_body_or_frame_ind=0)
         self.assertEqual(twist.shape[0], 6)
 
+    def test_accessor_api(self):
+        tree = RigidBodyTree(FindResourceOrThrow(
+            "drake/examples/simple_four_bar/FourBar.urdf"))
+        bodies = tree.get_bodies()
+        self.assertGreater(len(bodies), 0)
+        for body in bodies:
+            self.assertIsInstance(body, RigidBody)
+        frames = tree.get_frames()
+        self.assertGreater(len(frames), 0)
+        for frame in frames:
+            self.assertIsInstance(frame, RigidBodyFrame)
+
     def test_constraint_api(self):
         tree = RigidBodyTree(FindResourceOrThrow(
             "drake/examples/simple_four_bar/FourBar.urdf"))
@@ -224,8 +236,8 @@ class TestRigidBodyTree(unittest.TestCase):
 
         q = tree.getZeroConfiguration()
         v = np.zeros(num_q)
-        q_ad = np.array(map(AutoDiffXd, q))
-        v_ad = np.array(map(AutoDiffXd, v))
+        q_ad = np.array(list(map(AutoDiffXd, q)))
+        v_ad = np.array(list(map(AutoDiffXd, v)))
         kinsol = tree.doKinematics(q, v)
         kinsol_ad = tree.doKinematics(q_ad, v_ad)
 
@@ -316,8 +328,8 @@ class TestRigidBodyTree(unittest.TestCase):
         # Update kinematics.
         kinsol = tree.doKinematics(q, v)
         # AutoDiff
-        q_ad = np.array(map(AutoDiffXd, q))
-        v_ad = np.array(map(AutoDiffXd, v))
+        q_ad = np.array(list(map(AutoDiffXd, q)))
+        v_ad = np.array(list(map(AutoDiffXd, v)))
         kinsol_ad = tree.doKinematics(q_ad, v_ad)
         # Sanity checks:
         # - Actuator map.

@@ -65,7 +65,7 @@ endif()
 
 # The version passed to find_package(Bazel) should match the
 # minimum_bazel_version value in the call to versions.check() in WORKSPACE.
-set(MINIMUM_BAZEL_VERSION 0.16.1)
+set(MINIMUM_BAZEL_VERSION 0.18.0)
 find_package(Bazel ${MINIMUM_BAZEL_VERSION} MODULE REQUIRED)
 
 get_filename_component(C_COMPILER_REALPATH "${CMAKE_C_COMPILER}" REALPATH)
@@ -158,6 +158,7 @@ if(APPLE)
   find_program(PYTHON_EXECUTABLE NAMES python2)
 endif()
 
+# TODO(eric.cousineau) Ensure that we can switch between supported versions.
 find_package(PythonInterp 2.7 EXACT MODULE REQUIRED)
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
