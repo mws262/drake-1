@@ -1,9 +1,8 @@
 # TODO: populate the mapping from geometry IDs to bodies.
 # TODO: add bindings for set_/get_X_in_array()
-# TODO: add bindings for kinematics computations
 # TODO: add bindings for actuation and weighting matrices
-# TODO: add bindings for velocity/qdot mapping
-
+# TODO: implement UpdateRobotAndBallConfigurationForGeometricQueries
+# TODO: address remaining TODOs
 import numpy as np
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis)
 
@@ -198,10 +197,8 @@ class BoxController(LeafSystem):
     # Compute the contribution from force elements.
     robot_tree = self.robot_plant.tree()
     link_wrenches = MultibodyForces(robot_tree)
-    pcache = PositionKinematicsCache(robot_tree.get_topology())
-    vcache = VelocityKinematicsCache(robot_tree.get_topology())
-    robot_tree.CalcPositionKinematicsCache(robot_context, &pcache)
-    robot_tree.CalcVelocityKinematicsCache(robot_context, pcache, &vcache)
+    pcache = robot_tree.CalcPositionKinematicsCache(robot_context)
+    vcache = robot_tree.CalcVelocityKinematicsCache(robot_context, pcache)
 
     # Compute the external forces.
     fext = -robot_tree.CalcInverseDynamics(
@@ -361,10 +358,8 @@ class BoxController(LeafSystem):
 
     # Compute the contribution from force elements.
     link_wrenches = MultibodyForces(robot_tree)
-    PositionKinematicsCache<double> pcache(robot_tree.get_topology())
-    VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
-    robot_tree.CalcPositionKinematicsCache(*robot_context, &pcache)
-    robot_tree.CalcVelocityKinematicsCache(*robot_context, pcache, &vcache)
+    pcache = robot_tree.CalcPositionKinematicsCache(robot_context)
+    vcache = robot_tree.CalcVelocityKinematicsCache(robot_context, pcache)
 
     # Compute the external forces.
     fext = -robot_tree.CalcInverseDynamics(
@@ -412,11 +407,9 @@ class BoxController(LeafSystem):
 
     # Compute the contribution from force elements.
     robot_tree = self.robot_plant.tree()
-    multibody::MultibodyForces<double> link_wrenches(robot_tree)
-    PositionKinematicsCache<double> pcache(robot_tree.get_topology())
-    VelocityKinematicsCache<double> vcache(robot_tree.get_topology())
-    robot_tree.CalcPositionKinematicsCache(robot_context, &pcache)
-    robot_tree.CalcVelocityKinematicsCache(robot_context, pcache, &vcache)
+    link_wrenches = MultibodyForces(robot_tree)
+    pcache = robot_tree.CalcPositionKinematicsCache(robot_context)
+    vcache = robot_tree.CalcVelocityKinematicsCache(robot_context)
 
     # Compute the external forces.
     fext = -robot_tree.CalcInverseDynamics(
@@ -650,9 +643,10 @@ class BoxController(LeafSystem):
       q_robot_des = plan.GetRobotQQdotAndQddot(
           context.get_time())[0:nv_robot()-1]
 
-      # Get the current robot configuration.
+      # TODO: Fix this. Get the current robot configuration.
       x = context.get_continuous_state_vector()
-      q_robot = self.robot_and_ball_plant.tree().get_positions_from_array(robot_instance, x)
+      q_robot = self.robot_and_ball_plant.tree().get_positions_from_array(
+        robot_instance, x)
       derivatives.get_mutable_vector().SetFromVector(q_robot_des - q_robot)
 
   # Gets the ball body from the robot and ball tree.

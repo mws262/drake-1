@@ -229,12 +229,42 @@ void init_module(py::module m) {
              doc.MultibodyForces.ctor.doc);
   }
 
+  // PositionKinematicsCache.
+  {
+    using Class = PositionKinematicsCache<T>;
+    py::class_<Class> cls(m, "PositionKinematicsCache");
+    cls.def(py::init<MultibodyTreeTopology&>(), py::arg("topology"));
+  }
+
+  // VelocityKinematicsCache.
+  {
+    using Class = VelocityKinematicsCache<T>;
+    py::class_<Class> cls(m, "VelocityKinematicsCache");
+    cls.def(py::init<MultibodyTreeTopology&>(), py::arg("topology"));
+  }
+
   // Tree.
   {
     // N.B. Pending a concrete direction on #9366, a minimal subset of the
     // `MultibodyTree` API will be exposed.
     using Class = MultibodyTree<T>;
     py::class_<Class>(m, "MultibodyTree", doc.MultibodyTree.doc)
+        .def("CalcPositionKinematicsCache",
+             [](const MultibodyTree<T>* self, const Context<T>& context) ->
+                 PositionKinematicsCache<T> {
+          PositionKinematicsCache<T> cache(self->get_topology());
+          self->CalcPositionKinematicsCache(context, &cache);
+          return cache;
+        }, py::arg("context"))
+        .def("CalcVelocityKinematicsCache",
+             [](const MultibodyTree<T>* self, const Context<T>& context) ->
+             VelocityKinematicsCache<T> {
+               PositionKinematicsCache<T> pcache(self->get_topology());
+               self->CalcPositionKinematicsCache(context, &pcache);
+               VelocityKinematicsCache<T> vcache(self->get_topology());
+               self->CalcVelocityKinematicsCache(context, pcache, &vcache);
+               return vcache;
+             }, py::arg("context"))//        .def("CalcVelocityKinematicsCache",
         .def("CalcRelativeTransform", &Class::CalcRelativeTransform,
              py::arg("context"), py::arg("frame_A"), py::arg("frame_B"),
              doc.MultibodyTree.CalcRelativeTransform.doc)
