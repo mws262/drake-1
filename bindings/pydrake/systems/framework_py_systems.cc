@@ -49,7 +49,6 @@ struct Impl {
     using Base::Base;
     // Expose protected methods for binding.
     using Base::DeclareInputPort;
-    using Base::DeclareAbstractInputPort;
   };
 
   class LeafSystemPublic : public LeafSystem<T> {
@@ -70,6 +69,7 @@ struct Impl {
 
     // Expose protected methods for binding, no need for virtual overrides
     // (ordered by how they are bound).
+    using Base::DeclareAbstractInputPort;
     using Base::DeclareAbstractOutputPort;
     using Base::DeclareVectorOutputPort;
     using Base::DeclarePeriodicPublish;
@@ -254,6 +254,20 @@ struct Impl {
     // knows this is abstract?
     DefineTemplateClassWithDefault<System<T>, PySystem>(
         m, "System", GetPyParam<T>(), doc.SystemBase.doc)
+        .def ("MapVelocityToQDot",
+              [](const System<T>* self, const Context<T>& context,
+                 const Eigen::Ref<const VectorX<T>>& v) -> VectorX<T> {
+      BasicVector<T> output;
+      self->MapVelocityToQDot(context, v, &output);
+      return output.CopyToVector();
+    })
+        .def ("MapQDotToVelocity",
+              [](const System<T>* self, const Context<T>& context,
+                 const Eigen::Ref<const VectorX<T>>& qdot) -> VectorX<T> {
+                BasicVector<T> output;
+                self->MapQDotToVelocity(context, qdot, &output);
+                return output.CopyToVector();
+              })
         .def("set_name", &System<T>::set_name, doc.SystemBase.set_name.doc)
         // Topology.
         .def("get_num_input_ports", &System<T>::get_num_input_ports,
@@ -284,19 +298,6 @@ struct Impl {
                  optional<RandomDistribution>>(&PySystem::DeclareInputPort),
              py_reference_internal, py::arg("type"),
              py::arg("size"), py::arg("random_type") = nullopt)
-        // TODO(jwnimmer-tri) We should add pydrake bindings for the LeafSystem
-        // DeclareAbstractInputPort overload that takes a model_value, and then
-        // deprecate this System overload.
-        .def("_DeclareAbstractInputPort",
-             [](PySystem* self, const std::string& name)
-               -> const InputPort<T>& {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-               return self->DeclareAbstractInputPort(name);
-#pragma GCC diagnostic pop  // pop -Wdeprecated-declarations
-             },
-             py_reference_internal, py::arg("name"),
-          doc.System.DeclareAbstractInputPort.doc)
         // - Feedthrough.
         .def("HasAnyDirectFeedthrough", &System<T>::HasAnyDirectFeedthrough,
              doc.System.HasAnyDirectFeedthrough.doc)
@@ -382,6 +383,28 @@ struct Impl {
       // old-style `py::init`, which is deprecated in Python...
       .def(py::init<SystemScalarConverter>(), py::arg("converter"),
         doc.LeafSystem.ctor.doc_4)
+      .def("_DeclareAbstractInputPort",
+           [](PyLeafSystem* self, const std::string& name,
+              const AbstractValue& model_value)
+           -> const InputPort<T>& {
+             return self->DeclareAbstractInputPort(name, model_value);
+           },
+           py_reference_internal, py::arg("name"), py::arg("model_value"),
+           doc.LeafSystem.DeclareAbstractInputPort.doc)
+        .def("_DeclareAbstractInputPort",
+             [](PyLeafSystem* self, const std::string& name)
+               -> const InputPort<T>& {
+               WarnDeprecated(
+                   "`DeclareAbstractInputPort(self, name)` is deprecated. "
+                   "Please use `(self, name, model_value)` instead.");
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+               Value<py::object> model_value;
+               return self->DeclareAbstractInputPort(name, model_value);
+#pragma GCC diagnostic pop  // pop -Wdeprecated-declarations
+             },
+             py_reference_internal, py::arg("name"),
+          doc.System.DeclareAbstractInputPort.doc_2)
       .def("_DeclareAbstractOutputPort",
           WrapCallbacks([](PyLeafSystem* self, const std::string& name,
                            AllocCallback arg1, CalcCallback arg2) -> auto& {

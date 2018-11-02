@@ -229,12 +229,42 @@ void init_module(py::module m) {
              doc.MultibodyForces.ctor.doc);
   }
 
+  // PositionKinematicsCache.
+  {
+    using Class = PositionKinematicsCache<T>;
+    py::class_<Class> cls(m, "PositionKinematicsCache");
+    cls.def(py::init<MultibodyTreeTopology&>(), py::arg("topology"));
+  }
+
+  // VelocityKinematicsCache.
+  {
+    using Class = VelocityKinematicsCache<T>;
+    py::class_<Class> cls(m, "VelocityKinematicsCache");
+    cls.def(py::init<MultibodyTreeTopology&>(), py::arg("topology"));
+  }
+
   // Tree.
   {
     // N.B. Pending a concrete direction on #9366, a minimal subset of the
     // `MultibodyTree` API will be exposed.
     using Class = MultibodyTree<T>;
     py::class_<Class>(m, "MultibodyTree", doc.MultibodyTree.doc)
+        .def("CalcPositionKinematicsCache",
+             [](const MultibodyTree<T>* self, const Context<T>& context) ->
+                 PositionKinematicsCache<T> {
+          PositionKinematicsCache<T> cache(self->get_topology());
+          self->CalcPositionKinematicsCache(context, &cache);
+          return cache;
+        }, py::arg("context"))
+        .def("CalcVelocityKinematicsCache",
+             [](const MultibodyTree<T>* self, const Context<T>& context) ->
+             VelocityKinematicsCache<T> {
+               PositionKinematicsCache<T> pcache(self->get_topology());
+               self->CalcPositionKinematicsCache(context, &pcache);
+               VelocityKinematicsCache<T> vcache(self->get_topology());
+               self->CalcVelocityKinematicsCache(context, pcache, &vcache);
+               return vcache;
+             }, py::arg("context"))//        .def("CalcVelocityKinematicsCache",
         .def("CalcRelativeTransform", &Class::CalcRelativeTransform,
              py::arg("context"), py::arg("frame_A"), py::arg("frame_B"),
              doc.MultibodyTree.CalcRelativeTransform.doc)
@@ -548,6 +578,9 @@ void init_multibody_plant(py::module m) {
              doc.MultibodyPlant.GetModelInstanceByName.doc);
     // Geometry.
     cls
+        .def("RegisterAsSourceForSceneGraph",
+             &Class::RegisterAsSourceForSceneGraph, py::arg("scene_graph"),
+             doc.MultibodyPlant.RegisterAsSourceForSceneGraph.doc)
         .def("get_source_id", &Class::get_source_id,
              doc.MultibodyPlant.get_source_id.doc)
         .def("get_geometry_query_input_port",
@@ -558,7 +591,9 @@ void init_multibody_plant(py::module m) {
              doc.MultibodyPlant.get_geometry_poses_output_port.doc)
         .def("geometry_source_is_registered",
              &Class::geometry_source_is_registered,
-             doc.MultibodyPlant.geometry_source_is_registered.doc);
+             doc.MultibodyPlant.geometry_source_is_registered.doc)
+        .def("GetBodyFromFrameId", &Class::GetBodyFromFrameId,
+             py_reference_internal, doc.MultibodyPlant.GetBodyFromFrameId.doc);
     // Port accessors.
     cls
         .def("get_actuation_input_port",
@@ -566,9 +601,21 @@ void init_multibody_plant(py::module m) {
                 &Class::get_actuation_input_port),
              py_reference_internal,
              doc.MultibodyPlant.get_actuation_input_port.doc)
+        .def("get_actuation_input_port",
+             overload_cast_explicit<const systems::InputPort<T>&,
+                                    ModelInstanceIndex>(
+                 &Class::get_actuation_input_port),
+             py::arg("model_instance"), py_reference_internal,
+             doc.MultibodyPlant.get_actuation_input_port.doc)
+        .def("get_continuous_state_output_port",
+             overload_cast_explicit<const systems::OutputPort<T>&,
+                                    ModelInstanceIndex>(
+                &Class::get_continuous_state_output_port),
+             py::arg("model_instance"), py_reference_internal,
+             doc.MultibodyPlant.get_continuous_state_output_port.doc)
         .def("get_continuous_state_output_port",
              overload_cast_explicit<const systems::OutputPort<T>&>(
-                &Class::get_continuous_state_output_port),
+                 &Class::get_continuous_state_output_port),
              py_reference_internal,
              doc.MultibodyPlant.get_continuous_state_output_port.doc)
         .def("get_contact_results_output_port",

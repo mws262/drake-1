@@ -2,27 +2,28 @@ import numpy as np
 
 class ManipulationPlan:
 
-  # First seven variables of the vector correspond to robot configuration;
-  # the next seven variables of the vector correspond to joint velocity. The
-  # sole scalar value corresponds to the designated time.
-  self.q_qdot_qddot_robot = [(0.0, np.array([]))]
+  def __init__(self):
+    # First seven variables of the vector correspond to robot configuration;
+    # the next seven variables of the vector correspond to joint velocity. The
+    # sole scalar value corresponds to the designated time.
+    self.q_qdot_qddot_robot = [(0.0, np.array([]))]
 
-  # First three variables: com position; next four variables: quaternion
-  # orientation (qw qx qy qz); next three variables: translational velocity
-  # (expressed in the world frame); next three variables: angular velocity
-  # (expressed in the world frame). The sole scalar value corresponds to the
-  # designated time.
-  self.q_v_vdot_ball = [(0.0, np.array([]))]
+    # First three variables: com position; next four variables: quaternion
+    # orientation (qw qx qy qz); next three variables: translational velocity
+    # (expressed in the world frame); next three variables: angular velocity
+    # (expressed in the world frame). The sole scalar value corresponds to the
+    # designated time.
+    self.q_v_vdot_ball = [(0.0, np.array([]))]
 
-  # Times and indicators of contact / no contact desired between the ball and
-  # the robot. `true` indicates contact desired.
-  self.contact_desired = [(0.0, True)]
+    # Times and indicators of contact / no contact desired between the ball and
+    # the robot. `true` indicates contact desired.
+    self.contact_desired = [(0.0, True)]
 
-  # The planned point of contact between the robot and the ball in the world
-  # frame (first three components), and the time derivative of that point
-  # (next three components). The sole scalar value corresponds to the
-  # designated time.
-  self.contact_kinematics = [(0.0, np.array([]))]
+    # The planned point of contact between the robot and the ball in the world
+    # frame (first three components), and the time derivative of that point
+    # (next three components). The sole scalar value corresponds to the
+    # designated time.
+    self.contact_kinematics = [(0.0, np.array([]))]
 
   # Gets the final time of the plan.
   def end_time():
@@ -32,9 +33,9 @@ class ManipulationPlan:
     if len(q_v_vdot_ball) > 0:
       end_time = max(end_time, q_v_vdot_ball[-1][0])
     if len(contact_desired) > 0:
-      assert end_time >= contact_desired[-1][0])
+      assert end_time >= contact_desired[-1][0]
     if len(contact_kinematics) > 0:
-      assert(end_time >= contact_kinematics[-1][0])
+      assert end_time >= contact_kinematics[-1][0]
     return end_time
 
   # Returns whether it is desired that the robot and ball be in contact at
@@ -106,7 +107,7 @@ class ManipulationPlan:
     #  Make sure there are no NaN's.
     for i in range(len(q_v_vdot_ball)):
       for j in range(len(q_v_vdot_ball[i][1])):
-        assert !math.isnan(q_qdot_qddot_robot[i][1][j])
+        assert not math.isnan(q_qdot_qddot_robot[i][1][j])
 
   def ReadContactPoint(timings_fname, cp_fname, cp_dot_fname):
     kLocationDim = 3;
@@ -140,8 +141,8 @@ class ManipulationPlan:
     str_index = 0
     for i in range(len(contact_kinematics)):
       for j in range(kLocationDim):
-        contact_kinematics[i][1][j + kContactPointVelocityOffest] =
-            float(in_xdot_str[str_index])
+        contact_kinematics[i][1][j + kContactPointVelocityOffset] =\
+          float(in_xdot_str[str_index])
         str_index = str_index + 1
     assert str_index == range(len(contact_kinematics)) * kLocationDim
 
@@ -205,7 +206,7 @@ class ManipulationPlan:
     in_v.close();
 
     #  Read in angular velocities.
-    int kWOffset = 10;
+    kWOffset = 10;
     in_w = file.open(angular_velocity_fname, 'r')
     in_w_str = in_w.read().split()
     str_index = 0
@@ -239,7 +240,7 @@ class ManipulationPlan:
     #  Make sure there are no NaN's.
     for i in range(len(q_v_vdot_ball)):
       for j in range(len(q_v_vdot_ball[i][1])):
-        assert !math.isnan(q_v_vdot_ball[i][1][j])
+        assert not math.isnan(q_v_vdot_ball[i][1][j])
 
     #  Read in the contact indicators.
     in_contact_indicator = file.read(contact_indicator_fname, 'r')
@@ -251,7 +252,7 @@ class ManipulationPlan:
     in_contact_indicator.close();
 
   def SearchBinary(t, vec):
-    int left = 0
+    left = 0
     right = len(vec.size()-1)
     while right - left > 1:
       mid = (left + right)/2;
