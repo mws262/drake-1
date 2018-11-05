@@ -5,7 +5,7 @@ import numpy as np
 from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
-Multiplexer, LcmPublisherSystem)
+Multiplexer, LcmPublisherSystem, MobilizerIndex)
 
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
@@ -66,6 +66,20 @@ def main():
   all_plant.Finalize(scene_graph)
   assert all_plant.geometry_source_is_registered()
 
+  # TODO: remove this.
+  robot_and_ball_context = all_plant.CreateDefaultContext()
+  for i in range(all_plant.tree().num_mobilizers()):
+    index = MobilizerIndex(i)
+    mobilizer = all_plant.tree().get_mobilizer(index)
+    outboard_body = mobilizer.outboard_body()
+    if outboard_body == 'ball':
+        # A match! Set qmobilizer and break.
+        qmobilizer = QuaternionFloatingMobilizer(mobilizer)
+        break
+  print qmobilizer.get_angular_velocity(robot_and_ball_context)
+
+
+
   # Connect MBP and SceneGraph.
   mbw_builder.Connect(
     scene_graph.get_query_output_port(),
@@ -80,15 +94,17 @@ def main():
   # Export useful ports.
   robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
   ball_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(ball_instance_id))
+# TODO: add actuation to the SDF/URDF file and re-enable this.
 #  robot_actuation_input = mbw_builder.ExportInput(all_plant.get_actuation_input_port(robot_instance_id))
 
   # Add the "MultibodyWorld" to the diagram.
-  mbw = builder.AddSystem(mbw_builder.Build()) 
+  mbw = builder.AddSystem(mbw_builder.Build())
 
   # Create a context for MBW.
   mbw_context = mbw.CreateDefaultContext()
 
   # Add control systems.
+
 
   # Gains in cartesian-land.
   k_p = np.ones([3, 1]) * args.kp

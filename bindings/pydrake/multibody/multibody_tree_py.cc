@@ -229,47 +229,21 @@ void init_module(py::module m) {
              doc.MultibodyForces.ctor.doc);
   }
 
-  // PositionKinematicsCache.
-  {
-    using Class = PositionKinematicsCache<T>;
-    py::class_<Class> cls(m, "PositionKinematicsCache");
-    cls.def(py::init<MultibodyTreeTopology&>(), py::arg("topology"));
-  }
-
-  // VelocityKinematicsCache.
-  {
-    using Class = VelocityKinematicsCache<T>;
-    py::class_<Class> cls(m, "VelocityKinematicsCache");
-    cls.def(py::init<MultibodyTreeTopology&>(), py::arg("topology"));
-  }
-
   // Tree.
   {
     // N.B. Pending a concrete direction on #9366, a minimal subset of the
     // `MultibodyTree` API will be exposed.
     using Class = MultibodyTree<T>;
     py::class_<Class>(m, "MultibodyTree", doc.MultibodyTree.doc)
-        .def("CalcPositionKinematicsCache",
-             [](const MultibodyTree<T>* self, const Context<T>& context) ->
-                 PositionKinematicsCache<T> {
-          PositionKinematicsCache<T> cache(self->get_topology());
-          self->CalcPositionKinematicsCache(context, &cache);
-          return cache;
-        }, py::arg("context"))
-        .def("CalcVelocityKinematicsCache",
-             [](const MultibodyTree<T>* self, const Context<T>& context) ->
-             VelocityKinematicsCache<T> {
-               PositionKinematicsCache<T> pcache(self->get_topology());
-               self->CalcPositionKinematicsCache(context, &pcache);
-               VelocityKinematicsCache<T> vcache(self->get_topology());
-               self->CalcVelocityKinematicsCache(context, pcache, &vcache);
-               return vcache;
-             }, py::arg("context"))//        .def("CalcVelocityKinematicsCache",
         .def("CalcRelativeTransform", &Class::CalcRelativeTransform,
              py::arg("context"), py::arg("frame_A"), py::arg("frame_B"),
              doc.MultibodyTree.CalcRelativeTransform.doc)
         .def("num_frames", &Class::num_frames,
              doc.MultibodyTree.num_frames.doc)
+        .def("num_mobilizers", &Class::num_mobilizers,
+             doc.MultibodyTree.num_mobilizers.doc)
+        .def("get_mobilizer", &Class::get_mobilizer,
+             doc.MultibodyTree.get_mobilizer.doc)
         .def("get_body", &Class::get_body, py::arg("body_index"),
               py_reference_internal,
               doc.MultibodyTree.get_body.doc)
@@ -349,15 +323,24 @@ void init_module(py::module m) {
             systems::Context<T>*>(&Class::SetFreeBodyPoseOrThrow),
             py::arg("body"), py::arg("X_WB"), py::arg("context"),
             doc.MultibodyTree.SetFreeBodyPoseOrThrow.doc)
+        .def("set_actuation_vector", &Class::set_actuation_vector,
+             py::arg("model_instance_index"), py::arg("instance_u"),
+             py::arg("u"))
         .def("get_positions_from_array",
             &Class::get_positions_from_array,
-            py::arg("model_instance"), py::arg("q_array"),
+            py::arg("model_instance"), py::arg("q"),
             doc.MultibodyTree.get_positions_from_array.doc
         )
+        .def("set_positions_in_array", &Class::set_positions_in_array,
+             py::arg("model_instance"), py::arg("instance_q"),
+             py::arg("q"))
         .def("get_velocities_from_array",
             &Class::get_velocities_from_array,
-            py::arg("model_instance"), py::arg("v_array"),
+            py::arg("model_instance"), py::arg("v"),
             doc.MultibodyTree.get_velocities_from_array.doc)
+        .def("set_velocities_in_array", &Class::set_velocities_in_array,
+             py::arg("model_instance"), py::arg("instance_v"),
+             py::arg("v"), doc.MultibodyTree.set_velocities_in_array.doc)
         .def("SetFreeBodySpatialVelocityOrThrow",
             [](const Class* self, const Body<T>& body,
                const SpatialVelocity<T>& V_WB, Context<T>* context) {
@@ -413,7 +396,13 @@ void init_module(py::module m) {
               return Cv;
             },
             py::arg("context"),
-            doc.MultibodyTree.CalcBiasTerm.doc);
+            doc.MultibodyTree.CalcBiasTerm.doc)
+        .def("MakeStateSelectorMatrix", &Class::MakeStateSelectorMatrix,
+             py::arg("user_to_joint_index_map"))
+        .def("MakeActuatorSelectorMatrix",
+             overload_cast_explicit<MatrixX<T>, const std::vector<JointActuatorIndex>&>(
+                 &Class::MakeActuatorSelectorMatrix),
+             py::arg("user_to_actuator_index_map"));
   }
 }
 

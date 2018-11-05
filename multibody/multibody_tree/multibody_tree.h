@@ -1412,40 +1412,40 @@ class MultibodyTree {
       EigenPtr<VectorX<T>> u) const;
 
   /// Returns a vector of generalized positions for `model_instance` from a
-  /// vector `q_array` of generalized positions for the entire MultibodyTree
-  /// model.  This method throws an exception if `q_array` is not of size
+  /// vector `q` of generalized positions for the entire MultibodyTree
+  /// model.  This method throws an exception if `q` is not of size
   /// MultibodyTree::num_positions().
   VectorX<T> get_positions_from_array(
       ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& q_array) const;
+      const Eigen::Ref<const VectorX<T>>& q) const;
 
   /// Sets the vector of generalized positions for `model_instance` in
-  /// `q_array` using `model_q`, leaving all other elements in the array
+  /// `q` using `q_instance`, leaving all other elements in the array
   /// untouched. This method throws an exception if `q_array` is not of size
-  /// MultibodyTree::num_positions() or `model_q` is not of size
+  /// MultibodyTree::num_positions() or `q_instance` is not of size
   /// `MultibodyTree::num_positions(model_instance)`.
   void set_positions_in_array(
       ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& model_q,
-      EigenPtr<VectorX<T>> q_array) const;
+      const Eigen::Ref<const VectorX<T>>& q_instance,
+      EigenPtr<VectorX<T>> q) const;
 
   /// Returns a vector of generalized velocities for @p model_instance from a
-  /// vector `v_array` of generalized velocities for the entire MultibodyTree
+  /// vector `v` of generalized velocities for the entire MultibodyTree
   /// model.  This method throws an exception if the input array is not of size
   /// MultibodyTree::num_velocities().
   VectorX<T> get_velocities_from_array(
       ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& v_array) const;
+      const Eigen::Ref<const VectorX<T>>& v) const;
 
   /// Sets the vector of generalized velocities for `model_instance` in
-  /// `v_array` using `model_v`, leaving all other elements in the array
-  /// untouched. This method throws an exception if `v_array` is not of size
-  /// MultibodyTree::num_velocities() or `model_v` is not of size
+  /// `v` using `v_instance`, leaving all other elements in the array
+  /// untouched. This method throws an exception if `v` is not of size
+  /// MultibodyTree::num_velocities() or `v_instance` is not of size
   /// `MultibodyTree::num_positions(model_instance)`.
   void set_velocities_in_array(
       ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& model_v,
-      EigenPtr<VectorX<T>> v_array) const;
+      const Eigen::Ref<const VectorX<T>>& v_instance,
+      EigenPtr<VectorX<T>> v) const;
 
   /// @}
   // End of "Model instance accessors" section.
