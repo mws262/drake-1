@@ -66,20 +66,6 @@ def main():
   all_plant.Finalize(scene_graph)
   assert all_plant.geometry_source_is_registered()
 
-  # TODO: remove this.
-  robot_and_ball_context = all_plant.CreateDefaultContext()
-  for i in range(all_plant.tree().num_mobilizers()):
-    index = MobilizerIndex(i)
-    mobilizer = all_plant.tree().get_mobilizer(index)
-    outboard_body = mobilizer.outboard_body()
-    if outboard_body == 'ball':
-        # A match! Set qmobilizer and break.
-        qmobilizer = QuaternionFloatingMobilizer(mobilizer)
-        break
-  print qmobilizer.get_angular_velocity(robot_and_ball_context)
-
-
-
   # Connect MBP and SceneGraph.
   mbw_builder.Connect(
     scene_graph.get_query_output_port(),
@@ -105,8 +91,7 @@ def main():
 
   # Add control systems.
 
-
-  # Gains in cartesian-land.
+# Gains in cartesian-land.
   k_p = np.ones([3, 1]) * args.kp
   k_v = np.ones([3, 1]) * args.kv
 
