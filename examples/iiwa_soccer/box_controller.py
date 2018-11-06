@@ -1,13 +1,16 @@
 # TODO: address remaining TODOs
-# TODO: fix actuation
 import numpy as np
-from pydrake.all import (LeafSystem, ComputeBasisFromAxis)
+from manipulation_plan import ManipulationPlan
+
+from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType, BasicVector)
 
 class BoxController(LeafSystem):
   def __init__(self, all_plant, robot_plant, mbw, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance, ball_instance):
+    LeafSystem.__init__(self)
+
     # Construct the plan.
     self.plan = ManipulationPlan()
-    LoadPlans()
+    self.LoadPlans()
 
     # Save the robot and ball instances.
     self.robot_instance = robot_instance
@@ -17,6 +20,9 @@ class BoxController(LeafSystem):
     self.robot_plant = robot_plant
     self.robot_and_ball_plant = all_plant
     self.mbw = mbw
+
+    # Get the number of actuators.
+    self.command_output_size = self.robot_plant.num_actuators()
 
     # Create contexts.
     self.mbw_context = mbw.CreateDefaultContext()
@@ -30,34 +36,46 @@ class BoxController(LeafSystem):
     self.robot_gv_kd = robot_gv_kd
 
     # Declare states and ports.
-    self.DeclareContinuousState(nq_robot()); # For integral control state.
-    self.input_port_index_estimated_robot_q = self.DeclareVectorInputPort(
-        BasicVector(nq_robot())).get_index()
-    self.input_port_index_estimated_robot_qd = self.DeclareVectorInputPort(
-        BasicVector(nv_robot())).get_index()
-    self.input_port_index_estimated_ball_q = self.DeclareVectorInputPort(
-        BasicVector(nq_ball())).get_index()
-    self.input_port_index_estimated_ball_v = self.DeclareVectorInputPort(
-        BasicVector(nv_ball())).get_index()
-    self.DeclareVectorOutputPort(
+    self._DeclareContinuousState(self.nq_robot())   # For integral control state.
+    self.input_port_index_estimated_robot_q = self._DeclareInputPort(
+        PortDataType.kVectorValued, self.nq_robot()).get_index()
+    self.input_port_index_estimated_robot_qd = self._DeclareInputPort(
+        PortDataType.kVectorValued, self.nv_robot()).get_index()
+    self.input_port_index_estimated_ball_q = self._DeclareInputPort(
+        PortDataType.kVectorValued, self.nq_ball()).get_index()
+    self.input_port_index_estimated_ball_v = self._DeclareInputPort(
+        PortDataType.kVectorValued, self.nv_ball()).get_index()
+    self._DeclareVectorOutputPort(
         BasicVector(self.command_output_size),
         self.DoControlCalc) # Output 0.
 
+  def get_input_port_estimated_robot_q(self):
+    return self.get_input_port(self.input_port_index_estimated_robot_q)
+
+  def get_input_port_estimated_robot_qd(self):
+    return self.get_input_port(self.input_port_index_estimated_robot_qd)
+
+  def get_input_port_estimated_ball_q(self):
+    return self.get_input_port(self.input_port_index_estimated_ball_q)
+
+  def get_input_port_estimated_ball_v(self):
+    return self.get_input_port(self.input_port_index_estimated_ball_v)
+
   # Gets the number of robot degrees of freedom.
   def nq_robot(self):
-    return self.robot_plant.tree().num_positions()
+    return self.robot_plant.num_positions()
 
   # Gets the number of robot velocity variables.
   def nv_robot(self):
-    return self.robot_plant.tree().num_velocities()
+    return self.robot_plant.num_velocities()
 
   # Gets the number of ball degrees of freedom.
   def nq_ball(self):
-    return self.robot_and_ball_plant.tree().num_positions() - nq_robot()
+    return self.robot_and_ball_plant.num_positions() - self.nq_robot()
 
   # Gets the number of ball velocity variables.
   def nv_ball(self):
-    return self.robot_and_ball_plant.tree().num_velocities() - nv_robot()
+    return self.robot_and_ball_plant.num_velocities() - self.nv_robot()
 
   # Gets the robot configuration.
   def get_robot_q(self, context):
@@ -85,27 +103,26 @@ class BoxController(LeafSystem):
   # Loads all plans into the controller.
   def LoadPlans(self):
     # Read in the plans for the robot.
-    self.plan.ReadRobotQQdotAndQddot(
-        "examples/iiwa_soccer/plan/joint_timings_fit.mat",
-        "examples/iiwa_soccer/plan/joint_angle_fit.mat",
-        "examples/iiwa_soccer/plan/joint_vel_fit.mat",
-        "examples/iiwa_soccer/plan/joint_accel_fit.mat")
+    self.plan.ReadRobotQQdotAndQddot("plan/joint_timings_fit.mat",
+                                     "plan/joint_angle_fit.mat",
+                                     "plan/joint_vel_fit.mat",
+                                     "plan/joint_accel_fit.mat")
 
     # Read in the plans for the point of contact.
-    self.plan.ReadContactPoint("examples/iiwa_soccer/plan/contact_pt_timings.mat",
-        "examples/iiwa_soccer/plan/contact_pt_positions.mat",
-        "examples/iiwa_soccer/plan/contact_pt_velocities.mat")
+    self.plan.ReadContactPoint("plan/contact_pt_timings.mat",
+        "plan/contact_pt_positions.mat",
+        "plan/contact_pt_velocities.mat")
 
     # Read in the plans for the ball kinematics.
     self.plan.ReadBallQVAndVdot(
-        "examples/iiwa_soccer/plan/ball_timings.mat",
-        "examples/iiwa_soccer/plan/ball_com_positions.mat",
-        "examples/iiwa_soccer/plan/ball_quats.mat",
-        "examples/iiwa_soccer/plan/ball_com_velocities.mat",
-        "examples/iiwa_soccer/plan/ball_omegas.mat",
-        "examples/iiwa_soccer/plan/ball_com_accelerations.mat",
-        "examples/iiwa_soccer/plan/ball_alphas.mat",
-        "examples/iiwa_soccer/plan/contact_status.mat")
+        "plan/ball_timings.mat",
+        "plan/ball_com_positions.mat",
+        "plan/ball_quats.mat",
+        "plan/ball_com_velocities.mat",
+        "plan/ball_omegas.mat",
+        "plan/ball_com_accelerations.mat",
+        "plan/ball_alphas.mat",
+        "plan/contact_status.mat")
 
 
   # Constructs the Jacobian matrices.

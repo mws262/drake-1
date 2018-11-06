@@ -6,6 +6,7 @@ from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
 Multiplexer, LcmPublisherSystem, MobilizerIndex)
+from box_controller import BoxController
 
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
@@ -80,8 +81,7 @@ def main():
   # Export useful ports.
   robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
   ball_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(ball_instance_id))
-# TODO: add actuation to the SDF/URDF file and re-enable this.
-#  robot_actuation_input = mbw_builder.ExportInput(all_plant.get_actuation_input_port(robot_instance_id))
+  robot_actuation_input = mbw_builder.ExportInput(all_plant.get_actuation_input_port(robot_instance_id))
 
   # Add the "MultibodyWorld" to the diagram.
   mbw = builder.AddSystem(mbw_builder.Build())
@@ -91,9 +91,9 @@ def main():
 
   # Add control systems.
 
-# Gains in cartesian-land.
+  # Gains in Cartesian-land.
   k_p = np.ones([3, 1]) * args.kp
-  k_v = np.ones([3, 1]) * args.kd
+  k_d = np.ones([3, 1]) * args.kd
 
   # Joint gains for the robot.
   nv_robot = 6
@@ -101,14 +101,12 @@ def main():
   joint_ki = np.ones([nv_robot, 1]) * 0.1
   joint_kd = np.ones([nv_robot, 1]) * 1.0
 
-  controller = builder.AddSystem(BoxController(
-      all_plant, robot_plant, mbw, k_p, k_d, joint_kp, joint_ki, joint_kd,
-      joint_kp, joint_ki, joint_kd, robot_instance_id, ball_instance_id))
+  controller = builder.AddSystem(BoxController(all_plant, robot_plant, mbw, k_p, k_d, joint_kp, joint_ki, joint_kd, robot_instance_id, ball_instance_id))
 
   # TODO: Make this more robust.
   # Construct the necessary demultiplexers.
   nq_ball = 7
-  nq_robot = 7
+  nq_robot = 6
   nv_ball = 6
   nv_robot = 6
   robot_state_demuxer = builder.AddSystem(Demultiplexer(
@@ -117,7 +115,8 @@ def main():
       nq_ball + nv_ball, 1))
 
   # Construct the necessary multiplexers for the robot state.
-  robot_config_port_input_sizes = [ 1, 1, 1, 1, 1, 1, 1 ]
+  # Note: these must be changed if robot DOF changes.
+  robot_config_port_input_sizes = [ 1, 1, 1, 1, 1, 1 ]
   robot_vel_port_input_sizes = [ 1, 1, 1, 1, 1, 1 ]
   robot_q_muxer = builder.AddSystem(Multiplexer(robot_config_port_input_sizes))
   robot_v_muxer = builder.AddSystem(Multiplexer(robot_vel_port_input_sizes))
@@ -139,14 +138,18 @@ def main():
     builder.Connect(ball_state_demuxer.get_output_port(nq_ball + i), ball_v_muxer.get_input_port(i))
   for i in range(nv_robot):
       builder.Connect(robot_state_demuxer.get_output_port(nq_robot + i), robot_v_muxer.get_input_port(i))
-  '''
+  print 'Connecting 1'
   builder.Connect(ball_q_muxer.get_output_port(0), controller.get_input_port_estimated_ball_q())
+  print 'Connecting 2'
   builder.Connect(ball_v_muxer.get_output_port(0), controller.get_input_port_estimated_ball_v())
+  print 'Connecting 3'
   builder.Connect(robot_state_demuxer.get_output_port(0), controller.get_input_port_estimated_robot_q())
+  print 'Connecting 4'
   builder.Connect(robot_state_demuxer.get_output_port(1), controller.get_input_port_estimated_robot_qd())
+  print 'Connecting 5'
   builder.Connect(controller.get_output_port_control(), all_plant.get_actuation_input_port())
+  print 'Connecting 6'
 
-  '''
   # Build the diagram.
   diagram = builder.Build()
 
