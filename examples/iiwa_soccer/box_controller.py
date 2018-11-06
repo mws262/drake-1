@@ -4,7 +4,7 @@ import numpy as np
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis)
 
 class BoxController(LeafSystem):
-  def __init__(self, all_plant, robot_plant, mbw, kp, kd, robot_instance, ball_instance):
+  def __init__(self, all_plant, robot_plant, mbw, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance, ball_instance):
     # Construct the plan.
     self.plan = ManipulationPlan()
     LoadPlans()
@@ -23,8 +23,11 @@ class BoxController(LeafSystem):
     self.robot_context = robot_plant.CreateDefaultContext()
 
     # Set PID gains.
-    self.kp = kp
-    self.kd = kd
+    self.cartesian_kp = kp
+    self.cartesian_kd = kd
+    self.robot_gv_kp = robot_gv_kp
+    self.robot_gv_ki = robot_gv_ki
+    self.robot_gv_kd = robot_gv_kd
 
     # Declare states and ports.
     self.DeclareContinuousState(nq_robot()); # For integral control state.
@@ -209,7 +212,7 @@ class BoxController(LeafSystem):
     qd_robot = get_robot_qd(context)
 
     # Set qddot_robot_des using error feedback.
-    qddot = qddot_robot_des + self.gv_kp * (q_robot_des - q_robot) + self.gv_ki * get_integral_value(context) + self.gv_kd * (qdot_robot_des - qd_robot)
+    qddot = qddot_robot_des + self.robot_gv_kp * (q_robot_des - q_robot) + self.robot_gv_ki * get_integral_value(context) + self.robot_gv_kd * (qdot_robot_des - qd_robot)
 
     # Set the state in the robot context to q_robot and qd_robot. 
     x = self.robot_plant.tree().get_mutable_multibody_state_vector(
@@ -389,7 +392,7 @@ class BoxController(LeafSystem):
     qdot_robot_des = np.linalg.lstsq(J_WAc, linear_v_des)
 
     # Set qddot_robot_des using purely error feedback.
-    qddot = self.gv_kp * (q_robot_des - q_robot) + self.gv_kd * (qdot_robot_des - qd_robot)
+    qddot = self.robot_gv_kp * (q_robot_des - q_robot) + self.robot_gv_kd * (qdot_robot_des - qd_robot)
 
     # Get the generalized inertia matrix.
     M = robot_tree.CalcMassMatrixViaInverseDynamics(self.robot_context)
@@ -417,7 +420,7 @@ class BoxController(LeafSystem):
     # First zero out the generalized velocities for the whole multibody.
     x = self.robot_plant.tree().get_mutable_multibody_state_vector(
       robot_context)
-    x[-len(all_v):] = zeros([robot_nv() + ball_nv(), 1])
+    x[-len(all_v):] = zeros([nv_robot() + nv_ball(), 1])
 
     # Now set the velocities in the generalized velocity array to non-zero
     # values.

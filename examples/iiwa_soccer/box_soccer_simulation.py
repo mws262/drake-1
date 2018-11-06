@@ -28,8 +28,8 @@ def main():
       help="Cartesian Kp for impedance control. Gets used for all xyz "
            "directions.")
   parser.add_argument(
-      "--kv", type=float, default=30.0,
-      help="Cartesian Kv for impedance control. Gets used for all xyz "
+      "--kd", type=float, default=30.0,
+      help="Cartesian kd for impedance control. Gets used for all xyz "
            "directions.")
   args = parser.parse_args()
 
@@ -93,16 +93,17 @@ def main():
 
 # Gains in cartesian-land.
   k_p = np.ones([3, 1]) * args.kp
-  k_v = np.ones([3, 1]) * args.kv
+  k_v = np.ones([3, 1]) * args.kd
 
   # Joint gains for the robot.
-  joint_kp = np.ones([7, 1]) * 10
-  joint_ki = np.ones([7, 1]) * 0.1
-  joint_kv = np.ones([7, 1]) * 1.0
+  nv_robot = 6
+  joint_kp = np.ones([nv_robot, 1]) * 10
+  joint_ki = np.ones([nv_robot, 1]) * 0.1
+  joint_kd = np.ones([nv_robot, 1]) * 1.0
 
-#  controller = builder.AddSystem<BoxController>(
-#      all_plant, robot_plant, k_p, k_d,
-#      joint_kp, joint_ki, joint_kd, lcm);
+  controller = builder.AddSystem(BoxController(
+      all_plant, robot_plant, mbw, k_p, k_d, joint_kp, joint_ki, joint_kd,
+      joint_kp, joint_ki, joint_kd, robot_instance_id, ball_instance_id))
 
   # TODO: Make this more robust.
   # Construct the necessary demultiplexers.
