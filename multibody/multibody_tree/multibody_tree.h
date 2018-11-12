@@ -1426,7 +1426,9 @@ class MultibodyTree {
   /// `MultibodyTree::num_positions(model_instance)`.
   void set_positions_in_array(
       ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& q_instance,
+      const Eigen::Ref<const VectorX<T>>& q
+
+      _instance,
       EigenPtr<VectorX<T>> q) const;
 
   /// Returns a vector of generalized velocities for @p model_instance from a

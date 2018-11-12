@@ -170,24 +170,32 @@ class BoxController(LeafSystem):
       body_A = all_tree.GetBodyFromFrameId(frame_A_id)
       body_B = all_tree.GetBodyFromFrameId(frame_B_id)
 
-      # The reported point on A's surface (As) in the world frame (W).
-      p_WAs = point_pair.p_WCa
+      # The reported point on A's surface (A) in the world frame (W).
+      pr_WA = point_pair.p_WCa
 
-      # The reported point on B's surface (Bs) in the world frame (W).
-      p_WBs = point_pair.p_WCb
+      # The reported point on B's surface (B) in the world frame (W).
+      pr_WB = point_pair.p_WCb
 
       # Get the point of contact in the world frame.
-      p_W = (p_WAs + p_WBs) * 0.5
+      pc_W = (p_WA + p_WB) * 0.5
+
+      # Transform pr_W to the body frames.
+      X_wa = all_tree.EvalBodyPoseInWorld(
+          scenegraph_and_mbp_query_context, body_A)
+      X_wb = all_tree.EvalBodyPoseInWorld(
+          scenegraph_and_mbp_query_context, body_B)
+      p_A = X_wa.inverse() * pc_W
+      p_B = X_wb.inverse() * pc_W
 
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body A.
       J_WAc = tree.CalcPointsGeometricJacobianExpressedInWorld(
-          robot_and_ball_context, body_A.body_frame(), p_W)
+          robot_and_ball_context, body_A.body_frame(), p_A)
 
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body B.
       J_WBc = tree.CalcPointsGeometricJacobianExpressedInWorld(
-          robot_and_ball_context, body_B.body_frame(), p_W)
+          robot_and_ball_context, body_B.body_frame(), p_B)
 
       # Compute the linear components of the Jacobian.
       J = J_WAc - J_WBc
@@ -378,7 +386,7 @@ class BoxController(LeafSystem):
     # Get the geometric Jacobian for the velocity of the closest point on the
     # robot as moving with the robot Body A.
     J_WAc = robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
-        robot_context, box_body.body_frame(), closest_Aw)
+        robot_context, box_body.body_frame(), closest_Aa)
 
     # Set the rigid body constraints.
     '''
