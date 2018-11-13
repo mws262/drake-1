@@ -4,6 +4,12 @@
 #
 # Do not update this list by hand; instead, run build_components_refresh.py.
 LIBDRAKE_COMPONENTS = [
+    "//attic/manipulation/dev:remote_tree_viewer_wrapper",  # unpackaged
+    "//attic/manipulation/planner",
+    "//attic/manipulation/scene_generation:random_clutter_generator",  # unpackaged  # noqa
+    "//attic/manipulation/scene_generation:simulate_plant_to_rest",  # unpackaged  # noqa
+    "//attic/manipulation/sensors",
+    "//attic/manipulation/util",
     "//attic/multibody",
     "//attic/multibody/collision",
     "//attic/multibody/joints",
@@ -18,12 +24,22 @@ LIBDRAKE_COMPONENTS = [
     "//attic/multibody/rigid_body_plant:rigid_body_plant",  # unpackaged
     "//attic/multibody/rigid_body_plant:rigid_body_plant_bridge",  # unpackaged
     "//attic/multibody/shapes",
+    "//attic/perception",
+    "//attic/systems/controllers",
+    "//attic/systems/controllers/plan_eval",
+    "//attic/systems/controllers/qp_inverse_dynamics",
+    "//attic/systems/rendering",
+    "//attic/systems/robotInterfaces",
+    "//attic/systems/sensors",
+    "//attic/systems/trajectory_optimization",
+    "//attic/util",
     "//automotive",
     "//automotive/maliput/api",
     "//automotive/maliput/dragway",
     "//automotive/maliput/geometry_base",
     "//automotive/maliput/multilane",
     "//automotive/maliput/rndf",
+    "//automotive/maliput/simple_phase_book",
     "//automotive/maliput/simple_phase_provider",
     "//automotive/maliput/simplerulebook",
     "//automotive/maliput/utility",
@@ -40,13 +56,9 @@ LIBDRAKE_COMPONENTS = [
     "//geometry/dev/render/shaders",
     "//geometry/query_results",
     "//lcm",
-    "//manipulation/dev:remote_tree_viewer_wrapper",  # unpackaged
     "//manipulation/perception",
     "//manipulation/planner",
-    "//manipulation/scene_generation:random_clutter_generator",  # unpackaged
-    "//manipulation/scene_generation:simulate_plant_to_rest",  # unpackaged
     "//manipulation/schunk_wsg",
-    "//manipulation/sensors",
     "//manipulation/util",
     "//math",
     "//multibody/benchmarks/acrobot",
@@ -67,20 +79,15 @@ LIBDRAKE_COMPONENTS = [
     "//solvers",
     "//systems/analysis",
     "//systems/controllers",
-    "//systems/controllers/plan_eval",
-    "//systems/controllers/qp_inverse_dynamics",
     "//systems/estimators",
     "//systems/framework",
     "//systems/lcm",
     "//systems/plants/spring_mass_system",
     "//systems/primitives",
     "//systems/rendering",
-    "//systems/robotInterfaces",
     "//systems/sensors",
     "//systems/sensors/dev",
     "//systems/trajectory_optimization",
-    "//util",
-    # //examples/atlas:atlas_util (indirectly)
     # //examples/kuka_iiwa_arm:iiwa_common (indirectly)
     # //examples/kuka_iiwa_arm:iiwa_lcm (indirectly)
 ]

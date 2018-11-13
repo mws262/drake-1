@@ -86,10 +86,9 @@ def main():
   # Add the "MultibodyWorld" to the diagram.
   mbw = builder.AddSystem(mbw_builder.Build())
 
-  # Create a context for MBW.
-  mbw_context = mbw.CreateDefaultContext()
-
+  #############################################
   # Add control systems.
+  #############################################
 
   # Gains in Cartesian-land.
   k_p = np.ones([3, 1]) * args.kp
@@ -138,17 +137,13 @@ def main():
     builder.Connect(ball_state_demuxer.get_output_port(nq_ball + i), ball_v_muxer.get_input_port(i))
   for i in range(nv_robot):
       builder.Connect(robot_state_demuxer.get_output_port(nq_robot + i), robot_v_muxer.get_input_port(i))
-  print 'Connecting 1'
+
+  # Connect the muxers and controllers to the MBW.
   builder.Connect(ball_q_muxer.get_output_port(0), controller.get_input_port_estimated_ball_q())
-  print 'Connecting 2'
   builder.Connect(ball_v_muxer.get_output_port(0), controller.get_input_port_estimated_ball_v())
-  print 'Connecting 3'
-  builder.Connect(robot_state_demuxer.get_output_port(0), controller.get_input_port_estimated_robot_q())
-  print 'Connecting 4'
-  builder.Connect(robot_state_demuxer.get_output_port(1), controller.get_input_port_estimated_robot_qd())
-  print 'Connecting 5'
-  builder.Connect(controller.get_output_port_control(), all_plant.get_actuation_input_port())
-  print 'Connecting 6'
+  builder.Connect(robot_q_muxer.get_output_port(0), controller.get_input_port_estimated_robot_q())
+  builder.Connect(robot_v_muxer.get_output_port(0), controller.get_input_port_estimated_robot_qd())
+  builder.Connect(controller.get_output_port_control(), mbw.get_input_port(robot_actuation_input))
 
   # Build the diagram.
   diagram = builder.Build()
@@ -169,11 +164,10 @@ def main():
   # Set the initial conditions, according to the plan.
   context = simulator.get_mutable_context()
 
-  '''
-  plan = controller.plan()
+  plan = controller.plan
   t0 = 0
   q = np.zeros([nq_ball + nq_robot, 1])
-  v = np.zeros((nv_ball + nv_robot, 1])
+  v = np.zeros([nv_ball + nv_robot, 1])
   q_robot = plan.GetRobotQQdotAndQddot(t0)[0:nq_robot-1]
   v_robot = plan.GetRobotQQdotAndQddot(t0)[nq_robot:nq_robot+nv_robot-1]
   q_ball = plan.GetBallQVAndVdot(t0)[0:nq_ball-1]
@@ -183,15 +177,11 @@ def main():
   all_tree = all_plant.tree()
   robot_instance = all_tree.GetModelInstanceByName(robot_model_name)
   ball_instance = all_tree.GetModelInstanceByName(ball_model_name)
-  x = np.zeros([nq_robot + nv_robot + nq_ball + nv_ball, 1])
-  all_tree.set_positions_in_array(robot_instance, q_robot, &q)
-  all_tree.set_positions_in_array(ball_instance, q_ball, &q)
-  all_tree.set_velocities_in_array(robot_instance, v_robot, &v)
-  all_tree.set_velocities_in_array(ball_instance, v_ball, &v)
-  x[0:len(q)-1] = q
-  x[-len(v):] = v
-  all_plant.tree().get_mutable_multibody_state_vector(context) = x
-  ''' 
+  all_plant.SetPositions(mbp_context, robot_instance, q_robot)
+  all_plant.SetPositions(mbp_context, ball_instance, q_ball)
+  all_plant.SetVelocities(mbp_context, robot_instance, v_robot)
+  all_plant.SetVelocities(mbp_context, ball_instance, v_ball)
+
   simulator.Initialize()
 #  simulator.StepTo(args.simulation_time)
   simulator.StepTo(.1)

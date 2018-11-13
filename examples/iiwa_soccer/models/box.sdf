@@ -100,7 +100,7 @@
       <collision name="collision">
         <geometry>
           <box>
-            <size>.1 .1 .1</size>
+            <size>.4 .04 .4</size>
           </box>
         </geometry>
       </collision>

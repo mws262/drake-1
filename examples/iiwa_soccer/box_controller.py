@@ -61,6 +61,9 @@ class BoxController(LeafSystem):
   def get_input_port_estimated_ball_v(self):
     return self.get_input_port(self.input_port_index_estimated_ball_v)
 
+  def get_output_port_control(self):
+    return self.get_output_port(0)
+
   # Gets the number of robot degrees of freedom.
   def nq_robot(self):
     return self.robot_plant.num_positions()

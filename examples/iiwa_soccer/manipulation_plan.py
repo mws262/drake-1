@@ -42,22 +42,22 @@ class ManipulationPlan:
   # Returns whether it is desired that the robot and ball be in contact at
   # desired time (`t`).
   def IsContactDesired(self, t):
-    return self.contact_desired[SearchBinary(t, self.contact_desired)][1]
+    return self.contact_desired[self.SearchBinary(t, self.contact_desired)][1]
   
   # Gets the ball q, v, and vdot at a particular point in time.
   def GetBallQVAndVdot(self, t):
-    return self.q_v_vdot_ball[SearchBinary(t, self.q_v_vdot_ball)][1]
+    return self.q_v_vdot_ball[self.SearchBinary(t, self.q_v_vdot_ball)][1]
 
   # Gets the ball q, v, and vdot at a particular point in time.
   def GetRobotQQdotAndQddot(self, t):
-    return self.q_qdot_qddot_robot[SearchBinary(t, self.q_qdot_qddot_robot)][1]
+    return self.q_qdot_qddot_robot[self.SearchBinary(t, self.q_qdot_qddot_robot)][1]
 
   # Gets the contact kinematics at a particular point in time.
   # First three components are the contact point location in the global frame
   # and the second three components are the time derivative of that location
   # in the global frame.
   def GetContactKinematics(self, t):
-    return self.contact_kinematics[SearchBinary(t, self.contact_kinematics)][1]
+    return self.contact_kinematics[self.SearchBinary(t, self.contact_kinematics)][1]
 
   def ReadRobotQQdotAndQddot(self, timings_fname, q_fname, qd_fname, qdd_fname):
     kDim = 21;
@@ -254,10 +254,10 @@ class ManipulationPlan:
 
   def SearchBinary(self, t, vec):
     left = 0
-    right = len(vec.size()-1)
+    right = len(vec)-1
     while right - left > 1:
-      mid = (left + right)/2;
-      if (t > vec[mid](0)):
+      mid = (left + right)/2
+      if (t > vec[mid][0]):
         left = mid
       else:
         right = mid
