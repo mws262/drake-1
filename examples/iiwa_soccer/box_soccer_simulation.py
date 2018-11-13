@@ -8,6 +8,9 @@ UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
 Multiplexer, LcmPublisherSystem, MobilizerIndex)
 from box_controller import BoxController
 
+robot_model_name = "box_model"
+ball_model_name = "soccer_ball"
+
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
@@ -175,12 +178,14 @@ def main():
 
   # Set q and v for the robot and the ball.
   all_tree = all_plant.tree()
-  robot_instance = all_tree.GetModelInstanceByName(robot_model_name)
-  ball_instance = all_tree.GetModelInstanceByName(ball_model_name)
+  robot_instance = all_plant.GetModelInstanceByName(robot_model_name)
+  ball_instance = all_plant.GetModelInstanceByName(ball_model_name)
+  '''
   all_plant.SetPositions(mbp_context, robot_instance, q_robot)
   all_plant.SetPositions(mbp_context, ball_instance, q_ball)
   all_plant.SetVelocities(mbp_context, robot_instance, v_robot)
   all_plant.SetVelocities(mbp_context, ball_instance, v_ball)
+  '''
 
   simulator.Initialize()
 #  simulator.StepTo(args.simulation_time)
