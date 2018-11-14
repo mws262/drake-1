@@ -1,4 +1,5 @@
 # TODO: address remaining TODOs
+import os
 import numpy as np
 from manipulation_plan import ManipulationPlan
 
@@ -105,27 +106,31 @@ class BoxController(LeafSystem):
 
   # Loads all plans into the controller.
   def LoadPlans(self):
+    files = os.listdir('./')
+    for file in files:
+      print file
+
     # Read in the plans for the robot.
-    self.plan.ReadRobotQQdotAndQddot("plan/joint_timings_fit.mat",
-                                     "plan/joint_angle_fit.mat",
-                                     "plan/joint_vel_fit.mat",
-                                     "plan/joint_accel_fit.mat")
+    self.plan.ReadRobotQQdotAndQddot("examples/iiwa_soccer/plan/joint_timings_fit.mat",
+                                     "examples/iiwa_soccer/plan/joint_angle_fit.mat",
+                                     "examples/iiwa_soccer/plan/joint_vel_fit.mat",
+                                     "examples/iiwa_soccer/plan/joint_accel_fit.mat")
 
     # Read in the plans for the point of contact.
-    self.plan.ReadContactPoint("plan/contact_pt_timings.mat",
-        "plan/contact_pt_positions.mat",
-        "plan/contact_pt_velocities.mat")
+    self.plan.ReadContactPoint("examples/iiwa_soccer/plan/contact_pt_timings.mat",
+        "examples/iiwa_soccer/plan/contact_pt_positions.mat",
+        "examples/iiwa_soccer/plan/contact_pt_velocities.mat")
 
     # Read in the plans for the ball kinematics.
     self.plan.ReadBallQVAndVdot(
-        "plan/ball_timings.mat",
-        "plan/ball_com_positions.mat",
-        "plan/ball_quats.mat",
-        "plan/ball_com_velocities.mat",
-        "plan/ball_omegas.mat",
-        "plan/ball_com_accelerations.mat",
-        "plan/ball_alphas.mat",
-        "plan/contact_status.mat")
+        "examples/iiwa_soccer/plan/ball_timings.mat",
+        "examples/iiwa_soccer/plan/ball_com_positions.mat",
+        "examples/iiwa_soccer/plan/ball_quats.mat",
+        "examples/iiwa_soccer/plan/ball_com_velocities.mat",
+        "examples/iiwa_soccer/plan/ball_omegas.mat",
+        "examples/iiwa_soccer/plan/ball_com_accelerations.mat",
+        "examples/iiwa_soccer/plan/ball_alphas.mat",
+        "examples/iiwa_soccer/plan/contact_status.mat")
 
 
   # Constructs the Jacobian matrices.

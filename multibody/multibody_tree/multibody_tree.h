@@ -1433,24 +1433,46 @@ class MultibodyTree {
 
   /// Returns a vector of generalized positions for `model_instance` from a
   /// vector `q_array` of generalized positions for the entire MultibodyTree
-  /// model.  This method throws an exception if `q_array` is not of size
+  /// model.  This method throws an exception if `q` is not of size
   /// MultibodyTree::num_positions().
   VectorX<T> GetPositionsFromArray(
       ModelInstanceIndex model_instance,
       const Eigen::Ref<const VectorX<T>>& q) const;
 
-  /// Sets the vector of generalized positions for `model_instance` in
-  /// `q_array` using `model_q`, leaving all other elements in the array
-  /// untouched. This method throws an exception if `q_array` is not of size
-  /// MultibodyTree::num_positions() or `model_q` is not of size
-  /// `MultibodyTree::num_positions(model_instance)`.
+  #ifndef DRAKE_DOXYGEN_CXX
+  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
+  DRAKE_DEPRECATED("Call SetPositionsInArray(). Will be removed after 2/7/19.")
   void set_positions_in_array(
       ModelInstanceIndex model_instance,
       const Eigen::Ref<const VectorX<T>>& model_q,
-      EigenPtr<VectorX<T>> q_array) const;
+      EigenPtr<VectorX<T>> q_array) const {
+    SetPositionsInArray(model_instance, model_q, q_array);
+  }
+  #endif
 
-  /// Returns a vector of generalized velocities for @p model_instance from a
-  /// vector `v_array` of generalized velocities for the entire MultibodyTree
+  /// Sets the vector of generalized positions for `model_instance` in
+  /// `q` using `q_instance`, leaving all other elements in the array
+  /// untouched. This method throws an exception if `q` is not of size
+  /// MultibodyTree::num_positions() or `q_instance` is not of size
+  /// `MultibodyTree::num_positions(model_instance)`.
+  void SetPositionsInArray(
+      ModelInstanceIndex model_instance,
+      const Eigen::Ref<const VectorX<T>>& q_instance,
+      EigenPtr<VectorX<T>> q) const;
+
+  #ifndef DRAKE_DOXYGEN_CXX
+  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
+  DRAKE_DEPRECATED("Call GetVelocitiesFromArray(). Will be removed after"
+                       " 2/7/19.")
+  VectorX<T> get_velocities_from_array(
+      ModelInstanceIndex model_instance,
+      const Eigen::Ref<const VectorX<T>>& v_array) const {
+    return GetVelocitiesFromArray(model_instance, v_array);
+  }
+  #endif
+
+  /// Returns a vector of generalized velocities for `model_instance` from a
+  /// vector `v` of generalized velocities for the entire MultibodyTree
   /// model.  This method throws an exception if the input array is not of size
   /// MultibodyTree::num_velocities().
   VectorX<T> GetVelocitiesFromArray(

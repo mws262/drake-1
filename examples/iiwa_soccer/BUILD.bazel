@@ -1,21 +1,13 @@
-# -*- python -*-
-
 load(
-    "//tools:drake.bzl",
-    "drake_cc_library",
+    "@drake//tools/skylark:drake_cc.bzl",
     "drake_cc_binary",
     "drake_cc_googletest",
+    "drake_cc_library",
 )
-load(
-    "//tools/skylark:pybind.bzl",
-    "get_drake_py_installs",
-    "get_pybind_package_info",
-)
-load(
-    "//tools/skylark:drake_py.bzl",
-    "drake_py_binary",
-    "drake_py_library",
-)
+load("@drake//tools/skylark:test_tags.bzl", "vtk_test_tags")
+load("//tools/install:install_data.bzl", "install_data")
+load("//tools/lint:lint.bzl", "add_lint_tests")
+load("//tools/skylark:test_tags.bzl", "vtk_test_tags")
 
 package(
     default_visibility = [":__subpackages__"],
@@ -31,6 +23,32 @@ drake_cc_library(
         "//systems/framework:leaf_system",
     ],
 )
+
+drake_cc_library(
+    name = "plan",
+    srcs = [],
+    hdrs = [],
+    data = [
+        "plan/ball_timings.mat",
+        "plan/ball_com_positions.mat",
+        "plan/ball_quats.mat",
+        "plan/ball_com_velocities.mat",
+        "plan/ball_omegas.mat",
+        "plan/ball_com_accelerations.mat",
+        "plan/ball_alphas.mat",
+        "plan/contact_status.mat",
+        "plan/contact_pt_timings.mat",
+        "plan/contact_pt_positions.mat",
+        "plan/contact_pt_velocities.mat",
+        "plan/joint_accel_fit.mat",
+        "plan/joint_angle_fit.mat",
+        "plan/joint_timings_fit.mat",
+        "plan/joint_vel_fit.mat",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [],
+)
+
 
 drake_cc_googletest(
     name = "manipulation_plan_test",
@@ -96,28 +114,8 @@ drake_cc_library(
     ],
 )
 
-drake_py_binary(
-    name = "box_soccer_simulation_py",
-    srcs = ["box_soccer_simulation.py"],
-    add_test_rule = 1,
-    data = [
-        ":models",
-        "//examples/contact_model:bowling_ball",
-    ],
-    test_rule_args = [
-        "--target_realtime_rate=0",
-        "--simulation_time=0.1",
-    ],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//bindings/pydrake:lcm_py",
-        "//bindings/pydrake/multibody:multibody_tree_py",
-        "//bindings/pydrake/systems:analysis_py",
-    ],
-)
-
 drake_cc_binary(
-    name = "box_soccer_simulation",
+    name = "box_soccer_simulation2",
     srcs = ["box_soccer_simulation.cc"],
     data = [
         ":models",
@@ -168,3 +166,32 @@ drake_cc_binary(
         "@lcmtypes_bot2_core",
     ],
 )
+
+# Python examples
+
+load(
+    "@drake//tools/skylark:drake_py.bzl",
+    "drake_py_binary",
+    "drake_py_library",
+)
+
+drake_py_binary(
+    name = "box_soccer_simulation",
+    srcs = [
+        "box_soccer_simulation.py",
+        "box_controller.py",
+        "manipulation_plan.py",
+    ],
+    add_test_rule = 1,
+    data = [
+        ":models",
+        "//examples/contact_model:bowling_ball",
+        ":plan",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
+
