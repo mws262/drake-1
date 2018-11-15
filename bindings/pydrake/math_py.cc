@@ -39,7 +39,7 @@ PYBIND11_MODULE(math, m) {
       }, py::arg("axis_index"), py::arg("axis_W"));//, doc.ComputeBasisFromAxis.doc)
   py::class_<BarycentricMesh<T>>(m, "BarycentricMesh", doc.BarycentricMesh.doc)
       .def(py::init<BarycentricMesh<T>::MeshGrid>(),
-           doc.BarycentricMesh.ctor.doc_3)
+           doc.BarycentricMesh.ctor.doc_1args)
       .def("get_input_grid", &BarycentricMesh<T>::get_input_grid,
            doc.BarycentricMesh.get_input_grid.doc)
       .def("get_input_size", &BarycentricMesh<T>::get_input_size,
@@ -51,7 +51,7 @@ PYBIND11_MODULE(math, m) {
       .def("get_mesh_point",
            overload_cast_explicit<VectorX<T>, int>(
                &BarycentricMesh<T>::get_mesh_point),
-           doc.BarycentricMesh.get_mesh_point.doc)
+           doc.BarycentricMesh.get_mesh_point.doc_1args)
       .def("get_all_mesh_points", &BarycentricMesh<T>::get_all_mesh_points,
            doc.BarycentricMesh.get_all_mesh_points.doc)
       .def("EvalBarycentricWeights",
@@ -69,7 +69,7 @@ PYBIND11_MODULE(math, m) {
                                   const Eigen::Ref<const MatrixX<T>>&,
                                   const Eigen::Ref<const VectorX<T>>&>(
                &BarycentricMesh<T>::Eval),
-           doc.BarycentricMesh.Eval.doc)
+           doc.BarycentricMesh.Eval.doc_2args)
       .def("MeshValuesFrom", &BarycentricMesh<T>::MeshValuesFrom,
            doc.BarycentricMesh.MeshValuesFrom.doc);
 
@@ -171,7 +171,7 @@ PYBIND11_MODULE(math, m) {
       .def("ToQuaternion",
            overload_cast_explicit<Eigen::Quaternion<T>>(
                &RotationMatrix<T>::ToQuaternion),
-           doc.RotationMatrix.ToQuaternion.doc)
+           doc.RotationMatrix.ToQuaternion.doc_0args)
       .def_static("Identity", &RotationMatrix<T>::Identity,
                   doc.RotationMatrix.Identity.doc);
 

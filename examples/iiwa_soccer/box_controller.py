@@ -280,16 +280,16 @@ class BoxController(LeafSystem):
   # Computes the control torques when contact is desired and the robot and the
   # ball are *not* in contact.
   def ComputeActuationForContactDesiredButNoContact(self, context):
-    # Get the generalized positions for the robot and the ball.
-    q0 = get_all_q(context)
-    v0 = get_all_v(context)
-
     # Get the relevant trees.
     all_tree = self.robot_and_ball_plant.tree()
     robot_tree = self.robot_plant.tree()
 
+    # Get the generalized positions for the robot and the ball.
+    q0 = self.robot_and_ball_plant.GetPositions(context)
+    v0 = self.robot_and_ball_plant.GetVelocities(context)
+
     # Set the joint velocities for the robot to zero.
-    all_tree.set_velocities_in_array(
+    all_tree.SetVelocitiesInArray(
         self.robot_instance, np.zeros([nv_robot, 1]), v0)
 
     # Transform the velocities to time derivatives of generalized
@@ -545,8 +545,8 @@ class BoxController(LeafSystem):
     assert num_actuators == nv_robot()
 
     # Get the generalized positions and velocities.
-    q = get_all_q(context)
-    v = get_all_v(context)
+    q = self.robot_and_ball_plant.GetPositions(context)
+    v = self.robot_and_ball_plant.GetVelocities(context)
 
     # Construct the actuation and weighting matrices.
     #  B = MatrixXd::Zero(nv, num_actuators)
@@ -744,7 +744,7 @@ class BoxController(LeafSystem):
     contact_desired = self.plan.IsContactDesired(context.get_time())
 
     # Get the generalized positions.
-    q = self.get_all_q(context)
+    q = self.robot_and_ball_plant.GetPositions(context)
 
     # Compute tau.
     if contact_desired == True:
@@ -810,41 +810,6 @@ class BoxController(LeafSystem):
   # Gets the world body from the robot and ball tree.
   def get_world_from_robot_and_ball_tree(self):
     return self.robot_and_ball_plant.tree().world_body()
-
-
-  def get_all_q(self, context):
-    robot_q = self.get_robot_q(context)
-    ball_q = self.get_ball_q(context)
-    q = np.zeros([self.nq_ball() + self.nv_robot(), 1])
-
-    # Sanity check.
-    for i in range(len(q)):
-      q[i] = float("nan")
-
-    all_tree = self.robot_and_ball_plant.tree()
-    all_tree.set_positions_in_array(self.robot_instance, robot_q, q)
-    all_tree.set_positions_in_array(self.ball_instance_, ball_q, q)
-
-    # Sanity check.
-    for i in len(q):
-      assert not math.isnan(q[i])
-
-    return q
-
-
-  def get_all_v(self, context):
-    robot_qd = get_robot_qd(context)
-    ball_v = get_ball_v(context)
-    v = np.zeros([nv_ball() + nv_robot(), 1])
-
-    # Sanity check.
-    for i in range(len(v)): 
-      v[i] = float("nan") 
-
-    all_tree = self.robot_and_ball_plant.tree()
-    all_tree.set_velocities_in_array(robot_instance, robot_qd, v)
-    all_tree.set_velocities_in_array(ball_instance_, ball_v, v)
-    return v
 
 
 #  def DoPublish(context, publish_events):
