@@ -51,7 +51,7 @@ def main():
   ball_fname = FindResourceOrThrow(ball_model_path)
 
   # Construct a multibody plant just for kinematics/dynamics calculations.
-  robot_plant = builder.AddSystem(MultibodyPlant(time_step=args.time_step))
+  robot_plant = MultibodyPlant(time_step=args.time_step)
   AddModelFromSdfFile(file_name=arm_fname, plant=robot_plant)
 
   # Construct the multibody plant using both the robot and ball models.

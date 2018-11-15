@@ -83,19 +83,19 @@ class BoxController(LeafSystem):
 
   # Gets the robot configuration.
   def get_robot_q(self, context):
-    return self.EvalVectorInput(self.input_port_index_estimated_robot_q)
+    return self.EvalVectorInput(context, self.input_port_index_estimated_robot_q)
 
   # Gets the ball configuration.
   def get_ball_q(self, context):
-    return self.EvalVectorInput(self.input_port_index_estimated_ball_q)
+    return self.EvalVectorInput(context, self.input_port_index_estimated_ball_q)
 
   # Gets the robot velocity.
   def get_robot_qd(self, context):
-    return self.EvalVectorInput(self.input_port_index_estimated_robot_qd)
+    return self.EvalVectorInput(context, self.input_port_index_estimated_robot_qd)
 
   # Gets the ball velocity
   def get_ball_qd(self, context):
-    return self.EvalVectorInput(self.input_port_index_estimated_ball_v)
+    return self.EvalVectorInput(context, self.input_port_index_estimated_ball_v)
 
   # Makes a sorted pair.
   def MakeSortedPair(self, a, b):
@@ -106,31 +106,27 @@ class BoxController(LeafSystem):
 
   # Loads all plans into the controller.
   def LoadPlans(self):
-    files = os.listdir('./')
-    for file in files:
-      print file
-
     # Read in the plans for the robot.
-    self.plan.ReadRobotQQdotAndQddot("examples/iiwa_soccer/plan/joint_timings_fit.mat",
-                                     "examples/iiwa_soccer/plan/joint_angle_fit.mat",
-                                     "examples/iiwa_soccer/plan/joint_vel_fit.mat",
-                                     "examples/iiwa_soccer/plan/joint_accel_fit.mat")
+    self.plan.ReadRobotQQdotAndQddot("plan/joint_timings_fit.mat",
+                                     "plan/joint_angle_fit.mat",
+                                     "plan/joint_vel_fit.mat",
+                                     "plan/joint_accel_fit.mat")
 
     # Read in the plans for the point of contact.
-    self.plan.ReadContactPoint("examples/iiwa_soccer/plan/contact_pt_timings.mat",
-        "examples/iiwa_soccer/plan/contact_pt_positions.mat",
-        "examples/iiwa_soccer/plan/contact_pt_velocities.mat")
+    self.plan.ReadContactPoint("plan/contact_pt_timings.mat",
+        "plan/contact_pt_positions.mat",
+        "plan/contact_pt_velocities.mat")
 
     # Read in the plans for the ball kinematics.
     self.plan.ReadBallQVAndVdot(
-        "examples/iiwa_soccer/plan/ball_timings.mat",
-        "examples/iiwa_soccer/plan/ball_com_positions.mat",
-        "examples/iiwa_soccer/plan/ball_quats.mat",
-        "examples/iiwa_soccer/plan/ball_com_velocities.mat",
-        "examples/iiwa_soccer/plan/ball_omegas.mat",
-        "examples/iiwa_soccer/plan/ball_com_accelerations.mat",
-        "examples/iiwa_soccer/plan/ball_alphas.mat",
-        "examples/iiwa_soccer/plan/contact_status.mat")
+        "plan/ball_timings.mat",
+        "plan/ball_com_positions.mat",
+        "plan/ball_quats.mat",
+        "plan/ball_com_velocities.mat",
+        "plan/ball_omegas.mat",
+        "plan/ball_com_accelerations.mat",
+        "plan/ball_alphas.mat",
+        "plan/contact_status.mat")
 
 
   # Constructs the Jacobian matrices.
@@ -743,12 +739,12 @@ class BoxController(LeafSystem):
 
 
   # Calculate what torques to apply to the joints.
-  def DoControlCalc(self, context):
+  def DoControlCalc(self, context, output):
     # Determine whether we're in a contacting or not-contacting phase.
     contact_desired = self.plan.IsContactDesired(context.get_time())
 
     # Get the generalized positions.
-    q = get_all_q(context)
+    q = self.get_all_q(context)
 
     # Compute tau.
     if contact_desired == True:
@@ -817,17 +813,17 @@ class BoxController(LeafSystem):
 
 
   def get_all_q(self, context):
-    robot_q = get_robot_q(context)
-    ball_q = get_ball_q(context)
-    q = np.zeros([nq_ball() + nv_robot(), 1])
+    robot_q = self.get_robot_q(context)
+    ball_q = self.get_ball_q(context)
+    q = np.zeros([self.nq_ball() + self.nv_robot(), 1])
 
     # Sanity check.
     for i in range(len(q)):
       q[i] = float("nan")
 
     all_tree = self.robot_and_ball_plant.tree()
-    all_tree.set_positions_in_array(robot_instance, robot_q, q)
-    all_tree.set_positions_in_array(ball_instance_, ball_q, q)
+    all_tree.set_positions_in_array(self.robot_instance, robot_q, q)
+    all_tree.set_positions_in_array(self.ball_instance_, ball_q, q)
 
     # Sanity check.
     for i in len(q):
