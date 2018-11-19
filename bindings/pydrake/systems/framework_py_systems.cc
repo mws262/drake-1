@@ -254,15 +254,15 @@ struct Impl {
         m, "System", GetPyParam<T>(), doc.SystemBase.doc)
         .def ("MapVelocityToQDot",
               [](const System<T>* self, const Context<T>& context,
-                 const Eigen::Ref<const VectorX<T>>& v) -> VectorX<T> {
-      BasicVector<T> output;
+                 const Eigen::Ref<const VectorX<T>>& v, int nq) -> VectorX<T> {
+      BasicVector<T> output(nq);
       self->MapVelocityToQDot(context, v, &output);
       return output.CopyToVector();
     })
         .def ("MapQDotToVelocity",
               [](const System<T>* self, const Context<T>& context,
-                 const Eigen::Ref<const VectorX<T>>& qdot) -> VectorX<T> {
-                BasicVector<T> output;
+                 const Eigen::Ref<const VectorX<T>>& qdot, int nv) -> VectorX<T> {
+                BasicVector<T> output(nv);
                 self->MapQDotToVelocity(context, qdot, &output);
                 return output.CopyToVector();
               })

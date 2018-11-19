@@ -60,7 +60,7 @@ class ManipulationPlan:
     return self.contact_kinematics[self.SearchBinary(t, self.contact_kinematics)][1]
 
   def ReadRobotQQdotAndQddot(self, timings_fname, q_fname, qd_fname, qdd_fname):
-    kDim = 21;
+    kDim = 21;  # 7 joints x 3
 
     del self.q_qdot_qddot_robot[:]
 
@@ -170,20 +170,27 @@ class ManipulationPlan:
         self.q_v_vdot_ball.append((t, np.ones((kStatePlusAccelDim,1)) * float('nan')))
     in_timings.close()
 
+    # Set offsets in the vector.
+    kQuatOffset = 0
+    kComOffset = 4
+    kWOffset = 7;
+    kVOffset = 10;
+    kAlphaOffset = 13;
+    kVDotOffset = 16;
+
     #  Read in com locations.
     in_x = open(com_locations_fname, 'r')
     in_x_str = in_x.read().split()
     str_index = 0
     for i in range(len(self.q_v_vdot_ball)):
       for j in range(3):
-        self.q_v_vdot_ball[i][1][j] = float(in_x_str[str_index])
+        self.q_v_vdot_ball[i][1][j + kComOffset] = float(in_x_str[str_index])
         str_index = str_index + 1
     assert str_index == len(self.q_v_vdot_ball)*3
     in_x.close();
 
     #  Read in unit quaternions.
     quat_tol = 1e-7;
-    kQuatOffset = 3;
     in_quat = open(quats_fname, 'r')
     in_quat_str = in_quat.read().split()
     str_index = 0
@@ -196,7 +203,6 @@ class ManipulationPlan:
     in_quat.close();
 
     #  Read in translational velocities.
-    kVOffset = 7;
     in_v = open(com_velocity_fname, 'r')
     in_v_str = in_v.read().split()
     str_index = 0
@@ -207,7 +213,6 @@ class ManipulationPlan:
     in_v.close();
 
     #  Read in angular velocities.
-    kWOffset = 10;
     in_w = open(angular_velocity_fname, 'r')
     in_w_str = in_w.read().split()
     str_index = 0
@@ -218,7 +223,6 @@ class ManipulationPlan:
     in_w.close();
 
     #  Read in translational acceleration.
-    kVDotOffset = 13;
     in_vdot = open(com_accel_fname, 'r')
     in_vdot_str = in_vdot.read().split()
     str_index = 0
@@ -229,7 +233,6 @@ class ManipulationPlan:
     in_vdot.close();
     
     #  Read in angular accelerations.
-    kAlphaOffset = 16;
     in_alpha = open(angular_accel_fname, 'r')
     in_alpha_str = in_alpha.read().split()
     str_index = 0
