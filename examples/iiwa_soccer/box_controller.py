@@ -748,7 +748,7 @@ class BoxController(LeafSystem):
     assert len(b) == ndual
 
     # Setup and solve the KKT system.
-    z, K, rhs = ConstructAndSolveKKTSystem(nprimal, ndual, H, A, c, b)
+    z, K, rhs = self.ConstructAndSolveKKTSystem(nprimal, ndual, H, A, c, b)
 
     # Get the actuation forces and the contact forces.
     f_act = z[0:B_cols]
@@ -870,8 +870,8 @@ class BoxController(LeafSystem):
     Zdot_v[-nc] = Tdot_v
 
     # Compute torques without applying any tangential forces.
-    f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoTangentialForces(iM, fext, vdot_ball_des, N, Ndot_v)
-    # f_act, f_contact, zprimal = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
+    # f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoTangentialForces(iM, fext, vdot_ball_des, N, Ndot_v)
+    f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
@@ -949,8 +949,6 @@ class BoxController(LeafSystem):
         del contacts[-1]
       else:
         i += 1
-        #      std::cout << "Contact detected between " << body_a->get_name() <<
-        #                " and " << body_b->get_name() << std::endl
 
     return contacts
 
