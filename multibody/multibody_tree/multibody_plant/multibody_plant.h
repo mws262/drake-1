@@ -1337,6 +1337,23 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   /// See AddJointActuator() and num_actuators().
   /// @{
 
+  /// Returns a constant reference to the "God" input port for applying external
+  /// forces for the case where there is only one model instance.  This input
+  /// port is a vector valued port with dimension equal to `num_velocities()`.
+  /// @pre Finalize() was already called on `this` plant.
+  /// @throws std::exception if called before Finalize() or if there are
+  /// multiple model instances.
+  const systems::InputPort<T>& get_god_input_port() const;
+
+  /// Returns a constant reference to the "God" input port for applying external
+  /// forces to a specific model instance.  This input port is a vector valued
+  /// port with dimension equal to `num_velocities(model_instance)`.
+  /// @pre Finalize() was already called on `this` plant.
+  /// @throws std::exception if called before Finalize().
+  /// @throws std::exception if the model instance does not exist.
+  const systems::InputPort<T>& get_god_input_port(
+      ModelInstanceIndex model_instance) const;
+
   /// Returns a constant reference to the input port for external actuation for
   /// the case where only one model instance has actuated dofs.  This input
   /// port is a vector valued port, which can be set with
@@ -1845,6 +1862,11 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   void AddJointActuationForces(
       const systems::Context<T>& context, MultibodyForces<T>* forces) const;
 
+  // Helper method to add the contribution of external "God" forces to the set
+  // of multibody `forces`, via the plant's input port.
+  void AddGeneralizedGodForces(
+      const systems::Context<T>& context, MultibodyForces<T>* forces) const;
+
   // Helper method to apply penalty forces that enforce joint limits.
   // At each joint with joint limits this penalty method applies a force law of
   // the form:
@@ -2055,6 +2077,11 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // If only one model instance has actuated dofs, remember it here.  If
   // multiple instances have actuated dofs, this index will not be valid.
   ModelInstanceIndex actuated_instance_;
+
+  // A vector containing "God" input ports for each model instance indexed by
+  // ModelInstanceIndex. An invalid value indicates that the model instance has
+  // no state.
+  std::vector<systems::InputPortIndex> instance_god_ports_;
 
   systems::OutputPortIndex continuous_state_output_port_;
   // A vector containing state output ports for each model instance indexed by

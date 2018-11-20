@@ -3,87 +3,6 @@
 <model name="box_model">
   <pose>0 0 0 0 0 0</pose>
   <static>false</static>
-
-    <link name="dummy1">
-      <inertial>
-        <pose>0 0 0 0 0 0</pose>
-        <mass>1.0</mass>
-        <inertia>
-          <ixx>0.4</ixx>
-          <iyy>0.4</iyy>
-          <izz>0.4</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <pose>0 0 0 0 0 0</pose>
-    </link>
-
-    <link name="dummy2">
-      <inertial>
-        <pose>0 0 0 0 0 0</pose>
-        <mass>1.0</mass>
-        <inertia>
-          <ixx>0.4</ixx>
-          <iyy>0.4</iyy>
-          <izz>0.4</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <pose>0 0 0 0 0 0</pose>
-    </link>
-
-    <link name="dummy3">
-      <inertial>
-        <pose>0 0 0 0 0 0</pose>
-        <mass>1.0</mass>
-        <inertia>
-          <ixx>0.4</ixx>
-          <iyy>0.4</iyy>
-          <izz>0.4</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <pose>0 0 0 0 0 0</pose>
-    </link>
-
-    <link name="dummy4">
-      <inertial>
-        <pose>0 0 0 0 0 0</pose>
-        <mass>1.0</mass>
-        <inertia>
-          <ixx>0.4</ixx>
-          <iyy>0.4</iyy>
-          <izz>0.4</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <pose>0 0 0 0 0 0</pose>
-    </link>
-
-    <link name="dummy5">
-      <inertial>
-        <pose>0 0 0 0 0 0</pose>
-        <mass>1.0</mass>
-        <inertia>
-          <ixx>0.4</ixx>
-          <iyy>0.4</iyy>
-          <izz>0.4</izz>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyz>0</iyz>
-        </inertia>
-      </inertial>
-      <pose>0 0 0 0 0 0</pose>
-    </link>
-
     <link name="box">
       <inertial>
         <mass>1.0</mass>
@@ -107,78 +26,11 @@
       <visual name="visual">
         <geometry>
           <box>
-            <size>1 1 .025</size>
+            <size>.4 .04 .4</size>
           </box>
         </geometry>
       </visual>
     </link>
-
-    <joint name='translate-x' type='prismatic'>
-      <child>dummy1</child>
-      <parent>world</parent>
-      <axis>
-        <xyz>1 0 0</xyz>
-        <limit>
-          <effort>1e6</effort>
-        </limit>
-      </axis>
-    </joint>
-
-    <joint name='translate-y' type='prismatic'>
-      <child>dummy2</child>
-      <parent>dummy1</parent>
-      <axis>
-        <xyz>0 1 0</xyz>
-        <limit>
-          <effort>1e6</effort>
-        </limit>
-      </axis>
-    </joint>
-
-    <joint name='translate-z' type='prismatic'>
-      <child>dummy3</child>
-      <parent>dummy2</parent>
-      <axis>
-        <xyz>0 0 1</xyz>
-        <limit>
-          <effort>1e6</effort>
-        </limit>
-      </axis>
-    </joint>
-
-    <joint name='rotate-x' type='revolute'>
-      <child>dummy4</child>
-      <parent>dummy3</parent>
-      <axis>
-        <xyz>1 0 0</xyz>
-        <limit>
-          <effort>1e6</effort>
-        </limit>
-      </axis>
-    </joint>
-
-    <joint name='rotate-y' type='revolute'>
-      <child>dummy5</child>
-      <parent>dummy4</parent>
-      <axis>
-        <xyz>0 1 0</xyz>
-        <limit>
-          <effort>1e6</effort>
-        </limit>
-      </axis>
-    </joint>
-
-    <joint name='rotate-z' type='revolute'>
-      <child>box</child>
-      <parent>dummy5</parent>
-      <axis>
-        <xyz>0 0 1</xyz>
-        <limit>
-          <effort>1e6</effort>
-        </limit>
-      </axis>
-    </joint>
-
   </model>
 </sdf>
 

@@ -5,12 +5,13 @@ import numpy as np
 from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
-Multiplexer, LcmPublisherSystem, MobilizerIndex)
+Multiplexer, LcmPublisherSystem, MobilizerIndex, ConstantVectorSource, Isometry3, Quaternion)
 from box_controller import BoxController
 
 robot_model_name = "box_model"
 ball_model_name = "soccer_ball"
 
+ground_model_path = "drake/examples/iiwa_soccer/models/ground.sdf"
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
@@ -23,6 +24,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   scene_graph = mbw_builder.AddSystem(SceneGraph())
 
   # Get the model paths.
+  ground_fname = FindResourceOrThrow(ground_model_path)
   arm_fname = FindResourceOrThrow(arm_model_path)
   ball_fname = FindResourceOrThrow(ball_model_path)
 
@@ -36,6 +38,10 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
                                           scene_graph=scene_graph)
   ball_instance_id = AddModelFromSdfFile(file_name=ball_fname, plant=all_plant,
                                          scene_graph=scene_graph)
+  # AddModelFromSdfFile(file_name=ground_fname, plant=all_plant, scene_graph=scene_graph)
+
+  # Weld the box to the ground.
+  # all_plant.WeldFrames(all_plant.world_frame(), all_plant.GetFrameByName("ground"))
 
   # Add gravity to the models.
   all_plant.AddForceElement(UniformGravityFieldElement([0, 0, -9.81]))
@@ -60,7 +66,8 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   # Export useful ports.
   robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
   ball_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(ball_instance_id))
-  robot_actuation_input = mbw_builder.ExportInput(all_plant.get_actuation_input_port(robot_instance_id))
+  robot_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(robot_instance_id))
+  ball_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(ball_instance_id))
 
   # Add the "MultibodyWorld" to the diagram.
   mbw = builder.AddSystem(mbw_builder.Build())
@@ -70,14 +77,17 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   #############################################
 
   # Build the controller.
-  controller = builder.AddSystem(BoxController(all_plant, robot_plant, mbw, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance_id, ball_instance_id))
+  controller = builder.AddSystem(BoxController('box', all_plant, robot_plant, mbw, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance_id, ball_instance_id))
 
-  # TODO: Make this more robust.
+  # Get the necessary instances.
+  robot_instance = all_plant.GetModelInstanceByName(robot_model_name)
+  ball_instance = all_plant.GetModelInstanceByName(ball_model_name)
+
   # Construct the necessary demultiplexers.
-  nq_ball = 7
-  nq_robot = 6
-  nv_ball = 6
-  nv_robot = 6
+  nq_ball = all_plant.num_positions(ball_instance)
+  nq_robot = all_plant.num_positions(robot_instance)
+  nv_ball = all_plant.num_velocities(ball_instance)
+  nv_robot = all_plant.num_velocities(robot_instance)
   robot_state_demuxer = builder.AddSystem(Demultiplexer(
     nq_robot + nv_robot, 1))
   ball_state_demuxer = builder.AddSystem(Demultiplexer(
@@ -85,14 +95,14 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
 
   # Construct the necessary multiplexers for the robot state.
   # Note: these must be changed if robot DOF changes.
-  robot_config_port_input_sizes = [ 1, 1, 1, 1, 1, 1 ]
-  robot_vel_port_input_sizes = [ 1, 1, 1, 1, 1, 1 ]
+  robot_config_port_input_sizes = [1] * nq_robot
+  robot_vel_port_input_sizes = [1] * nv_robot
   robot_q_muxer = builder.AddSystem(Multiplexer(robot_config_port_input_sizes))
   robot_v_muxer = builder.AddSystem(Multiplexer(robot_vel_port_input_sizes))
 
   # Construct the necessary mutliplexers for the ball state.
-  ball_config_port_input_sizes = [ 1, 1, 1, 1, 1, 1, 1 ]
-  ball_vel_port_input_sizes = [ 1, 1, 1, 1, 1, 1 ]
+  ball_config_port_input_sizes = [1] * nq_ball
+  ball_vel_port_input_sizes = [1] * nv_ball
   ball_q_muxer = builder.AddSystem(Multiplexer(ball_config_port_input_sizes))
   ball_v_muxer = builder.AddSystem(Multiplexer(ball_vel_port_input_sizes))
 
@@ -113,14 +123,14 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   builder.Connect(ball_v_muxer.get_output_port(0), controller.get_input_port_estimated_ball_v())
   builder.Connect(robot_q_muxer.get_output_port(0), controller.get_input_port_estimated_robot_q())
   builder.Connect(robot_v_muxer.get_output_port(0), controller.get_input_port_estimated_robot_v())
-  builder.Connect(controller.get_output_port_control(), mbw.get_input_port(robot_actuation_input))
+  builder.Connect(controller.get_output_port_control(), mbw.get_input_port(robot_god_input))
+
+  # Construct a constant source to "plug" the ball God input.
+  zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([controller.nv_ball()])))
+  builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
 
   # Build the diagram.
   diagram = builder.Build()
-
-  # Get the necessary instances.
-  robot_instance = all_plant.GetModelInstanceByName(robot_model_name)
-  ball_instance = all_plant.GetModelInstanceByName(ball_model_name)
 
   return [ controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance ]
 
@@ -172,7 +182,7 @@ def main():
   robot_and_ball_context = mbw.GetMutableSubsystemContext(all_plant, mbw_context)
   plan = controller.plan
   t0 = 0
-  x_robot = plan.GetRobotQQdotAndQddot(t0)[0:controller.nq_robot()+controller.nv_robot()]
+  x_robot = plan.GetRobotQVAndVdot(t0)[0:controller.nq_robot()+controller.nv_robot()]
   x_ball = plan.GetBallQVAndVdot(t0)[0:controller.nq_ball()+controller.nv_ball()]
   all_plant.SetPositionsAndVelocities(robot_and_ball_context, robot_instance, x_robot)
   all_plant.SetPositionsAndVelocities(robot_and_ball_context, ball_instance, x_ball)

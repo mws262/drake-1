@@ -1010,6 +1010,33 @@ void MultibodyPlant<T>::CalcAndAddContactForcesByPenaltyMethod(
 }
 
 template<typename T>
+void MultibodyPlant<T>::AddGeneralizedGodForces(
+    const systems::Context<T>& context, MultibodyForces<T>* forces) const {
+  DRAKE_DEMAND(forces != nullptr);
+
+  // Get the mutable generalized force vector.
+  VectorX<T>& tau = forces->mutable_generalized_forces();
+
+  // Construct an empty vector that will be zeroed and populated on each loop
+  // iteration.
+  VectorX<T> tau_instance(num_velocities());
+
+  // Evaluate the "God" input over each model instance.
+  for (ModelInstanceIndex model_instance_index(0);
+       model_instance_index < num_model_instances(); ++model_instance_index) {
+    // Evaluate the God input.
+    Eigen::VectorBlock<const VectorX<T>> god_input =
+        this->EvalEigenVectorInput(context,
+                                   instance_god_ports_[model_instance_index]);
+
+    // Incorporate it into MultibodyForces.
+    tau_instance.setZero();
+    tree().SetVelocitiesInArray(model_instance_index, god_input, &tau_instance);
+    tau += tau_instance;
+  }
+}
+
+template<typename T>
 void MultibodyPlant<T>::AddJointActuationForces(
     const systems::Context<T>& context, MultibodyForces<T>* forces) const {
   DRAKE_DEMAND(forces != nullptr);
@@ -1130,6 +1157,7 @@ void MultibodyPlant<T>::DoCalcTimeDerivatives(
 
   // If there is any input actuation, add it to the multibody forces.
   AddJointActuationForces(context, &forces);
+  AddGeneralizedGodForces(context, &forces);
 
   tree().CalcMassMatrixViaInverseDynamics(context, &M);
 
@@ -1254,6 +1282,7 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // If there is any input actuation, add it to the multibody forces.
   AddJointActuationForces(context0, &forces0);
+  AddGeneralizedGodForces(context0, &forces0);
 
   AddJointLimitsPenaltyForces(context0, &forces0);
 
@@ -1419,6 +1448,18 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
 
   // TODO(sherm1) Add ContactResults cache entry.
 
+  // Declare God force input ports.
+  instance_god_ports_.resize(num_model_instances());
+  for (ModelInstanceIndex model_instance_index(0);
+       model_instance_index < num_model_instances(); ++model_instance_index) {
+    const int instance_num_velocities =
+        tree().num_velocities(model_instance_index);
+    instance_god_ports_[model_instance_index] = this->DeclareVectorInputPort(
+        tree().GetModelInstanceName(model_instance_index) +
+        "_god_input", systems::BasicVector<T>(
+            instance_num_velocities)).get_index();
+    }
+
   // Declare per model instance actuation ports.
   int num_actuated_instances = 0;
   ModelInstanceIndex last_actuated_instance;
@@ -1574,6 +1615,25 @@ MultibodyPlant<T>::get_actuation_input_port(
   DRAKE_THROW_UNLESS(num_actuated_dofs(model_instance) > 0);
   return systems::System<T>::get_input_port(
       instance_actuation_ports_.at(model_instance));
+}
+
+template <typename T>
+const systems::InputPort<T>&
+MultibodyPlant<T>::get_god_input_port() const {
+  DRAKE_MBP_THROW_IF_NOT_FINALIZED();
+  DRAKE_THROW_UNLESS(num_model_instances() == 1);
+  return systems::System<T>::get_input_port(instance_god_ports_.front());
+}
+
+template <typename T>
+const systems::InputPort<T>&
+MultibodyPlant<T>::get_god_input_port(
+    ModelInstanceIndex model_instance) const {
+  DRAKE_MBP_THROW_IF_NOT_FINALIZED();
+  DRAKE_THROW_UNLESS(model_instance.is_valid());
+  DRAKE_THROW_UNLESS(model_instance < num_model_instances());
+  return systems::System<T>::get_input_port(
+      instance_god_ports_.at(model_instance));
 }
 
 template <typename T>

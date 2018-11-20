@@ -44,6 +44,20 @@ drake_cc_library(
         "plan/joint_angle_fit.mat",
         "plan/joint_timings_fit.mat",
         "plan/joint_vel_fit.mat",
+        "plan_box/ball_timings.mat",
+        "plan_box/ball_com_positions.mat",
+        "plan_box/ball_quats.mat",
+        "plan_box/ball_com_velocities.mat",
+        "plan_box/ball_omegas.mat",
+        "plan_box/ball_com_accelerations.mat",
+        "plan_box/ball_alphas.mat",
+        "plan_box/contact_status.mat",
+        "plan_box/contact_pt_timings.mat",
+        "plan_box/contact_pt_positions.mat",
+        "plan_box/contact_pt_velocities.mat",
+        "plan_box/box_positions.mat",
+        "plan_box/box_quats.mat",
+        "plan_box/box_timings.mat",
     ],
     visibility = ["//visibility:public"],
     deps = [],
@@ -179,6 +193,25 @@ drake_py_binary(
     name = "box_soccer_simulation",
     srcs = [
         "box_soccer_simulation.py",
+        "box_controller.py",
+        "manipulation_plan.py",
+    ],
+    add_test_rule = 1,
+    data = [
+        ":models",
+        "//examples/contact_model:bowling_ball",
+        ":plan",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
+drake_py_binary(
+    name = "box_controller_test",
+    srcs = [
+        "box_controller_test.py",
         "box_controller.py",
         "manipulation_plan.py",
     ],
