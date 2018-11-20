@@ -24,6 +24,9 @@ class BoxController(LeafSystem):
     self.robot_and_ball_plant = all_plant
     self.mbw = mbw
 
+    # Set the controller type.
+    self.controller_type = 'NoFrictionalForcesApplied'
+
     if robot_type == 'box':
       self.command_output_size = self.robot_plant.num_velocities()
     if robot_type == 'iiwa':
@@ -752,7 +755,7 @@ class BoxController(LeafSystem):
 
     # Get the actuation forces and the contact forces.
     f_act = z[0:B_cols]
-    f_contact = z[B_cols:]
+    f_contact = z[B_cols:nprimal]
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
@@ -772,7 +775,7 @@ class BoxController(LeafSystem):
   # RETURNS: a tuple containing (1) the actuation forces, (2) the contact force
   #          magnitudes (along the contact normals), and (3) the primal solution
   #          to the quadratic program.
-  def ComputeContactControlMotorTorquesNoTangentialForces(self, iM, fext, vdot_ball_des, N, Ndot_v):
+  def ComputeContactControlMotorTorquesNoFrictionalForces(self, iM, fext, vdot_ball_des, N, Ndot_v):
     # Construct the actuation and weighting matrices.
     B = self.ConstructRobotActuationMatrix()
     P = self.ConstructBallVelocityWeightingMatrix()
@@ -870,12 +873,24 @@ class BoxController(LeafSystem):
     Zdot_v[-nc] = Tdot_v
 
     # Compute torques without applying any tangential forces.
-    # f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoTangentialForces(iM, fext, vdot_ball_des, N, Ndot_v)
-    f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
+    if self.controller_type == 'NoFrictionalForcesApplied':
+      f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoFrictionalForces(iM, fext, vdot_ball_des, N, Ndot_v)
+    if self.controller_type == 'NoSlip':
+      f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
+    print nc
+    print f_contact.shape
+    print N.shape
+    print zprimal.shape
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
     assert np.min(f_contact_n) >= -1e-8
+
+    # Compute the generalized contact forces.
+    if self.controller_type == 'NoFrictionalForcesApplied':
+      f_contact_generalized = N.T.dot(f_contact)
+    if self.controller_type == 'NoSlip':
+      f_contact_generalized = Z.T.dot(f_contact)
 
     # Output logging information.
     vdot = iM.dot(D.dot(zprimal) + fext)
@@ -904,7 +919,7 @@ class BoxController(LeafSystem):
     print "P * vdot: " + str(P_vdot)
     print "torque: " + str(f_act)
 
-    return f_act
+    return [f_act, f_contact_generalized ]
 
   # Gets the vector of contacts.
   def FindContacts(self, all_q):
@@ -1000,7 +1015,7 @@ class BoxController(LeafSystem):
       # as desired. In the second, the robot desires to be in contact, but the
       # ball and robot are not contacting: the robot must intercept the ball.
       if self.IsRobotContactingBall(contacts):
-        tau = self.ComputeActuationForContactDesiredAndContacting(context, contacts)
+        tau, f_contact_generalized = self.ComputeActuationForContactDesiredAndContacting(context, contacts)
       else:
         tau = self.ComputeActuationForContactDesiredButNoContact(context)
     else:

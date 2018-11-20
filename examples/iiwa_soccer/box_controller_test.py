@@ -184,13 +184,16 @@ class ControllerTest:
 
   # Check control outputs for when contact is intended and robot and ball are
   # indeed in contact.
-  # TODO: Move this beyond just a smoke test.
   def TestContactAndContactIntendedOutputsCorrect(self):
     # Get the plan.
     plan = self.controller.plan
 
+    # Get the robot/ball plant and the correpsonding context from the controller.
+    all_plant = self.controller.robot_and_ball_plant
+    robot_and_ball_context = self.controller.robot_and_ball_context
+
     # Advance time, finding a point at which contact is desired *and* where
-    # the robot is not contacting the ground.
+    # the robot is contacting the ball.
     dt = 1e-3
     t = 0.0
     t_final = plan.end_time()
@@ -207,8 +210,56 @@ class ControllerTest:
       t += dt
       assert t <= t_final
 
+    # This test will compute the control forces on the robot and the contact
+    # forces on the ball. The computed contact forces on the ball will be used
+    # to integrate the ball velocity forward in time. The control and computed
+    # contact forces on the robot will be used to integrate the robot velocity
+    # forward in time as well. We'll then examine the contact point and ensure
+    # that its velocity remains sufficiently near zero.
+
+    # Clear the velocity so that the contact velocity at the contact point need
+    # not compensate for nonzero initial velocity.
+    v[:] = np.zeros([len(v)])
+    all_plant.SetPositions(robot_and_ball_context, q)
+    all_plant.SetVelocities(robot_and_ball_context, v)
+    N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
+    zero_velocity_tol = 1e-3
+    Nv = N.dot(v)
+    Sv = S.dot(v)
+    Tv = T.dot(v)
+    assert np.linalg.norm(Nv) < zero_velocity_tol
+    assert np.linalg.norm(Sv) < zero_velocity_tol
+    assert np.linalg.norm(Tv) < zero_velocity_tol
+
     # Compute the output from the controller.
     self.controller.CalcOutput(self.controller_context, self.output)
+
+    # Determine the predicted forces due to contact.
+    f_act, f_contact = self.controller.ComputeActuationForContactDesiredAndContacting(self.controller_context, contacts)
+
+    # Use the controller output to determine the generalized acceleration of the
+    # robot and the ball.
+    M = all_plant.tree().CalcMassMatrixViaInverseDynamics(robot_and_ball_context)
+    link_wrenches = MultibodyForces(self.all_plant.tree())
+    fext = -all_plant.tree().CalcInverseDynamics(
+      robot_and_ball_context, np.zeros([len(v)]), link_wrenches)
+
+    # Get the robot actuation matrix.
+    B = self.controller.ConstructRobotActuationMatrix()
+
+    # Integrate the velocity forward in time.
+    dt = 1e-10
+    vdot = np.linalg.solve(M, fext + f_contact + B.dot(f_act))
+    vnew = v + dt * vdot
+
+    # Get the velocity at the point of contacts.
+    Nv = N.dot(vnew)
+    Sv = S.dot(vnew)
+    Tv = T.dot(vnew)
+    assert np.linalg.norm(Nv) < zero_velocity_tol
+    assert np.linalg.norm(Sv) < zero_velocity_tol
+    assert np.linalg.norm(Tv) < zero_velocity_tol
+
     print 'TestContactAndContactIntendedOutputsCorrect() passed'
 
 
