@@ -501,7 +501,6 @@ class ControllerTest:
       dist_thresh = 1e-6
       assert abs(self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)) < dist_thresh
       assert abs(self.controller.GetSignedDistanceFromBallToGround(self.controller_context)) < dist_thresh
-      assert False
 
       # Update t.
       t += dt
