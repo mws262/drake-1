@@ -166,7 +166,7 @@ class ControllerTest:
     # This is just a smoke test.
     self.controller.get_ball_from_robot_and_ball_plant()
     self.controller.get_foot_links_from_robot_and_ball_plant()
-    self.controller.get_world_from_robot_and_ball_plant()
+    self.controller.get_ground_from_robot_and_ball_plant()
     print 'TestBodyAccessors() passed'
 
   def TestIntegralValue(self):
@@ -499,7 +499,9 @@ class ControllerTest:
 
       # Check the distance between the robot foot and the ball.
       dist_thresh = 1e-6
-      assert self.controller.GetSignedDistanceFromRobotToBall(self.controller_context) < dist_thresh
+      assert abs(self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)) < dist_thresh
+      assert abs(self.controller.GetSignedDistanceFromBallToGround(self.controller_context)) < dist_thresh
+      assert False
 
       # Update t.
       t += dt
@@ -518,8 +520,8 @@ def main():
   test.TestJacobianConstruction()
   test.TestContactAndContactIntendedOutputsCorrect()
   test.TestNoContactButContactIntendedOutputsCorrect()
-  test.TestZeroVelocityAtContact()
   test.TestContactDistanceBelowThreshold()
+  test.TestZeroVelocityAtContact()
 
 
 if __name__ == "__main__":

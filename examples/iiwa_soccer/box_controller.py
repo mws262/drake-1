@@ -88,8 +88,8 @@ class BoxController(LeafSystem):
     return [ self.robot_plant.GetBodyByName("box") ]
 
   # Gets the world body from the robot and ball tree.
-  def get_world_from_robot_and_ball_plant(self):
-    return self.robot_and_ball_plant.world_body()
+  def get_ground_from_robot_and_ball_plant(self):
+    return self.robot_and_ball_plant.GetBodyByName("ground_body")
 
   def get_input_port_estimated_robot_q(self):
     return self.get_input_port(self.input_port_index_estimated_robot_q)
@@ -193,29 +193,29 @@ class BoxController(LeafSystem):
 
     if self.robot_type == 'box':
       self.plan.ReadBoxRobotQVAndVdot(
-        "plan_box/box_timings.mat",
-        "plan_box/box_positions.mat",
-        "plan_box/box_quats.mat",
+        "examples/iiwa_soccer/plan_box/box_timings.mat",
+        "examples/iiwa_soccer/plan_box/box_positions.mat",
+        "examples/iiwa_soccer/plan_box/box_quats.mat",
         "plan/box_com_velocities.mat",
         "plan/box_omegas.mat",
         "plan/box_com_accelerations.mat",
         "plan/box_alphas.mat")
 
       # Read in the plans for the point of contact.
-      self.plan.ReadContactPoint("plan_box/contact_pt_timings.mat",
-          "plan_box/contact_pt_positions.mat",
-          "plan_box/contact_pt_velocities.mat")
+      self.plan.ReadContactPoint("examples/iiwa_soccer/plan_box/contact_pt_timings.mat",
+          "examples/iiwa_soccer/plan_box/contact_pt_positions.mat",
+          "examples/iiwa_soccer/plan_box/contact_pt_velocities.mat")
 
       # Read in the plans for the ball kinematics.
       self.plan.ReadBallQVAndVdot(
-          "plan_box/ball_timings.mat",
-          "plan_box/ball_com_positions.mat",
-          "plan_box/ball_quats.mat",
-          "plan_box/ball_com_velocities.mat",
-          "plan_box/ball_omegas.mat",
-          "plan_box/ball_com_accelerations.mat",
-          "plan_box/ball_alphas.mat",
-          "plan_box/contact_status.mat")
+          "examples/iiwa_soccer/plan_box/ball_timings.mat",
+          "examples/iiwa_soccer/plan_box/ball_com_positions.mat",
+          "examples/iiwa_soccer/plan_box/ball_quats.mat",
+          "examples/iiwa_soccer/plan_box/ball_com_velocities.mat",
+          "examples/iiwa_soccer/plan_box/ball_omegas.mat",
+          "examples/iiwa_soccer/plan_box/ball_com_accelerations.mat",
+          "examples/iiwa_soccer/plan_box/ball_alphas.mat",
+          "examples/iiwa_soccer/plan_box/contact_status.mat")
 
 
   # Constructs the Jacobian matrices.
@@ -354,7 +354,7 @@ class BoxController(LeafSystem):
 
     # Get the ball body and foot bodies.
     ball_body = self.get_ball_from_robot_and_ball_plant()
-    world_body = self.get_world_from_robot_and_ball_plant()
+    world_body = self.get_ground_from_robot_and_ball_plant()
 
     # Make sorted pair to check.
     ball_world_pair = self.MakeSortedPair(ball_body, world_body)
@@ -546,8 +546,11 @@ class BoxController(LeafSystem):
     # Get the geometric Jacobian for the velocity of the closest point on the
     # robot as moving with the robot Body A.
     foot_bodies_in_robot_tree = self.get_foot_links_from_robot_plant()
+    for body in foot_bodies_in_robot_tree:
+      if body.name() == body_A.name():
+        foot_body_to_use = body
     J_WAc = robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
-        self.robot_context, foot_bodies_in_robot_tree[i].body_frame(), closest_Aw)
+        self.robot_context, foot_body_to_use.body_frame(), closest_Aw)
     q_robot_des = q_robot
 
     # Use resolved-motion rate control to determine the robot velocity that
@@ -940,7 +943,7 @@ class BoxController(LeafSystem):
     # Get the ball body and foot bodies.
     ball_body = self.get_ball_from_robot_and_ball_plant()
     foot_bodies = self.get_foot_links_from_robot_and_ball_plant()
-    world_body = self.get_world_from_robot_and_ball_plant()
+    world_body = self.get_ground_from_robot_and_ball_plant()
 
     # Make sorted pairs to check.
     ball_foot_pairs = [0] * len(foot_bodies)

@@ -38,10 +38,10 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
                                           scene_graph=scene_graph)
   ball_instance_id = AddModelFromSdfFile(file_name=ball_fname, plant=all_plant,
                                          scene_graph=scene_graph)
-  # AddModelFromSdfFile(file_name=ground_fname, plant=all_plant, scene_graph=scene_graph)
+  AddModelFromSdfFile(file_name=ground_fname, plant=all_plant, scene_graph=scene_graph)
 
-  # Weld the box to the ground.
-  # all_plant.WeldFrames(all_plant.world_frame(), all_plant.GetFrameByName("ground"))
+  # Weld the ground to the world.
+  all_plant.WeldFrames(all_plant.world_frame(), all_plant.GetFrameByName("ground_body"))
 
   # Add gravity to the models.
   all_plant.AddForceElement(UniformGravityFieldElement([0, 0, -9.81]))
