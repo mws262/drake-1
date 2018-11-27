@@ -355,6 +355,13 @@ class ConstraintSolver {
   void SolveImpactProblem(const ConstraintVelProblemData<T>& problem_data,
                           VectorX<T>* cf) const;
 
+  // TODO(edrumwri) Provide documentation.
+  void SolveConstraintProblem(
+      const SoftConstraintProblemData<T>& problem_data,
+      double zeta,
+      double h,
+      VectorX<T>* cf) const;
+
   /// Populates the packed constraint force vector from the solution to the
   /// linear complementarity problem (LCP) constructed using
   /// ConstructBaseDiscretizedTimeLcp() and UpdateDiscretizedTimeLcp().
@@ -446,6 +453,24 @@ class ConstraintSolver {
   ///         vector is incorrectly sized.
   static void ComputeGeneralizedForceFromConstraintForces(
       const ConstraintVelProblemData<T>& problem_data,
+      const VectorX<T>& cf,
+      VectorX<T>* generalized_force);
+
+  /// Computes the generalized force on the system from the constraint forces
+  /// given in packed storage.
+  /// @param problem_data The data used to compute the contact forces.
+  /// @param cf The computed constraint forces, in the packed storage
+  ///           format described in documentation for
+  ///           SolveConstraintProblem().
+  /// @param[out] generalized_force The generalized force acting on the system
+  ///             from the total constraint wrench is stored here, on return.
+  ///             This method will resize `generalized_force` as necessary. The
+  ///             indices of `generalized_force` will exactly match the indices
+  ///             of `problem_data.f`.
+  /// @throws std::logic_error if `generalized_force` is null or `cf`
+  ///         vector is incorrectly sized.
+  static void ComputeGeneralizedForceFromConstraintForces(
+      const SoftConstraintProblemData<T>& problem_data,
       const VectorX<T>& cf,
       VectorX<T>* generalized_force);
 
@@ -2265,6 +2290,58 @@ void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
 
 template <class T>
 void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
+    const SoftConstraintProblemData<T>& problem_data,
+    const VectorX<T>& cf,
+    VectorX<T>* generalized_force) {
+  if (!generalized_force)
+    throw std::logic_error("generalized_force vector is null.");
+
+  // Look for fast exit.
+  if (cf.size() == 0) {
+    generalized_force->setZero(problem_data.num_velocities(), 1);
+    return;
+  }
+
+  // Get number of contacts.
+  const int num_contacts = problem_data.mu.size();
+  const int num_f1_variables = problem_data.kR.size();
+  const int num_f2_variables = problem_data.kS.size();
+  const int num_limits = problem_data.kU.size();
+  const int num_bilat_constraints = problem_data.kB.size();
+
+  // Verify cf is the correct size.
+  const int num_vars = num_contacts + num_f1_variables + num_f2_variables +
+      num_limits + num_bilat_constraints;
+  if (num_vars != cf.size()) {
+    throw std::logic_error("Unexpected packed constraint force vector"
+                               " dimension.");
+  }
+
+  /// Get the normal and tangential contact forces.
+  const Eigen::Ref<const VectorX<T>> f_normal = cf.segment(0, num_contacts);
+  const Eigen::Ref<const VectorX<T>> f_frictional_r = cf.segment(
+      num_contacts, num_f1_variables);
+  const Eigen::Ref<const VectorX<T>> f_frictional_s = cf.segment(
+      num_contacts + num_f1_variables, num_f2_variables);
+
+  /// Get the limit forces.
+  const Eigen::Ref<const VectorX<T>> f_limit = cf.segment(
+      num_contacts + num_f1_variables + num_f2_variables, num_limits);
+
+  // Get the bilateral constraint forces.
+  const Eigen::Ref<const VectorX<T>> f_bilat = cf.segment(num_contacts +
+      num_f1_variables + num_f2_variables + num_limits, num_bilat_constraints);
+
+  /// Compute the generalized forces.
+  *generalized_force = problem_data.Gn_transpose_mult(f_normal) +
+      problem_data.Gr_transpose_mult(f_frictional_r) +
+      problem_data.Gs_transpose_mult(f_frictional_s) +
+      problem_data.Gu_transpose_mult(f_limit) +
+      problem_data.Gb_transpose_mult(f_bilat);
+}
+
+template <class T>
+void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
     const ConstraintVelProblemData<T>& problem_data,
     const VectorX<T>& cf,
     VectorX<T>* generalized_force) {
@@ -2555,6 +2632,248 @@ void ConstraintSolver<T>::CalcContactForcesInContactFrames(
     // Compute the contact force in the contact frame.
     contact_force_i = contact_frames[i].transpose() * j0;
   }
+}
+
+template <typename T>
+void ConstraintSolver<T>::SolveConstraintProblem(
+    const SoftConstraintProblemData<T>& problem_data,
+    double zeta,
+    double h,
+    VectorX<T>* cf) const {
+  if (!cf)
+    throw std::logic_error("cf (output parameter) is null.");
+
+  // Compute common terms.
+  const double hsq = h * h;
+
+  // Alias data from the constraints.
+  auto& M_solve = problem_data.solve_inertia;
+  const VectorX<T>& Kb = problem_data.Kb;
+  const VectorX<T>& Ku = problem_data.Ku;
+  const VectorX<T>& Kn = problem_data.Kn;
+  const VectorX<T>& Kr = problem_data.Kr;
+  const VectorX<T>& Ks = problem_data.Ks;
+  const VectorX<T>& Bb = problem_data.Bb;
+  const VectorX<T>& Bu = problem_data.Bu;
+  const VectorX<T>& Bn = problem_data.Bn;
+  const VectorX<T>& Br = problem_data.Br;
+  const VectorX<T>& Bs = problem_data.Bs;
+
+  // TODO(edrumwri) Leverage operators to replace this.
+  const int nv = problem_data.num_velocities();
+  Eigen::DiagonalMatrix<T, Eigen::Dynamic> diag_nv(nv); diag_nv.setIdentity();
+  const MatrixX<T> Gb = problem_data.Gb_mult(diag_nv);
+  const MatrixX<T> Gu = problem_data.Gu_mult(diag_nv);
+  const MatrixX<T> Gn = problem_data.Gn_mult(diag_nv);
+  const MatrixX<T> Gr = problem_data.Gr_mult(diag_nv);
+  const MatrixX<T> Gs = problem_data.Gs_mult(diag_nv);
+  const MatrixX<T> iM = M_solve(diag_nv);
+
+  // Set useful constants.
+  const int nb = Gb.rows();
+  const int nu = Gu.rows();
+  const int nc = Gn.rows();
+  const int nr = Gr.rows();
+  const int ns = Gs.rows();
+  const int nprimal = nc + nr + ns + nu;
+
+  // TODO: Leverage operators in place of this.
+  // Compute necessary quantities.
+  MatrixX<T> Gstar(nu + nc + nr + ns, nv);
+  Gstar.block(0, 0, nc, nv) = Gn;
+  Gstar.block(nc, 0, nr, nv) = Gr;
+  Gstar.block(nc + nr, 0, ns, nv) = Gs;
+  Gstar.block(nc + nr + ns, 0, nu, nv) = Gu;
+  const MatrixX<T> D = (-hsq * Kb - h * Bb).asDiagonal() * Gb * iM;
+  const MatrixX<T> C = MatrixX<T>::Identity(D.rows(), D.rows()) -
+      D * Gb.transpose();
+  Eigen::PartialPivLU<MatrixX<T>> luC;
+  if (C.rows() > 0)
+    luC.compute(C);
+    auto C_solve = [&luC](const MatrixX<T>& m) -> MatrixX<T> {
+      if (luC.rows() == 0) {
+        DRAKE_DEMAND(m.rows() == 0);
+        return MatrixX<T>::Zero(0, m.cols());
+      } else {
+        return luC.solve(m);
+      }
+    };
+
+  const MatrixX<T> Lambda = (M_solve(Gb.transpose() * C_solve(D)) +
+      M_solve(diag_nv));
+  const MatrixX<T> EF_rhs = Lambda * Gstar.transpose();
+  const MatrixX<T> E = (-hsq * Kr - h * Br).asDiagonal() * Gr * EF_rhs;
+  const MatrixX<T> F = (-hsq * Ks - h * Bs).asDiagonal() * Gs * EF_rhs;
+
+  // Set vector quantities.
+  const VectorX<T> c = -problem_data.kB;
+  const VectorX<T> d = problem_data.kR;
+  const VectorX<T> e = problem_data.kS;
+
+  // TODO: Leverage operators in place of this.
+  // Compute eta, Xi, and Lambda.
+  const VectorX<T> eta = (hsq * Ku + h * Bu);
+  const VectorX<T> Xi = (hsq * Kn + h * Bn);
+
+  // Augment blocks of E and F with identity matrices.
+  MatrixX<T> E_plus = E;
+  E_plus.block(0, nc, nr, nr) += MatrixX<T>::Identity(nr, nr);
+  MatrixX<T> F_plus = F;
+  F_plus.block(0, nc + nr, ns, ns) += MatrixX<T>::Identity(ns, ns);
+
+  // Compute the Hessian matrix of the objective function.
+  MatrixX<T> H_base = MatrixX<T>::Identity(nprimal, nprimal);
+  H_base.topLeftCorner(nc, nc) *= zeta;
+  H_base.bottomRightCorner(nu, nu) *= zeta;
+  const MatrixX<T> H = H_base + E.transpose() * E + F.transpose() * F;
+
+  // Compute the gradient vector of the objective function
+  // (evaluated at lambda_star = 0).
+  const VectorX<T> grad = E_plus.transpose() * d + F_plus.transpose() * e;
+
+  // Compute the inequality affine constraint matrix (A).
+  const int naffine_true = nc + nu;
+  const MatrixX<T> Gn_Lambda = Gn * Lambda;
+  const MatrixX<T> Gu_Lambda = Gu * Lambda;
+  MatrixX<T> A(naffine_true, nprimal);
+  // Left-most column.
+  A.block(0, 0, nu, nc) = eta.asDiagonal() * Gu_Lambda * Gn.transpose();
+  A.block(nu, 0, nc, nc) = MatrixX<T>::Identity(nc, nc) +
+      Xi.asDiagonal() * Gn_Lambda * Gn.transpose();
+  // Second column from left.
+  A.block(0, nc, nu, nc) = eta.asDiagonal() * Gu_Lambda * Gr.transpose();
+  A.block(nu, nc, nc, nr) = Xi.asDiagonal() * Gn_Lambda * Gr.transpose();
+  // Third column from left.
+  A.block(0, nc + nr, nu, ns) = eta.asDiagonal() * Gu_Lambda * Gs.transpose();
+  A.block(nu, nc + nr, nc, ns) = Xi.asDiagonal() * Gn_Lambda * Gs.transpose();
+  // Last column.
+  A.block(0, nc + nr + ns, nu, nu) = MatrixX<T>::Identity(nu, nu) +
+      eta.asDiagonal() * Gu_Lambda * Gu.transpose();
+  A.block(nu, nc + nr + ns, nc, nu) = Xi.asDiagonal() * Gn_Lambda *
+      Gu.transpose();
+
+  // Compute the inequality affine constraint vector (q).
+  VectorX<T> q(naffine_true);
+  q.head(nu) = -problem_data.kU;
+  q.tail(nc) = -problem_data.kN;
+
+  // TODO: Replace this with the MathematicalProgram framework.
+  // To solve the QP using the Moby LCP solver, we have to replace variables
+  // that can take on negative values (lambda_r, lambda_s) with lambda_r+,
+  // lambda_r-, lambda_s+, lambda_s-.
+  const int nprimal_lcp = nc + nu + nr * 2 + ns * 2;
+  
+  // First update the Hessian. The Hessian will go from 3 x 3 = 9 blocks to
+  // 4 x 4 = 16 blocks.
+  // | B1 B2 B3 |    |  B1  B2 -B2  B3 |
+  // | B4 B5 B6 | -> |  B4  B5 -B5  B6 |
+  // | B7 B8 B9 |    | -B4 -B5  B5 -B6 |
+  //                 |  B7  B8 -B8  B9 |
+  const Eigen::Ref<const MatrixX<T>> B1 = H.block(0, 0, nc, nc);
+  const Eigen::Ref<const MatrixX<T>> B2 = H.block(0, nc, nc, nr + ns);
+  const Eigen::Ref<const MatrixX<T>> B3 = H.block(0, nc + nr + ns, nc, nu);
+  const Eigen::Ref<const MatrixX<T>> B4 = H.block(nc, 0, nr + ns, nc);
+  const Eigen::Ref<const MatrixX<T>> B5 = H.block(nc, nc, nr + ns, nr + ns);
+  const Eigen::Ref<const MatrixX<T>> B6 =
+      H.block(nc, nc + nr + ns, nr + ns, nu);
+  const Eigen::Ref<const MatrixX<T>> B7 = H.block(nc + nr + ns, 0, nu, nc);
+  const Eigen::Ref<const MatrixX<T>> B8 =
+      H.block(nc + nr + ns, nc, nu, nr + ns);
+  const Eigen::Ref<const MatrixX<T>> B9 = H.block(
+      nc + nr + ns, nc + nr + ns, nu, nu);
+  MatrixX<T> H_lcp(nprimal_lcp, nprimal_lcp);
+  H_lcp.block(0, 0, nc, nc) = B1;
+  H_lcp.block(0, nc, nc, nr + ns) = B2;
+  H_lcp.block(0, nc + nr + ns, nc, nr + ns) = -B2;
+  H_lcp.block(0, nc + 2 * nr + 2 * ns, nc, nu) = B3;
+  H_lcp.block(nc, 0, nr + ns, nc) = B4;
+  H_lcp.block(nc, nc, nr + ns, nr + ns) = B5;
+  H_lcp.block(nc, nc + nr + ns, nr + ns, nr + ns) = -B5;
+  H_lcp.block(nc, nc + nr * 2 + ns * 2, nr + ns, nu) = B6;
+  H_lcp.block(nc + nr + ns, 0, nr + ns, nc) = -B4;
+  H_lcp.block(nc + nr + ns, nc, nr + ns, nr + ns) = -B5;
+  H_lcp.block(nc + nr + ns, nc + nr + ns, nr + ns, nr + ns) = B5;
+  H_lcp.block(nc + nr + ns, nc + nr * 2 + ns * 2, nr + ns, nu) = -B6;
+  H_lcp.block(nc + nr * 2 + ns * 2, 0, nu, nc) = B7;
+  H_lcp.block(nc + nr * 2 + ns * 2, nc, nu, nr + ns) = B8;
+  H_lcp.block(nc + nr * 2 + ns * 2, nc + nr + ns, nu, nr + ns) = -B8;
+  H_lcp.block(nc + nr * 2 + ns * 2, nc + nr * 2 + ns * 2, nu, nu) = B9;
+  const double eps = std::numeric_limits<double>::epsilon();
+  DRAKE_DEMAND((H_lcp - H_lcp.transpose()).norm() < eps);
+
+  // Now update the gradient vector.
+  const Eigen::Ref<const VectorX<T>> seg1 = grad.head(nc);
+  const Eigen::Ref<const VectorX<T>> seg2 = grad.segment(nc, nr + ns);
+  const Eigen::Ref<const VectorX<T>> seg3 = grad.tail(nu);
+  VectorX<T> grad_lcp(nprimal_lcp);
+  grad_lcp.head(nc) = seg1;
+  grad_lcp.segment(nc, nr + ns) = seg2;
+  grad_lcp.segment(nc + nr + ns, nr + ns) = -seg2;
+  grad_lcp.tail(nu) = seg3;
+
+  // Now update A from 3 blocks to 4 blocks.
+  // | B10 B11 B12 | -> | B10 B11 -B11 B12 |
+  MatrixX<T> A_lcp(naffine_true + nc /* friction pyramid */, nprimal_lcp);
+  const Eigen::Ref<const MatrixX<T>> B10 = A.block(0, 0, naffine_true, nc);
+  const Eigen::Ref<const MatrixX<T>> B11 = A.block(0, nc, naffine_true, nr + ns);
+  const Eigen::Ref<const MatrixX<T>> B12 = A.block(0, nc + nr + ns, naffine_true, nu);
+  A_lcp.block(0, 0, naffine_true, nc) = B10;
+  A_lcp.block(0, nc, naffine_true, nr + ns) = B11;
+  A_lcp.block(0, nc + nr + ns, naffine_true, nr + ns) = -B11;
+  A_lcp.block(0, nc + nr * 2 + ns * 2, naffine_true, nu) = B12;
+  A_lcp.bottomRows(nc).setZero();
+  for (int i = 0; i < nc; ++i) {
+    A_lcp(i + naffine_true, i) = problem_data.mu[i];
+    A_lcp(i + naffine_true, i + nr) = -1.0;
+    A_lcp(i + naffine_true, i + nr + ns) = -1.0;
+    A_lcp(i + naffine_true, i + nr * 2 + ns) = -1.0;
+    A_lcp(i + naffine_true, i + nr * 2 + ns * 2) = -1.0;
+  }
+
+  // Form the LCP.
+  const int ndual = naffine_true + nc;  // Affine constraints + friction pyramid.
+  MatrixX<T> MM = MatrixX<T>::Ones(nprimal_lcp + ndual, nprimal_lcp + ndual) *
+      std::numeric_limits<double>::quiet_NaN();
+  VectorX<T> qq = VectorX<T>::Ones(nprimal_lcp + ndual) *
+      std::numeric_limits<double>::quiet_NaN();
+  MM.topLeftCorner(nprimal_lcp, nprimal_lcp) = H_lcp;
+  MM.topRightCorner(nprimal_lcp, ndual) = -A_lcp.transpose();
+  MM.bottomLeftCorner(ndual, nprimal_lcp) = A_lcp;
+  MM.bottomRightCorner(ndual, ndual).setZero();
+  qq.head(nprimal_lcp) = grad_lcp;
+  qq.segment(nprimal_lcp, naffine_true) = -q;
+  qq.tail(nc).setZero();
+
+  // Normalize values.
+  /*
+  using std::max;
+  const T max_value = max(MM.norm(), qq.norm());
+  MM /= max_value;
+  qq /= max_value;
+  */
+
+  // Solve the LCP.
+  VectorX<T> zz;
+  std::cout << "M: " << std::endl << MM << std::endl;
+  std::cout << "q: " << qq.transpose() << std::endl;
+  bool success = lcp_.SolveLcpLemkeRegularized(MM, qq, &zz);
+  std::cout << "z: " << zz.transpose() << std::endl;
+  DRAKE_DEMAND(success);
+
+  // Determine the bilateral constraint forces.
+  VectorX<T> lambda_hat(nc + nr + ns + nu);
+  lambda_hat.head(nc) = zz.head(nc);
+  lambda_hat.segment(nc, nr) = zz.segment(nc, nr) - zz.segment(nc + nr + ns, nr);
+  lambda_hat.segment(nc + nr, ns) = zz.segment(nc + nr, ns) -
+      zz.segment(nc + 2 * nr + ns, ns);
+  lambda_hat.tail(nu) = zz.tail(nu);
+  const VectorX<T> lambda_b = C_solve(c + D * Gstar.transpose() * lambda_hat);
+
+  // Reconstruct the solution into the expected format:
+  // [  lambda_n  lambda_r  lambda_s  lambda_u  lambda_b  ]
+  cf->resize(nc + nr + ns + nu + nb);
+  cf->head(nc + nr + ns + nu) = lambda_hat;
+  cf->tail(nb) = lambda_b;
 }
 
 }  // namespace constraint

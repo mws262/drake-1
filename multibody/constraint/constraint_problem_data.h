@@ -283,6 +283,257 @@ struct ConstraintAccelProblemData {
   std::function<MatrixX<T>(const MatrixX<T>&)> solve_inertia;
 };
 
+/// Structure for holding constraint data when the constraints are all
+/// generalized spring-damper systems.
+template <class T>
+struct SoftConstraintProblemData {
+  explicit SoftConstraintProblemData(int num_velocities) {
+    Reinitialize(num_velocities);
+  }
+
+  /// Reinitializes the constraint problem data using the specified dimension
+  /// of the generalized velocities.
+  void Reinitialize(int num_velocities) {
+    num_velocities_ = num_velocities;
+
+    // Set default for non-transpose operators- returns an empty vector.
+    auto zero_fn = [](const MatrixX<T>& m) -> MatrixX<T> {
+      return MatrixX<T>(0, m.cols());
+    };
+    Gn_mult = zero_fn;
+    Gr_mult = zero_fn;
+    Gs_mult = zero_fn;
+    Gu_mult = zero_fn;
+    Gb_mult = zero_fn;
+
+    // Set default for transpose operators - returns the appropriately sized
+    // zero vector.
+    auto zero_gv_dim_fn = [num_velocities](const MatrixX<T>& m) -> MatrixX<T> {
+      return MatrixX<T>::Zero(num_velocities, m.cols()); };
+    Gn_transpose_mult = zero_gv_dim_fn;
+    Gr_transpose_mult = zero_gv_dim_fn;
+    Gs_transpose_mult = zero_gv_dim_fn;
+    Gu_transpose_mult = zero_gv_dim_fn;
+    Gb_transpose_mult = zero_gv_dim_fn;
+  }
+
+  /// Gets the number of generalized velocity variables.
+  int num_velocities() const { return num_velocities_; }
+
+  /// Coefficients of friction for the nc contacts. This problem specification
+  /// does not distinguish between static and dynamic friction coefficients.
+  VectorX<T> mu;
+
+  /// @name Data for bilateral constraints at the velocity level
+  /// Problem data for bilateral constraints of functions of system
+  /// velocity, where the constraint can be formulated as:<pre>
+  /// 0 = G(q)⋅v + kᴳ(t,q)
+  /// </pre>
+  /// which implies the constraint definition g(t,q,v) ≡ G(q)⋅v + kᴳ(t,q). G
+  /// is defined as the ℝⁿᵇˣⁿᵛ Jacobian matrix that transforms generalized
+  /// velocities (v ∈ ℝⁿᵛ) into the time derivatives of nb bilateral constraint
+  /// functions. The class of constraint functions naturally includes holonomic
+  /// constraints, which are constraints posable as g(t,q). Such holonomic
+  /// constraints must be differentiated with respect to time to yield
+  /// a velocity-level formulation (i.e., ġ(t, q, v), for the
+  /// aforementioned definition of g(t,q)). That differentiation yields
+  /// ġ = G⋅v, which is consistent with the constraint class under
+  /// the definition kᴳ(t,q) ≡ 0. An example such holonomic constraint
+  /// function is the transmission (gearing) constraint below:<pre>
+  /// 0 = vᵢ - rvⱼ
+  /// </pre>
+  /// which can be read as the velocity at joint i (vᵢ) must equal to `r`
+  /// times the velocity at joint j (vⱼ); `r` is thus the gear ratio.
+  /// In this example, the corresponding holonomic constraint function is
+  /// g(q) ≡ qᵢ - rqⱼ, yielding ġ(q, v) = vᵢ - rvⱼ.
+  /// @{
+
+  /// Stiffness matrix for the bilateral constraints.
+  VectorX<T> Kb;
+
+  /// Damping matrix for the bilateral constraints.
+  VectorX<T> Bb;
+
+  /// An operator that performs the multiplication G⋅v. The default operator
+  /// returns an empty vector.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gb_mult;
+
+  /// An operator that performs the multiplication Gᵀ⋅f where f ∈ ℝⁿᵇ are the
+  /// magnitudes of the constraint forces. The default operator returns a
+  /// zero vector of dimension equal to that of the generalized forces.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gb_transpose_mult;
+
+  /// The ℝⁿᵇ vector Kb φb₀ + (h² Kb + h Bb)(φ̇b₀ + h (Gb M⁻¹ f + Ġb v₀))
+  VectorX<T> kB;
+  /// @}
+
+  /// @name Data for constraints on velocities along the contact normal
+  /// Problem data for constraining the velocity of two bodies projected
+  /// along the contact surface normal, for n point contacts.
+  /// These data center around the Jacobian matrix N, the ℝⁿᶜˣⁿᵛ
+  /// Jacobian matrix that transforms generalized velocities (v ∈ ℝⁿᵛ) into
+  /// velocities projected along the contact normals at the n point contacts.
+  /// Constraint error (φ < 0, where φ is the signed distance between two
+  /// bodies) can be incorporated into the constraint solution process (and
+  /// thereby reduced) through setting the `kN` term to something other than its
+  /// nonzero value (typically `kN = αφ`, where `α ≥ 0`). The resulting
+  /// constraint on the motion will be: <pre>
+  /// 0 ≤ N(q) v + kᴺ(t,q)  ⊥  fᶜ ≥ 0
+  /// </pre>
+  /// which means that the constraint ċ(q,v) ≡ N(q)⋅v + kᴺ(t,q) is coupled
+  /// to an impulsive force constraint (fᶜ ≥ 0) and a complementarity constraint
+  /// fᶜ⋅(Nv + kᴺ(t,q)) = 0, meaning that the constraint can apply no force
+  /// if it is inactive (i.e., if ġ(q,v) is strictly greater than zero).
+  /// @{
+
+  /// Stiffness matrix for the compressive components of contact.
+  VectorX<T> Kn;
+
+  /// Damping matrix for the compressive components of contact.
+  VectorX<T> Bn;
+
+  /// An operator that performs the multiplication Gn⋅v. The default operator
+  /// returns an empty vector.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gn_mult;
+
+  /// An operator that performs the multiplication Gnᵀ⋅f, where f ∈ ℝⁿᶜ are the
+  /// the magnitudes of the forces applied along the contact normals
+  /// at the nc point contacts. The default operator returns a zero vector of
+  /// dimension equal to that of the generalized velocities (which should be
+  /// identical to the dimension of the generalized forces).
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gn_transpose_mult;
+
+  /// The ℝⁿᶜ vector Kn φn₀ + (h² Kn + h Bn)(φ̇n₀ + h (Gn M⁻¹ f + Ġn v₀))
+  VectorX<T> kN;
+  /// @}
+
+  /// @name Data for constraints on contact friction
+  /// Problem data for constraining the tangential velocity of two bodies
+  /// projected along the contact surface tangents, for n point contacts.
+  /// These data center around the Jacobian matrix, F ∈ ℝⁿⁿʳˣⁿᵛ, that
+  /// transforms generalized velocities (v ∈ ℝⁿᵛ) into velocities projected
+  /// along the nr vectors that span the contact tangents at the nc
+  /// point contacts (these nc * nr vectors are denoted nnr for brevity). For
+  /// contact problems in two dimensions, nr will be one and nnr would equal nc.
+  /// For a friction pyramid at each point contact in in three dimensions, nr
+  /// would be two and nnr would equation 2nc. While the definition of the
+  /// dimension of the Jacobian matrix above indicates that every one of the nc
+  /// contacts uses the same "nr", the code imposes no such requirement.
+  /// Constraint error (F⋅v < 0) can be reduced through the constraint solution
+  /// process by setting the `kF` term to something other than its default zero
+  /// value. The resulting constraint on the motion will
+  /// be:<pre>
+  /// 0 ≤ F(q)⋅v + kᴺ(t,q) + eλ  ⊥  fᶜ ≥ 0
+  /// </pre>
+  /// which means that the constraint ġ(q,v) ≡ F(q)⋅v + kᶠ(t,q) + eλ is coupled
+  /// to an impulsive force constraint (fᶜ ≥ 0) and a complementarity constraint
+  /// fᶜ⋅(Fv + kᶠ(t,q) + eλ) = 0, meaning that the constraint can apply no force
+  /// if it is inactive (i.e., if ġ(q,v) is strictly greater than zero).
+  /// The presence of the λe term is taken directly from [Anitescu 1997],
+  /// where e is a vector of ones and zeros and λ corresponds roughly to the
+  /// tangential acceleration at the contacts. The interested reader should
+  /// refer to [Anitescu 1997] for a more thorough explanation of this
+  /// constraint; the full constraint equation is presented only to elucidate
+  /// the purpose of the kᶠ term.
+  /// @{
+
+  /// Stiffness matrix for the first contact direction.
+  VectorX<T> Kr;
+
+  /// Stiffness matrix for the second contact direction.
+  VectorX<T> Ks;
+
+  /// Damping matrix for the first contact direction.
+  VectorX<T> Br;
+
+  /// Damping matrix for the second contact direction.
+  VectorX<T> Bs;
+
+  /// An operator that performs the multiplication Gr⋅v. The default operator
+  /// returns an empty vector.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gr_mult;
+
+  /// An operator that performs the multiplication Gs⋅v. The default operator
+  /// returns an empty vector.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gs_mult;
+
+  /// An operator that performs the multiplication Fᵀ⋅f, where f ∈ ℝⁿᶜʳ
+  /// corresponds to frictional impulsive force magnitudes. The default
+  /// operator returns a zero vector of dimension equal to that of the
+  /// generalized forces.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gr_transpose_mult;
+
+  /// An operator that performs the multiplication Fᵀ⋅f, where f ∈ ℝⁿᶜʳ
+  /// corresponds to frictional impulsive force magnitudes. The default
+  /// operator returns a zero vector of dimension equal to that of the
+  /// generalized forces.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gs_transpose_mult;
+
+  /// The ℝⁿᶜ vector Kr φr₀ + (h² Kr + h Br)(φ̇r₀ + h (Gr M⁻¹ f + Ġr v₀))
+  VectorX<T> kR;
+
+  /// The ℝⁿᶜ vector Ks φs₀ + (h² Ks + h Bs)(φ̇s₀ + h (Gs M⁻¹ f + Ġs v₀))
+  VectorX<T> kS;
+
+  /// @}
+
+  /// @name Data for unilateral constraints at the velocity level
+  /// Problem data for unilateral constraints of functions of system
+  /// velocity, where the constraint can be formulated as:<pre>
+  /// 0 ≤ L(q)⋅v + kᴸ(t,q)  ⊥  fᶜ ≥ 0
+  /// </pre>
+  /// which means that the constraint ċ(q,v) ≡ L(q)⋅v + kᴸ(t,q) is coupled
+  /// to an impulsive force constraint (fᶜ ≥ 0) and a complementarity constraint
+  /// fᶜ⋅(L⋅v + kᴸ(t,q)) = 0, meaning that the constraint can apply no force
+  /// if it is inactive (i.e., if ġ(q,v) is strictly greater than zero). L
+  /// is defined as the ℝⁿᵘˣⁿᵛ Jacobian matrix that transforms generalized
+  /// velocities (v ∈ ℝⁿᵛ) into the time derivatives of nu unilateral constraint
+  /// functions. The class of constraint functions naturally includes holonomic
+  /// constraints, which are constraints posable as g(q, t). Such holonomic
+  /// constraints must be differentiated with respect to time to yield
+  /// a velocity-level formulation (i.e., ġ(q, v, t), for the aforementioned
+  /// definition of g(q, t)). That differentiation yields ġ = L⋅v, which is
+  /// consistent with the constraint class under the definition kᴸ(t,q) ≡ 0. An
+  /// example such holonomic constraint function is a joint velocity limit:<pre>
+  /// 0 ≤ -vⱼ + r  ⊥  fᶜⱼ ≥ 0
+  /// </pre>
+  /// which can be read as the velocity at joint j (vⱼ) must be no larger than
+  /// r, the impulsive force must be applied to limit the acceleration at the
+  /// joint, and the limiting force cannot be applied if the velocity at the
+  /// joint is not at the limit (i.e., vⱼ < r). In this example, the constraint
+  /// function is g(t,q) ≡ qⱼ + rt, yielding ġ(q, v) = -vⱼ + r.
+  /// @{
+
+  /// Stiffness matrix for the generic unilateral constraints.
+  VectorX<T> Ku;
+
+  /// Damping matrix for the generic unilateral constraints.
+  VectorX<T> Bu;
+
+  /// An operator that performs the multiplication Gu⋅v. The default operator
+  /// returns an empty vector.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gu_mult;
+
+  /// An operator that performs the multiplication Guᵀ⋅f where f ∈ ℝᵗ are the
+  /// magnitudes of the impulsive constraint forces. The default operator
+  /// returns a zero vector of dimension equal to that of the generalized
+  /// forces.
+  std::function<MatrixX<T>(const MatrixX<T>&)> Gu_transpose_mult;
+
+  /// The ℝⁿᵘ vector Ku φu₀ + (h² Ku + h Bu)(φ̇u₀ + h (Gu M⁻¹ f + Ġu v₀))
+  VectorX<T> kU;
+  /// @}
+
+  /// A function for solving the equation MX = B for matrix X, given input
+  /// matrix B, where M is the generalized inertia matrix for the rigid body
+  /// system.
+  std::function<MatrixX<T>(const MatrixX<T>&)> solve_inertia;
+
+ private:
+  /// Number of velocity variables in the underlying multibody system.
+  int num_velocities_{0};
+};
+
 /// Structure for holding constraint data for computing constraint forces
 /// at the velocity-level (i.e., impact problems).
 template <class T>

@@ -12,8 +12,14 @@
 using drake::systems::ContinuousState;
 using drake::systems::Context;
 using drake::examples::rod2d::Rod2D;
+using drake::examples::rod2d::Rod2dStateVector;
 using drake::systems::BasicVector;
 using Vector2d = Eigen::Vector2d;
+using Vector3d = Eigen::Vector3d;
+using Matrix2d = Eigen::Matrix2d;
+using Matrix2d = Eigen::Matrix2d;
+using MatrixXd = Eigen::MatrixXd;
+using VectorXd = Eigen::VectorXd;
 
 namespace drake {
 namespace multibody {
@@ -44,6 +50,8 @@ class Constraint2DSolverTest : public ::testing::Test {
       num_velocities);
     vel_data_ = std::make_unique<ConstraintVelProblemData<double>>(
       num_velocities);
+    soft_data_ = std::make_unique<SoftConstraintProblemData<double>>(
+        num_velocities);
 
     // Set epsilon for floating point tolerance testing; due to rounding error
     // in the LCP solver, this is approximately the tightest tolerance with
@@ -58,6 +66,7 @@ class Constraint2DSolverTest : public ::testing::Test {
   std::unique_ptr<Context<double>> context_;
   std::unique_ptr<ConstraintAccelProblemData<double>> accel_data_;
   std::unique_ptr<ConstraintVelProblemData<double>> vel_data_;
+  std::unique_ptr<SoftConstraintProblemData<double>> soft_data_;
   const bool kForceAppliedToLeft = false;
   const bool kForceAppliedToRight = true;
   const bool kSlideLeft = false;
@@ -429,6 +438,73 @@ class Constraint2DSolverTest : public ::testing::Test {
   // Gets the number of generalized coordinates for the rod.
   int get_rod_num_coordinates() const { return 3; }
 
+  void CalcContactForcesInContactFrames(
+      const VectorXd& cf, const SoftConstraintProblemData<double>& soft_data,
+      const std::vector<Matrix2d>& contact_frames,
+      std::vector<Vector2d>* contact_forces) const {
+    // Loose tolerance for unit vectors and orthogonality.
+    const double loose_eps = std::sqrt(std::numeric_limits<double>::epsilon());
+
+    // Verify that contact_forces is non-null and is empty.
+    if (!contact_forces)
+      throw std::logic_error("Vector of contact forces is null.");
+    if (!contact_forces->empty())
+      throw std::logic_error("Vector of contact forces is not empty.");
+
+    // Verify that cf is the correct size.
+    const int num_contacts = soft_data.mu.size();
+    const int num_friction_variables = num_contacts;
+    const int num_limits = soft_data.kU.size();
+    const int num_bilat_constraints = soft_data.kB.size();
+    const int num_vars = num_contacts + num_friction_variables + num_limits +
+        num_bilat_constraints;
+    if (num_vars != cf.size()) {
+      throw std::logic_error("Unexpected packed constraint force vector "
+                                 "dimension.");
+    }
+
+    // Verify that the correct number of contact frames has been specified.
+    if (contact_frames.size() != static_cast<size_t>(num_contacts)) {
+      throw std::logic_error("Number of contact frames does not match number of "
+                                 "contacts.");
+    }
+
+    // Resize the force vector.
+    contact_forces->resize(contact_frames.size());
+
+    // Set the forces.
+    for (int i = 0, tangent_index = 0; i < num_contacts; ++i) {
+      // Alias the force.
+      Vector2d& contact_force_i = (*contact_forces)[i];
+
+      // Get the contact normal and tangent.
+      const Vector2d contact_normal = contact_frames[i].col(0);
+      const Vector2d contact_tangent = contact_frames[i].col(1);
+
+      // Verify that each direction is of unit length.
+      if (std::abs(contact_normal.norm() - 1) > loose_eps)
+        throw std::runtime_error("Contact normal apparently not unit length.");
+      if (std::abs(contact_tangent.norm() - 1) > loose_eps)
+        throw std::runtime_error("Contact tangent apparently not unit length.");
+
+      // Verify that the two directions are orthogonal.
+      if (std::abs(contact_normal.dot(contact_tangent)) > loose_eps) {
+        std::ostringstream oss;
+        oss << "Contact normal (" << contact_normal.transpose() << ") and ";
+        oss << "contact tangent (" << contact_tangent.transpose() << ") ";
+        oss << "insufficiently orthogonal.";
+        throw std::logic_error(oss.str());
+      }
+
+      // Compute the contact force expressed in the global frame.
+      const Vector2d j0 = contact_normal * cf[i] + contact_tangent *
+          cf[num_contacts + tangent_index++];
+
+      // Compute the contact force in the contact frame.
+      contact_force_i = contact_frames[i].transpose() * j0;
+    }
+  }
+
   // Gets the output dimension of a Jacobian multiplication operator.
   int GetOperatorDim(std::function<VectorX<double>(
       const VectorX<double>&)> J) const {
@@ -762,6 +838,54 @@ class Constraint2DSolverTest : public ::testing::Test {
         }
       }
     }
+  }
+
+  // Tests the rod in a single-point sticking configuration, with an external
+  // force applied either to the right or to the left. Given sufficiently small
+  // force and sufficiently large friction coefficient, the contact should
+  // remain in stiction.
+  void SinglePointStickingSoft(bool force_applied_to_right) {
+    // Set the contact to large friction. However, set_mu_static() throws an
+    // exception if it is not at least as large as the Coulomb friction
+    // coefficient.
+    rod_->set_mu_coulomb(15.0);
+    rod_->set_mu_static(15.0);
+
+    const double dt = 1e-3;
+
+    // Set the stiffness to very, very high.
+    rod_->set_stiffness(1e4);
+
+    // Set the state of the rod to resting vertically with no velocity.
+    SetRodToRestingVerticalConfig();
+
+    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+    xc[0] = 0.0;                             // com horizontal position
+    xc[1] = rod_->get_rod_half_length() - 1;     // com vertical position
+    xc[2] = M_PI_2;                          // rod rotation
+    xc[3] = xc[4] = xc[5] = 0.0;             // velocity variables
+
+    // Get the external forces.
+    Vector3d fext = rod_->ComputeExternalForces(*context_);
+
+    // Add a force applied at the point of contact that results in a torque
+    // at the rod center-of-mass.
+    const double horz_f = (force_applied_to_right) ? 100 : -100;
+    fext += Vector3<double>(
+          horz_f, 0, horz_f * rod_->get_rod_half_length()) * dt;
+
+    // Compute the contact forces.
+    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
+        rod_->get_state(*context_).CopyToVector(), fext, dt);
+
+    // Verify that the frictional forces equal the applied,
+    // horizontal force.
+    EXPECT_NEAR(tau_cf[0], tau_cf[1], eps_);
+
+    // Compute the generalized acceleration of the rod and verify that it is
+    // approximately zero.
+    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
+    EXPECT_NEAR(ga.norm(), 0.0, eps_);
   }
 
   // Tests the rod in a two-point sticking configuration (i.e., force should
@@ -2464,6 +2588,7 @@ TEST_F(Constraint2DSolverTest, SinglePointStickingBothSigns) {
   SinglePointSticking(kForceAppliedToLeft);
   SinglePointStickingDiscretized(kForceAppliedToRight);
   SinglePointStickingDiscretized(kForceAppliedToLeft);
+  SinglePointStickingSoft(kForceAppliedToRight);
 }
 
 // Tests the rod in a two-point sticking configurations.

@@ -504,8 +504,171 @@ void Rod2D<T>::CopyPoseOut(
   ConvertStateToPose(state, pose_port_value);
 }
 
+template <class T>
+Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
+    const VectorX<T>& state, const Vector3<T>& fext, double dt) const {
+  const auto& q = state.template segment<3>(0);
+  Vector3<T> v = state.template segment<3>(3);
+  const T& x = q(0);
+  const T& y = q(1);
+  const T& theta = q(2);
+  const Vector2<T> p_WRo(x, y);
+  const Vector2<T> v_WRo(v[0], v[1]);
+  const T& w_WR = v[2];
+
+  // Construct the problem data.
+  const int ngc = 3;      // Number of generalized coords / velocities.
+  multibody::constraint::SoftConstraintProblemData<T> problem_data(ngc);
+
+  // Find left and right end point locations.
+  std::vector<Vector2<T>> points, points_dot;
+  const T stheta = sin(theta), ctheta = cos(theta);
+  const Vector2<T> left =
+      CalcRodEndpoint(x, y, -1, ctheta, stheta, half_length_);
+  const Vector2<T> right =
+      CalcRodEndpoint(x, y,  1, ctheta, stheta, half_length_);
+  if (left[1] <= 0) {
+    points.push_back(left);
+    points_dot.push_back(
+        CalcCoincidentRodPointVelocity(p_WRo, v_WRo, w_WR, left));
+  }
+  if (right[1] <= 0) {
+    points.push_back(right);
+    points_dot.push_back(
+        CalcCoincidentRodPointVelocity(p_WRo, v_WRo, w_WR, right));
+  }
+  const int nc = static_cast<int>(points.size());
+
+  // Set phi_n0, phi_r0, dotphi_n0, dotphi_r0.
+  VectorX<T> phi_n0(nc), phi_r0(nc), dotphi_n0(nc), dotphi_r0(nc);
+  phi_r0.setZero(nc,1);
+  for (int i = 0; i < static_cast<int>(points.size()); ++i) {
+    phi_n0[i] = points[i][1];
+    dotphi_n0[i] = points_dot[i][1];
+    dotphi_r0[i] = points_dot[i][0];
+  }
+
+  // Set up the contact normal and tangent (friction) direction Jacobian
+  // matrices. These take the form:
+  //     | 0 1 n1 |        | 1 0 f1 |
+  // N = | 0 1 n2 |    F = | 1 0 f2 |
+  // where n1, n2/f1, f2 are the moment arm induced by applying the
+  // force at the given contact point along the normal/tangent direction.
+  MatrixX<T> N(nc, ngc), F(nc, ngc);
+  for (int i = 0; i < nc; ++i) {
+    N(i, 0) = 0;
+    N(i, 1) = 1;
+    N(i, 2) = (points[i][0] - x);
+    F(i, 0) = 1;
+    F(i, 1) = 0;
+    F(i, 2) = -(points[i][1] - y);
+  }
+
+  // Set the coefficients of friction.
+  problem_data.mu.setOnes(nc) *= get_mu_coulomb();
+
+  // Set up the operators.
+  problem_data.Gn_mult = [&N](const MatrixX<T>& M) -> MatrixX<T> {
+    return N * M;
+  };
+  problem_data.Gn_transpose_mult = [&N](const MatrixX<T>& M) -> MatrixX<T> {
+    return N.transpose() * M;
+  };
+  problem_data.Gr_mult = [&F](const MatrixX<T>& M) -> MatrixX<T> {
+    return F * M;
+  };
+  problem_data.Gr_transpose_mult = [&F](const MatrixX<T>& M) -> MatrixX<T> {
+    return F.transpose() * M;
+  };
+  problem_data.solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
+    return GetInverseInertiaMatrix() * mm;
+  };
+
+  // Update the generalized velocity vector with discretized external forces
+  // (expressed in the world frame).
+  const Vector3<T> iM_fext = problem_data.solve_inertia(fext);
+
+  // Look for early exit.
+  if (nc == 0) {
+    return Vector3<T>::Zero();
+  }
+
+  // Alias K and B parameters.
+  VectorX<T>& Kn = problem_data.Kn;
+  VectorX<T>& Bn = problem_data.Bn;
+  VectorX<T>& Kr = problem_data.Kr;
+  VectorX<T>& Br = problem_data.Br;
+
+  // Kr is zero since there is no tangential "memory".
+  Kr.setZero(nc);
+
+  // Set normal stiffness.
+  Kn.setOnes(nc) *= stiffness_;
+
+  // Set normal direction damping.
+  Bn.setOnes(nc) *= TransformDissipationToDampingAboutDeformation(
+      kCharacteristicDeformation);
+
+  // Set friction direction damping.
+  Br.setOnes(nc) *= stiffness_;
+
+  // Set k parameters.
+  const auto h = dt;
+  const auto hsq = h * h;
+  problem_data.kN = Kn.asDiagonal() * phi_n0 +
+      (hsq * Kn + h * Bn).asDiagonal() *
+          (dotphi_n0 + h * problem_data.Gn_mult(iM_fext));
+  problem_data.kR = Kr.asDiagonal() * phi_r0 +
+      (hsq * Kr + h * Br).asDiagonal() *
+          (dotphi_r0 + h * problem_data.Gr_mult(iM_fext));
+
+  // Solve the constraint problem.
+  const double zeta = 1e6;
+
+  // Solve the constraint problem.
+  VectorX<T> cf;
+  solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
+
+  // Compute the generalized force.
+  VectorX<T> tau_cf;
+  solver_.ComputeGeneralizedForceFromConstraintForces(
+      problem_data, cf, &tau_cf);
+
+  return Vector3<T>(tau_cf);
+}
+
 /// Integrates the Rod 2D example forward in time using a
 /// half-explicit discretization scheme.
+template <class T>
+void Rod2D<T>::DoCalcDiscreteVariableUpdates(
+    const systems::Context<T>& context,
+    const std::vector<const systems::DiscreteUpdateEvent<T>*>&,
+    systems::DiscreteValues<T>* discrete_state) const {
+  using std::sin;
+  using std::cos;
+
+  // Get the necessary state variables.
+  const systems::BasicVector<T>& state = context.get_discrete_state(0);
+
+  // Get the external forces and the contact forces.
+  const Vector3<T> fext = ComputeExternalForces(context);
+  const Vector3<T> tau_cf = ComputeGeneralizedSoftContactForces(
+      state.CopyToVector(), fext, dt_);
+
+  // Compute the new velocity.
+  const Vector3<T> v = state.get_value().template segment<3>(3);
+  VectorX<T> vplus = v + dt_ * GetInverseInertiaMatrix() * (tau_cf + fext);
+
+  // Compute the new position using an "explicit" update.
+  const auto& q = state.get_value().template segment<3>(0);
+  VectorX<T> qplus = q + vplus * dt_;
+
+  // Set the new discrete state.
+  systems::BasicVector<T>& new_state = discrete_state->get_mutable_vector(0);
+  new_state.get_mutable_value().segment(0, 3) = qplus;
+  new_state.get_mutable_value().segment(3, 3) = vplus;
+}
+/*
 template <class T>
 void Rod2D<T>::DoCalcDiscreteVariableUpdates(
     const systems::Context<T>& context,
@@ -626,6 +789,7 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   new_state.get_mutable_value().segment(0, 3) = qplus;
   new_state.get_mutable_value().segment(3, 3) = vplus;
 }
+*/
 
 // Computes the impulses such that the vertical velocity at the contact point
 // is zero and the frictional impulse lies exactly on the friction cone.

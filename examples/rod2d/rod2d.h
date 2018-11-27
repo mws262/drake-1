@@ -489,6 +489,11 @@ class Rod2D : public systems::LeafSystem<T> {
       const std::vector<Vector2<T>>& points,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
+  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
+  Matrix3<T> GetInverseInertiaMatrix() const;
+  Vector3<T> ComputeGeneralizedSoftContactForces(
+      const VectorX<T>& state, const Vector3<T>& fext, double dt) const;
+
  private:
   friend class Rod2DDAETest;
   friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
@@ -522,8 +527,6 @@ class Rod2D : public systems::LeafSystem<T> {
 
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
-  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
-  Matrix3<T> GetInverseInertiaMatrix() const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
   void CalcTwoContactSlidingForces(const systems::Context<T>& context,
