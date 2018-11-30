@@ -612,6 +612,10 @@ Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
   // Set friction direction damping.
   Br.setOnes(nc) *= stiffness_;
 
+  std::cout << "Remove these debugging" << std::endl;
+  Kn.setOnes(nc) *= 1e11;
+  Bn.setOnes(nc) *= 1;
+
   // Set k parameters.
   const auto h = dt;
   const auto hsq = h * h;

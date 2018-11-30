@@ -851,7 +851,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     rod_->set_mu_coulomb(15.0);
     rod_->set_mu_static(15.0);
 
-    const double dt = 1e-3;
+    const double dt = 1e-2;
 
     // Set the stiffness to very, very high.
     rod_->set_stiffness(1e4);
@@ -861,7 +861,7 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     ContinuousState<double>& xc = context_->get_mutable_continuous_state();
     xc[0] = 0.0;                             // com horizontal position
-    xc[1] = rod_->get_rod_half_length() - 1;     // com vertical position
+    xc[1] = rod_->get_rod_half_length();     // com vertical position
     xc[2] = M_PI_2;                          // rod rotation
     xc[3] = xc[4] = xc[5] = 0.0;             // velocity variables
 
@@ -870,10 +870,11 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     // Add a force applied at the point of contact that results in a torque
     // at the rod center-of-mass.
+    /*
     const double horz_f = (force_applied_to_right) ? 100 : -100;
     fext += Vector3<double>(
           horz_f, 0, horz_f * rod_->get_rod_half_length()) * dt;
-
+*/
     // Compute the contact forces.
     const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
         rod_->get_state(*context_).CopyToVector(), fext, dt);
