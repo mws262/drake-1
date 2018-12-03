@@ -2702,8 +2702,8 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   const MatrixX<T> Lambda = (M_solve(Gb.transpose() * C_solve(D)) +
       M_solve(diag_nv));
   const MatrixX<T> EF_rhs = Lambda * Gstar.transpose();
-  const MatrixX<T> E = (-hsq * Kr - h * Br).asDiagonal() * Gr * EF_rhs;
-  const MatrixX<T> F = (-hsq * Ks - h * Bs).asDiagonal() * Gs * EF_rhs;
+  const MatrixX<T> E = (hsq * Kr + h * Br).asDiagonal() * Gr * EF_rhs;
+  const MatrixX<T> F = (hsq * Ks + h * Bs).asDiagonal() * Gs * EF_rhs;
 
   // Set vector quantities.
   const VectorX<T> c = -problem_data.kB;
@@ -2720,6 +2720,8 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   E_plus.block(0, nc, nr, nr) += MatrixX<T>::Identity(nr, nr);
   MatrixX<T> F_plus = F;
   F_plus.block(0, nc + nr, ns, ns) += MatrixX<T>::Identity(ns, ns);
+  std::cout << "E+: " << std::endl << E_plus << std::endl;
+  std::cout << "F+: " << std::endl << F_plus << std::endl;
 
   // Compute the Hessian matrix of the objective function.
   MatrixX<T> H_base = MatrixX<T>::Identity(nprimal, nprimal);

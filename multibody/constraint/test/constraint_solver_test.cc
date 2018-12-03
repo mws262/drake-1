@@ -851,7 +851,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     rod_->set_mu_coulomb(15.0);
     rod_->set_mu_static(15.0);
 
-    const double dt = 1e-2;
+    const double dt = 1e-0;
 
     // Set the stiffness to very, very high.
     rod_->set_stiffness(1e4);
