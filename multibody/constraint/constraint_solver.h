@@ -2720,8 +2720,6 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   E_plus.block(0, nc, nr, nr) += MatrixX<T>::Identity(nr, nr);
   MatrixX<T> F_plus = F;
   F_plus.block(0, nc + nr, ns, ns) += MatrixX<T>::Identity(ns, ns);
-  std::cout << "E+: " << std::endl << E_plus << std::endl;
-  std::cout << "F+: " << std::endl << F_plus << std::endl;
 
   // Compute the Hessian matrix of the objective function.
   MatrixX<T> H_base = MatrixX<T>::Identity(nprimal, nprimal);
@@ -2753,6 +2751,8 @@ void ConstraintSolver<T>::SolveConstraintProblem(
       eta.asDiagonal() * Gu_Lambda * Gu.transpose();
   A.block(nu, nc + nr + ns, nc, nu) = Xi.asDiagonal() * Gn_Lambda *
       Gu.transpose();
+  std::cout << (Gn_Lambda * Gn.transpose()) << std::endl;
+  std::cout << (Xi.asDiagonal() * Gn_Lambda * Gn.transpose()) << std::endl;
 
   // Compute the inequality affine constraint vector (q).
   VectorX<T> q(naffine_true);
@@ -2846,13 +2846,14 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   qq.segment(nprimal_lcp, naffine_true) = -q;
   qq.tail(nc).setZero();
 
+  std::cout << "M: " << std::endl << MM << std::endl;
+  std::cout << "q: " << qq.transpose() << std::endl;
+  std::cout << "(post normalized):" << std::endl;
   // Normalize values.
-  /*
   using std::max;
   const T max_value = max(MM.norm(), qq.norm());
   MM /= max_value;
   qq /= max_value;
-  */
 
   // Solve the LCP.
   VectorX<T> zz;

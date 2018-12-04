@@ -613,17 +613,17 @@ Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
   Br.setOnes(nc) *= stiffness_;
 
   std::cout << "Remove these debugging" << std::endl;
-  Kn.setOnes(nc) *= 1e11;
+  Kn.setOnes(nc) *= 1e4;
   Bn.setOnes(nc) *= 1;
+  Br.setOnes(nc) *= 1e6;
 
   // Set k parameters.
   const auto h = dt;
-  const auto hsq = h * h;
   problem_data.kN = Kn.asDiagonal() * phi_n0 +
-      (hsq * Kn + h * Bn).asDiagonal() *
+      (h * Kn + Bn).asDiagonal() *
           (dotphi_n0 + h * problem_data.Gn_mult(iM_fext));
   problem_data.kR = Kr.asDiagonal() * phi_r0 +
-      (hsq * Kr + h * Br).asDiagonal() *
+      (h * Kr + Br).asDiagonal() *
           (dotphi_r0 + h * problem_data.Gr_mult(iM_fext));
 
   // Solve the constraint problem.
