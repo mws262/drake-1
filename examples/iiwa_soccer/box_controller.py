@@ -193,29 +193,29 @@ class BoxController(LeafSystem):
 
     if self.robot_type == 'box':
       self.plan.ReadBoxRobotQVAndVdot(
-        "examples/iiwa_soccer/plan_box/box_timings.mat",
-        "examples/iiwa_soccer/plan_box/box_positions.mat",
-        "examples/iiwa_soccer/plan_box/box_quats.mat",
+        "plan_box/box_timings.mat",
+        "plan_box/box_positions.mat",
+        "plan_box/box_quats.mat",
         "plan/box_com_velocities.mat",
         "plan/box_omegas.mat",
         "plan/box_com_accelerations.mat",
         "plan/box_alphas.mat")
 
       # Read in the plans for the point of contact.
-      self.plan.ReadContactPoint("examples/iiwa_soccer/plan_box/contact_pt_timings.mat",
-          "examples/iiwa_soccer/plan_box/contact_pt_positions.mat",
-          "examples/iiwa_soccer/plan_box/contact_pt_velocities.mat")
+      self.plan.ReadContactPoint("plan_box/contact_pt_timings.mat",
+          "plan_box/contact_pt_positions.mat",
+          "plan_box/contact_pt_velocities.mat")
 
       # Read in the plans for the ball kinematics.
       self.plan.ReadBallQVAndVdot(
-          "examples/iiwa_soccer/plan_box/ball_timings.mat",
-          "examples/iiwa_soccer/plan_box/ball_com_positions.mat",
-          "examples/iiwa_soccer/plan_box/ball_quats.mat",
-          "examples/iiwa_soccer/plan_box/ball_com_velocities.mat",
-          "examples/iiwa_soccer/plan_box/ball_omegas.mat",
-          "examples/iiwa_soccer/plan_box/ball_com_accelerations.mat",
-          "examples/iiwa_soccer/plan_box/ball_alphas.mat",
-          "examples/iiwa_soccer/plan_box/contact_status.mat")
+          "plan_box/ball_timings.mat",
+          "plan_box/ball_com_positions.mat",
+          "plan_box/ball_quats.mat",
+          "plan_box/ball_com_velocities.mat",
+          "plan_box/ball_omegas.mat",
+          "plan_box/ball_com_accelerations.mat",
+          "plan_box/ball_alphas.mat",
+          "plan_box/contact_status.mat")
 
 
   # Constructs the Jacobian matrices.
@@ -689,7 +689,7 @@ class BoxController(LeafSystem):
     K[nprimal:nprimal+ndual,0:nprimal] = A
 
     # Set the right hand side for the KKT solutoin.
-    rhs = np.zeros([nprimal + ndual])
+    rhs = np.zeros([nprimal + ndual, 1])
     rhs[0:nprimal] = -c
     rhs[nprimal:nprimal+ndual] = b
 
@@ -856,9 +856,11 @@ class BoxController(LeafSystem):
  
     # Compute the external forces.
     fext = -all_plant.tree().CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
+    fext = np.reshape(fext, [len(v), 1])
 
     # Get the desired ball acceleration.
     vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
+    vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
 
     # Get the Jacobians at the point of contact: N, S, T, and construct Z and
     # Zdot_v.
@@ -871,19 +873,20 @@ class BoxController(LeafSystem):
 
     # Set the time-derivatives of the Jacobians times the velocity.
     Zdot_v = np.zeros([nc * 3])
-    Zdot_v[0:nc] = Ndot_v
-    Zdot_v[nc:2*nc] = Sdot_v
-    Zdot_v[-nc] = Tdot_v
+    Zdot_v[0:nc] = Ndot_v[:,0]
+    Zdot_v[nc:2*nc] = Sdot_v[:, 0]
+    Zdot_v[-nc:] = Tdot_v[:, 0]
 
     # Compute torques without applying any tangential forces.
     if self.controller_type == 'NoFrictionalForcesApplied':
       f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoFrictionalForces(iM, fext, vdot_ball_des, N, Ndot_v)
     if self.controller_type == 'NoSlip':
       f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
-    print nc
-    print f_contact.shape
-    print N.shape
-    print zprimal.shape
+    if 0:
+      print nc
+      print f_contact.shape
+      print N.shape
+      print zprimal.shape
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
@@ -898,29 +901,30 @@ class BoxController(LeafSystem):
     # Output logging information.
     vdot = iM.dot(D.dot(zprimal) + fext)
     P_vdot = P.dot(vdot)
-    print "N * v: " + str(N.dot(v))
-    print "S * v: " + str(S.dot(v))
-    print "T * v: " + str(T.dot(v))
-    print "Ndot * v: " + str(Ndot_v)
-    print "Zdot * v: " + str(Zdot_v)
-    print "fext: " + str(fext)
-    print "M: "
-    print M
-    print "P: "
-    print P
-    print "D: "
-    print D
-    print "B: "
-    print B
-    print "N: "
-    print N
-    print "Z: "
-    print Z
-    print "contact forces: " + str(f_contact)
-    print "vdot: " + str(vdot)
-    print "vdot (desired): " + str(vdot_ball_des)
-    print "P * vdot: " + str(P_vdot)
-    print "torque: " + str(f_act)
+    if 0:
+      print "N * v: " + str(N.dot(v))
+      print "S * v: " + str(S.dot(v))
+      print "T * v: " + str(T.dot(v))
+      print "Ndot * v: " + str(Ndot_v)
+      print "Zdot * v: " + str(Zdot_v)
+      print "fext: " + str(fext)
+      print "M: "
+      print M
+      print "P: "
+      print P
+      print "D: "
+      print D
+      print "B: "
+      print B
+      print "N: "
+      print N
+      print "Z: "
+      print Z
+      print "contact forces: " + str(f_contact)
+      print "vdot: " + str(vdot)
+      print "vdot (desired): " + str(vdot_ball_des)
+      print "P * vdot: " + str(P_vdot)
+      print "torque: " + str(f_act)
 
     return [f_act, f_contact_generalized ]
 

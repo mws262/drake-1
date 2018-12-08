@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import unittest
 from manipulation_plan import ManipulationPlan
 from box_controller import BoxController
 from box_soccer_simulation import BuildBlockDiagram
@@ -7,8 +8,14 @@ from box_soccer_simulation import BuildBlockDiagram
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
                          BasicVector, MultibodyForces, ComputeBasisFromAxis)
 
-class ControllerTest:
-  def __init__(self, time_step):
+# Turn debugging off.
+debugging = False
+
+class ControllerTest(unittest.TestCase):
+  def setUp(self):
+    # TODO: figure out how to make time_step a parameter of this function.
+    time_step = 0.0
+
     # Construct some reasonable defaults.
     # Gains in Cartesian-land.
     robot_cart_kp = np.ones([3]) * 100
@@ -91,7 +98,8 @@ class ControllerTest:
     return [q, v]
 
   # This tests the control matrix for the robot (box).
-  def TestControlMatrix(self):
+  def test_ControlMatrix(self):
+
     # Get the control matrix.
     B = self.controller.ConstructRobotActuationMatrix()
 
@@ -108,11 +116,11 @@ class ControllerTest:
     vselected_row[:,0] = vselected
 
     # Check whether B*v = v_all_but_zero.
-    assert np.allclose(v_all_but_zero, B.dot(vselected).flatten())
-    print 'TestControlMatrix() passed'
+    self.assertTrue(np.allclose(v_all_but_zero, B.dot(vselected).flatten()))
 
+  @unittest.expectedFailure
   # This tests the velocity weighting matrix for the ball.
-  def TestBallVelocityMatrix(self):
+  def test_BallVelocityMatrix(self):
     # Get the state weighting matrix.
     W = self.controller.ConstructBallVelocityWeightingMatrix()
 
@@ -129,12 +137,11 @@ class ControllerTest:
     vselected_row[:,0] = vselected
 
     # Check whether B*v = v_all_but_zero.
-    assert np.allclose(v_all_but_zero, B.dot(vselected).flatten())
-    print 'TestBallVelocityMatrix() passed'
+    self.assertTrue(np.allclose(v_all_but_zero, B.dot(vselected).flatten()))
 
   # This tests only that q and v for the ball and the robot (box) have
   # expected values.
-  def TestQAndVSetProperly(self):
+  def test_QAndVSetProperly(self):
     t = 0  # Set the desired plan time.
     self.SetStates(t)
 
@@ -151,40 +158,36 @@ class ControllerTest:
     v_ball_des = self.controller.plan.GetBallQVAndVdot(t)[self.controller.nq_ball():self.controller.nq_ball()+self.controller.nv_ball()]
 
     # Verify that they're all close.
-    assert np.allclose(q_robot, q_robot_des.flatten())
-    assert np.allclose(v_robot, v_robot_des.flatten())
-    assert np.allclose(q_ball, q_ball_des.flatten())
-    assert np.allclose(v_ball, v_ball_des.flatten())
+    self.assertTrue(np.allclose(q_robot, q_robot_des.flatten()))
+    self.assertTrue(np.allclose(v_robot, v_robot_des.flatten()))
+    self.assertTrue(np.allclose(q_ball, q_ball_des.flatten()))
+    self.assertTrue(np.allclose(v_ball, v_ball_des.flatten()))
 
     # Verify that q is set in the proper place in the array.
     q_all = self.controller.get_q_all(self.controller_context)
-    assert np.allclose(q_robot, self.controller.robot_and_ball_plant.tree().GetPositionsFromArray(self.controller.robot_instance, q_all))
-    assert np.allclose(q_ball, self.controller.robot_and_ball_plant.tree().GetPositionsFromArray(self.controller.ball_instance, q_all))
-    print 'TestDefaultQAndV() passed'
+    self.assertTrue(np.allclose(q_robot, self.controller.robot_and_ball_plant.tree().GetPositionsFromArray(self.controller.robot_instance, q_all)))
+    self.assertTrue(np.allclose(q_ball, self.controller.robot_and_ball_plant.tree().GetPositionsFromArray(self.controller.ball_instance, q_all)))
 
-  def TestBodyAccessors(self):
+  def test_BodyAccessors(self):
     # This is just a smoke test.
     self.controller.get_ball_from_robot_and_ball_plant()
     self.controller.get_foot_links_from_robot_and_ball_plant()
     self.controller.get_ground_from_robot_and_ball_plant()
-    print 'TestBodyAccessors() passed'
 
-  def TestIntegralValue(self):
+  def test_IntegralValue(self):
     int_vec = np.linspace(0, 1, self.controller.nq_robot())
     self.controller.set_integral_value(self.controller_context, int_vec)
-    assert np.allclose(self.controller.get_integral_value(self.controller_context), int_vec)
-    print 'TestIntegralValue() passed'
+    self.assertTrue(np.allclose(self.controller.get_integral_value(self.controller_context), int_vec))
 
-  def TestStateSizes(self):
-    assert self.controller.nq_ball() == 7
-    assert self.controller.nv_ball() == 6
-    assert self.controller.nq_robot() == 7
-    assert self.controller.nv_robot() == 6
-    print 'TestStateSizes() passed'
+  def test_StateSizes(self):
+    self.assertEqual(self.controller.nq_ball(), 7)
+    self.assertEqual(self.controller.nv_ball(), 6)
+    self.assertEqual(self.controller.nq_robot(), 7)
+    self.assertEqual(self.controller.nv_robot(), 6)
 
   # Check control outputs for when contact is intended and robot and ball are
   # indeed in contact.
-  def TestContactAndContactIntendedOutputsCorrect(self):
+  def test_ContactAndContactIntendedOutputsCorrect(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -227,9 +230,9 @@ class ControllerTest:
     Nv = N.dot(v)
     Sv = S.dot(v)
     Tv = T.dot(v)
-    assert np.linalg.norm(Nv) < zero_velocity_tol
-    assert np.linalg.norm(Sv) < zero_velocity_tol
-    assert np.linalg.norm(Tv) < zero_velocity_tol
+    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
     # Compute the output from the controller.
     self.controller.CalcOutput(self.controller_context, self.output)
@@ -256,16 +259,13 @@ class ControllerTest:
     Nv = N.dot(vnew)
     Sv = S.dot(vnew)
     Tv = T.dot(vnew)
-    assert np.linalg.norm(Nv) < zero_velocity_tol
-    assert np.linalg.norm(Sv) < zero_velocity_tol
-    assert np.linalg.norm(Tv) < zero_velocity_tol
-
-    print 'TestContactAndContactIntendedOutputsCorrect() passed'
-
+    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
   # Check control outputs for when robot is not in contact with the ball but it
   # is desired to be.
-  def TestNoContactButContactIntendedOutputsCorrect(self):
+  def test_NoContactButContactIntendedOutputsCorrect(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -285,7 +285,9 @@ class ControllerTest:
 
       # No contact desired or contact was found.
       t += dt
-      assert t <= t_final
+      if t >= t_final:
+        print ' -- TestNoContactButContactIntendedOutputsCorrect() - contact always found!'
+        return 
 
     # Compute the output from the controller.
     self.controller.CalcOutput(self.controller_context, self.output)
@@ -329,14 +331,11 @@ class ControllerTest:
 
     # Get the new distance from the box to the ball.
     new_dist = self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)
-    print new_dist
-    print old_dist
-    assert new_dist < old_dist
-    print 'TestNoContactButContactIntendedOutputsCorrect() passed'
 
+    self.assertLess(new_dist, old_dist)
 
   # Check that Jacobian construction is correct.
-  def TestJacobianConstruction(self):
+  def test_JacobianConstruction(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -353,7 +352,7 @@ class ControllerTest:
         if self.controller.IsRobotContactingBall(contacts):
           break
 
-      # No contact desired or exactly one contact not found.
+      # No contact desired or contact between robot and ball not found. 
       t += dt
       assert t < t_final
 
@@ -362,72 +361,82 @@ class ControllerTest:
 
     # Construct the Jacobian matrices using the controller function.
     [N, S, T, Ndot, Sdot, Tdot] = self.controller.ConstructJacobians(contacts, q)
-    print 'N: '
-    print N
 
     # Set a time step.
     dt = 1e-6
 
-    # Get a single contact.
-    point_pair = contacts[0]
-
-    # Get the two bodies.
+    # Get the inspector.
     robot_and_ball_context = self.controller.robot_and_ball_context
     self.all_plant.SetPositions(robot_and_ball_context, q)
     query_object = self.all_plant.EvalAbstractInput(
         robot_and_ball_context, self.controller.geometry_query_input_port.get_index()).get_value()
     inspector = query_object.inspector()
-    geometry_A_id = point_pair.id_A
-    geometry_B_id = point_pair.id_B
-    frame_A_id = inspector.GetFrameId(geometry_A_id)
-    frame_B_id = inspector.GetFrameId(geometry_B_id)
-    body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
-    body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
-    print body_A.name()
-    print body_B.name()
 
-    # The Jacobians yield the instantaneous movement of a contact point along
-    # the various directions. Determine the location of the contact point
-    # dt into the future in the world frame.
-    kXAxisIndex = 0
-    R_WC = ComputeBasisFromAxis(kXAxisIndex, point_pair.nhat_BA_W)
-    pdot_C = np.zeros([3, 1])
-    pdot_C[0] = N.dot(v)
-    pdot_C[1] = S.dot(v)
-    pdot_C[2] = T.dot(v)
-    pdot_W = R_WC.dot(pdot_C)
+    # Output all contacting bodies
+    if debugging:
+      for i in contacts:
+        geometry_A_id = i.id_A
+        geometry_B_id = i.id_B
+        frame_A_id = inspector.GetFrameId(geometry_A_id)
+        frame_B_id = inspector.GetFrameId(geometry_B_id)
+        body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
+        body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
+        print "Contact found between " + body_A.name() + " and " + body_B.name()
 
-    # Get the components of the contact point in the body frames.
-    X_WA = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_A)
-    X_WB = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_B)
-    p_A = X_WA.inverse().multiply(point_pair.p_WCa)
-    p_B = X_WB.inverse().multiply(point_pair.p_WCb)
+    # Examine each point of contact. 
+    for i in range(len(contacts)):
+      # Get the two bodies.
+      point_pair = contacts[i]
+      geometry_A_id = point_pair.id_A
+      geometry_B_id = point_pair.id_B
+      frame_A_id = inspector.GetFrameId(geometry_A_id)
+      frame_B_id = inspector.GetFrameId(geometry_B_id)
+      body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
+      body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
 
-    # Update the generalized coordinates of the multibodies using a first-order
-    # approximation and the arbitrary velocity.
-    qdot = self.all_plant.MapVelocityToQDot(robot_and_ball_context, v, len(q))
-    qnew = q + dt*qdot
-    q_ball = self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qnew)
-    print 'q_robot: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qnew))
-    print 'q_ball: ' + str(q_ball)
-    self.all_plant.SetPositions(robot_and_ball_context, qnew)
+      # The Jacobians yield the instantaneous movement of a contact point along
+      # the various directions. Determine the location of the contact point
+      # dt into the future in the world frame.
+      kXAxisIndex = 0
+      R_WC = ComputeBasisFromAxis(kXAxisIndex, point_pair.nhat_BA_W)
+      pdot_C = np.zeros([3, 1])
+      pdot_C[0] = N[i,:].dot(v)
+      pdot_C[1] = S[i,:].dot(v)
+      pdot_C[2] = T[i,:].dot(v)
+      pdot_W = R_WC.dot(pdot_C)
 
-    # Determine the new locations of the points on the bodies. The difference
-    # in the points yields a finite difference approximation to the relative
-    # velocity.
-    X_WA_new = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_A)
-    X_WB_new = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_B)
-    pdot_W_approx = (X_WA_new.multiply(p_A) - X_WB_new.multiply(p_B))/dt
+      # Get the components of the contact point in the body frames.
+      X_WA = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_A)
+      X_WB = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_B)
+      p_A = X_WA.inverse().multiply(point_pair.p_WCa)
+      p_B = X_WB.inverse().multiply(point_pair.p_WCb)
 
-    # The Jacobian-determined contact point and the new contact point should
-    # differ little.
-    print 'pdot_W (true): ' + str(pdot_W)
-    print 'pdot_W (approx): ' + str(pdot_W_approx)
-    assert np.linalg.norm(pdot_W.flatten() - pdot_W_approx.flatten()) < dt
-    print 'TestJacobianConstruction() passed'
+      # Update the generalized coordinates of the multibodies using a first-order
+      # approximation and the arbitrary velocity.
+      qdot = self.all_plant.MapVelocityToQDot(robot_and_ball_context, v, len(q))
+      qnew = q + dt*qdot
+      q_ball = self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qnew)
+      if debugging:
+        print 'q_robot: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qnew))
+        print 'q_ball: ' + str(q_ball)
+      self.all_plant.SetPositions(robot_and_ball_context, qnew)
+
+      # Determine the new locations of the points on the bodies. The difference
+      # in the points yields a finite difference approximation to the relative
+      # velocity.
+      X_WA_new = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_A)
+      X_WB_new = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_B)
+      pdot_W_approx = (X_WA_new.multiply(p_A) - X_WB_new.multiply(p_B))/dt
+
+      # The Jacobian-determined contact point and the new contact point should
+      # differ little.
+      if debugging:
+        print 'pdot_W (true): ' + str(pdot_W)
+        print 'pdot_W (approx): ' + str(pdot_W_approx)
+      self.assertLess(np.linalg.norm(pdot_W.flatten() - pdot_W_approx.flatten()), dt)
 
   # Check that velocity at the contact point remains sufficiently close to zero.
-  def TestZeroVelocityAtContact(self):
+  def test_ZeroVelocityAtContact(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -460,28 +469,45 @@ class ControllerTest:
     p_true = (pr_WA + pr_WB) * 0.5
 
     # Verify that the planned and actual contact points are collocated.
-    assert np.linalg.norm(p.flatten() - p_true.flatten()) < 1e-8
+    self.assertLess(np.linalg.norm(p.flatten() - p_true.flatten()), 1e-8)
 
     # Construct the Jacobian matrices using the controller function.
     N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
+
+    # Get the inspector.
+    robot_and_ball_context = self.controller.robot_and_ball_context
+    self.all_plant.SetPositions(robot_and_ball_context, q)
+    query_object = self.all_plant.EvalAbstractInput(
+        robot_and_ball_context, self.controller.geometry_query_input_port.get_index()).get_value()
+    inspector = query_object.inspector()
+
+    # Output all contacting bodies
+    if debugging:
+      for i in contacts:
+        geometry_A_id = i.id_A
+        geometry_B_id = i.id_B
+        frame_A_id = inspector.GetFrameId(geometry_A_id)
+        frame_B_id = inspector.GetFrameId(geometry_B_id)
+        body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
+        body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
+        print "Contact found between " + body_A.name() + " and " + body_B.name()
 
     # Verify that the velocity at the contact points are approximately zero.
     zero_velocity_tol = 1e-12
     Nv = N.dot(v)
     Sv = S.dot(v)
     Tv = T.dot(v)
-    print 'Nv: ' + str(Nv)
-    print 'Sv: ' + str(Sv)
-    print 'Tv: ' + str(Tv)
-    assert np.linalg.norm(Nv) < zero_velocity_tol
-    assert np.linalg.norm(Sv) < zero_velocity_tol
-    assert np.linalg.norm(Tv) < zero_velocity_tol
-    print 'TestZeroVelocityAtContact() passed'
-
-
+    if debugging:
+      print 'Nv: ' + str(Nv)
+      print 'Sv: ' + str(Sv)
+      print 'Tv: ' + str(Tv)
+    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
+  
   # Check that the contact distance when the plan indicates contact is desired
   # always lies below a threshold.
-  def TestContactDistanceBelowThreshold(self):
+  def test_ContactDistanceBelowThreshold(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -495,34 +521,18 @@ class ControllerTest:
         continue
 
       # Set the states to q and v.
-      q, v = self.SetStates(t)
+      self.SetStates(t)
 
       # Check the distance between the robot foot and the ball.
       dist_thresh = 1e-6
-      assert abs(self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)) < dist_thresh
-      assert abs(self.controller.GetSignedDistanceFromBallToGround(self.controller_context)) < dist_thresh
+      self.assertLess(abs(self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)), dist_thresh)
+      self.assertLess(abs(self.controller.GetSignedDistanceFromBallToGround(self.controller_context)), dist_thresh)
 
       # Update t.
       t += dt
 
-    print 'TestContactDistanceBelowThreshold() passed'
-
-
-def main():
-  test = ControllerTest(0.0)
-  test.TestStateSizes()
-  test.TestIntegralValue()
-  test.TestBodyAccessors()
-  test.TestQAndVSetProperly()
-  test.TestControlMatrix()
-  # test.TestBallVelocityMatrix()
-  test.TestJacobianConstruction()
-  test.TestContactAndContactIntendedOutputsCorrect()
-  test.TestNoContactButContactIntendedOutputsCorrect()
-  test.TestContactDistanceBelowThreshold()
-  test.TestZeroVelocityAtContact()
 
 
 if __name__ == "__main__":
-  main()
+  unittest.main()
   

@@ -162,7 +162,7 @@ class ManipulationPlan:
       qx = self.q_v_vdot_robot[i][1][kQuatOffset+1]
       qy = self.q_v_vdot_robot[i][1][kQuatOffset+2]
       qz = self.q_v_vdot_robot[i][1][kQuatOffset+3]
-      assert abs(qw*qw + qx*qx + qy*qy + qz*qz - 1) < 1e-8
+      assert abs(qw*qw + qx*qx + qy*qy + qz*qz - 1) < quat_tol
       self.q_v_vdot_robot[i][1][kQuatOffset+0] = qw
       self.q_v_vdot_robot[i][1][kQuatOffset+1] = qx
       self.q_v_vdot_robot[i][1][kQuatOffset+2] = qy
