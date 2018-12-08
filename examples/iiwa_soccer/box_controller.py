@@ -928,6 +928,47 @@ class BoxController(LeafSystem):
 
     return [f_act, f_contact_generalized ]
 
+  # Finds contacts only between the ball and the robot.
+  def FindRobotBallContacts(self, all_q):
+    # Get contacts between the robot and ball, and ball and the ground.
+    contacts = self.FindContacts(all_q)
+
+    # Get the ball body and foot bodies.
+    ball_body = self.get_ball_from_robot_and_ball_plant()
+    foot_bodies = self.get_foot_links_from_robot_and_ball_plant()
+
+    # Make sorted pairs to check.
+    ball_foot_pairs = [0] * len(foot_bodies)
+    for i in range(len(foot_bodies)):
+      ball_foot_pairs[i] = self.MakeSortedPair(ball_body, foot_bodies[i])
+
+    # Evaluate scene graph's output port, getting a SceneGraph reference.
+    query_object = self.robot_and_ball_plant.EvalAbstractInput(
+      self.robot_and_ball_context, self.geometry_query_input_port.get_index()).get_value()
+    inspector = query_object.inspector()
+
+    # Get the tree corresponding to all bodies.
+    all_plant = self.robot_and_ball_plant
+
+    # Remove contacts between all but the robot foot and the ball and the
+    # ball and the ground.
+    i = 0
+    while i < len(contacts):
+      geometry_A_id = contacts[i].id_A
+      geometry_B_id = contacts[i].id_B
+      frame_A_id = inspector.GetFrameId(geometry_A_id)
+      frame_B_id = inspector.GetFrameId(geometry_B_id)
+      body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+      body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+      body_A_B_pair = self.MakeSortedPair(body_A, body_B)
+      if body_A_B_pair not in ball_foot_pairs:
+        contacts[i] = contacts[-1]
+        del contacts[-1]
+      else:
+        i += 1
+
+    return contacts
+
   # Gets the vector of contacts.
   def FindContacts(self, all_q):
     # Set q in the context.
