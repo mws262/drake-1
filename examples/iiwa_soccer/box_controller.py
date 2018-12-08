@@ -167,55 +167,60 @@ class BoxController(LeafSystem):
 
   # Loads all plans into the controller.
   def LoadPlans(self):
+    from pydrake.common import FindResourceOrThrow
+
     # Read in the plans for the robot.
     if self.robot_type == 'iiwa':
       self.plan.ReadIiwaRobotQVAndVdot(
-        "plan/joint_timings_fit.mat",
-        "plan/joint_angle_fit.mat",
-        "plan/joint_vel_fit.mat",
-        "plan/joint_accel_fit.mat")
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_timings_fit.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_angle_fit.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_vel_fit.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_accel_fit.mat"))
 
       # Read in the plans for the point of contact.
-      self.plan.ReadContactPoint("plan/contact_pt_timings.mat",
-                                 "plan/contact_pt_positions.mat",
-                                 "plan/contact_pt_velocities.mat")
+      self.plan.ReadContactPoint(
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_pt_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_pt_positions.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_pt_velocities.mat"))
 
       # Read in the plans for the ball kinematics.
       self.plan.ReadBallQVAndVdot(
-        "plan/ball_timings.mat",
-        "plan/ball_com_positions.mat",
-        "plan/ball_quats.mat",
-        "plan/ball_com_velocities.mat",
-        "plan/ball_omegas.mat",
-        "plan/ball_com_accelerations.mat",
-        "plan/ball_alphas.mat",
-        "plan/contact_status.mat")
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_positions.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_quats.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_velocities.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_omegas.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_accelerations.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_alphas.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_status.mat"))
 
     if self.robot_type == 'box':
+      print 'WARNING! WARNING! WARNING! Box accelerations are not correct!'
       self.plan.ReadBoxRobotQVAndVdot(
-        "plan_box/box_timings.mat",
-        "plan_box/box_positions.mat",
-        "plan_box/box_quats.mat",
-        "plan/box_com_velocities.mat",
-        "plan/box_omegas.mat",
-        "plan/box_com_accelerations.mat",
-        "plan/box_alphas.mat")
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_positions.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_quats.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_linear_vel.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_angular_vel.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_accelerations.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_alphas.mat"))
 
       # Read in the plans for the point of contact.
-      self.plan.ReadContactPoint("plan_box/contact_pt_timings.mat",
-          "plan_box/contact_pt_positions.mat",
-          "plan_box/contact_pt_velocities.mat")
+      self.plan.ReadContactPoint(
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_positions.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_velocities.mat"))
 
       # Read in the plans for the ball kinematics.
       self.plan.ReadBallQVAndVdot(
-          "plan_box/ball_timings.mat",
-          "plan_box/ball_com_positions.mat",
-          "plan_box/ball_quats.mat",
-          "plan_box/ball_com_velocities.mat",
-          "plan_box/ball_omegas.mat",
-          "plan_box/ball_com_accelerations.mat",
-          "plan_box/ball_alphas.mat",
-          "plan_box/contact_status.mat")
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_positions.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_quats.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_velocities.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_omegas.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_accelerations.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_alphas.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_status.mat"))
 
 
   # Constructs the Jacobian matrices.
