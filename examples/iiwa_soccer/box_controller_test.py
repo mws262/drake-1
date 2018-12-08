@@ -536,8 +536,8 @@ class ControllerTest(unittest.TestCase):
       dist_thresh = 1e-6
       dist_robot_ball = self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)
       dist_ground_ball = self.controller.GetSignedDistanceFromBallToGround(self.controller_context)
-      self.assertLess((dist_robot_ball), dist_thresh, msg='Robot/ball contact desired at t='+str(t)+' but signed distance is large (' + str(dist_robot_ball) + ').')
-      self.assertLess((dist_ground_ball), dist_thresh, msg='Ball/ground contact desired at t='+str(t)+' but signed distance is large (' + str(dist_ground_ball) + ').')
+      self.assertLess(abs(dist_robot_ball), dist_thresh, msg='Robot/ball contact desired at t='+str(t)+' but signed distance is large (' + str(dist_robot_ball) + ').')
+      self.assertLess(abs(dist_ground_ball), dist_thresh, msg='Ball/ground contact desired at t='+str(t)+' but signed distance is large (' + str(dist_ground_ball) + ').')
 
       # Update t.
       t += dt
