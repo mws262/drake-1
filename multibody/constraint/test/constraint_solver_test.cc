@@ -851,42 +851,34 @@ class Constraint2DSolverTest : public ::testing::Test {
     rod_->set_mu_coulomb(15.0);
     rod_->set_mu_static(15.0);
 
-    const double dt = 1e-0;
+    // Get an accurate solution.
+    const double dt = std::sqrt(eps_);
 
-    // Set the stiffness to very, very high.
-    rod_->set_stiffness(1e4);
+    // Set the stiffness and damping to very large to get a nearly rigid
+    // solution.
+    rod_->set_stiffness(1e12);
+    rod_->set_dissipation(1e12);
 
     // Set the state of the rod to resting vertically with no velocity.
     SetRodToRestingVerticalConfig();
-
-    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
-    xc[0] = 0.0;                             // com horizontal position
-    xc[1] = rod_->get_rod_half_length();     // com vertical position
-    xc[2] = M_PI_2;                          // rod rotation
-    xc[3] = xc[4] = xc[5] = 0.0;             // velocity variables
 
     // Get the external forces.
     Vector3d fext = rod_->ComputeExternalForces(*context_);
 
     // Add a force applied at the point of contact that results in a torque
     // at the rod center-of-mass.
-    /*
     const double horz_f = (force_applied_to_right) ? 100 : -100;
     fext += Vector3<double>(
           horz_f, 0, horz_f * rod_->get_rod_half_length()) * dt;
-*/
+
     // Compute the contact forces.
     const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
         rod_->get_state(*context_).CopyToVector(), fext, dt);
 
-    // Verify that the frictional forces equal the applied,
-    // horizontal force.
-    EXPECT_NEAR(tau_cf[0], tau_cf[1], eps_);
-
     // Compute the generalized acceleration of the rod and verify that it is
     // approximately zero.
     const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
-    EXPECT_NEAR(ga.norm(), 0.0, eps_);
+    EXPECT_NEAR(ga.norm(), 0.0, std::sqrt(eps_));
   }
 
   // Tests the rod in a two-point sticking configuration (i.e., force should
@@ -1029,6 +1021,46 @@ class Constraint2DSolverTest : public ::testing::Test {
         }
       }
     }
+  }
+
+  // Tests the rod in a single-point sticking configuration, with an external
+  // force applied either to the right or to the left. Given sufficiently small
+  // force and sufficiently large friction coefficient, the contact should
+  // nearly remain in stiction.
+  void TwoPointStickingSoft(bool force_applied_to_right) {
+    // Set the contact to large friction. However, set_mu_static() throws an
+    // exception if it is not at least as large as the Coulomb friction
+    // coefficient.
+    rod_->set_mu_coulomb(15.0);
+    rod_->set_mu_static(15.0);
+
+    // Get an accurate solution.
+    const double dt = std::sqrt(eps_);
+
+    // Set the stiffness and damping to both really large. That will keep
+    // vertical movement to a minimum.
+    rod_->set_stiffness(1e12);
+    rod_->set_dissipation(1e12);
+
+    // Set the state of the rod to resting on its side with no velocity.
+    SetRodToRestingHorizontalConfig();
+
+    // Get the external forces.
+    Vector3d fext = rod_->ComputeExternalForces(*context_);
+
+    // Add a force applied at the rod center.
+    const double horz_f = (force_applied_to_right) ? 100 : -100;
+    fext += Vector3<double>(horz_f, 0, 0) * dt;
+
+    // Compute the contact forces.
+    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
+        rod_->get_state(*context_).CopyToVector(), fext, dt);
+
+    // Compute the generalized acceleration of the rod and verify that it is
+    // approximately zero.
+    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
+    EXPECT_NEAR(ga[0], 0.0, std::sqrt(eps_));
+    EXPECT_NEAR(ga[1], 0.0, std::sqrt(eps_));
   }
 
   // Tests the rod in a two-point non-sticking configuration that will
@@ -1667,6 +1699,59 @@ class Constraint2DSolverTest : public ::testing::Test {
   // Tests the rod in a sliding configuration with sliding velocity as
   // specified. If `upright` is true, then the rod makes contact at a single
   // point. Otherwise, it will be on its side and make contact at two points.
+  // The fully upright and on-side configurations help to predict
+  // the requisite force(s) and motion.
+  void SlidingSoft(bool sliding_to_right, bool upright) {
+    if (upright) {
+      SetRodToRestingVerticalConfig();
+    } else {
+      // Set the state of the rod to resting on its side w/ horizontal velocity.
+      SetRodToRestingHorizontalConfig();
+    }
+    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+    xc[3] = (sliding_to_right) ? 1 : -1;
+
+    // Get the gravitational acceleration.
+    const double grav_accel = rod_->get_gravitational_acceleration();
+
+    // Set the coefficient of friction to zero. Note that a test that uses
+    // a non-zero coefficient of friction with sliding is
+    // SlidingPlusBilateralSoft().
+    rod_->set_mu_coulomb(0.0);
+
+    // The smaller that dt is, the more accurate that the frictional force
+    // computation will be.
+    const double small_dt = eps_;
+
+    // Set the stiffness to relatively low.
+    rod_->set_stiffness(1e4);
+
+    // Get the external forces.
+    const Vector3d fext = rod_->ComputeExternalForces(*context_);
+
+    // Compute the contact forces.
+    const Vector3d tau_cf_accurate = rod_->ComputeGeneralizedSoftContactForces(
+        rod_->get_state(*context_).CopyToVector(), fext, small_dt);
+
+    // There should be no frictional components.
+    EXPECT_NEAR(tau_cf_accurate[0], 0, eps_);
+
+    // The larger the dt, the closer to the gravitational force.
+    const double large_dt = 1e12;
+
+    // Recompute the contact forces.
+    const Vector3d tau_cf_inaccurate =
+        rod_->ComputeGeneralizedSoftContactForces(
+            rod_->get_state(*context_).CopyToVector(), fext, large_dt);
+
+    // The normal component should essentially counteract the force due to
+    // gravity.
+    EXPECT_NEAR(-grav_accel * rod_->get_rod_mass(), tau_cf_inaccurate[1], eps_);
+  }
+
+  // Tests the rod in a sliding configuration with sliding velocity as
+  // specified. If `upright` is true, then the rod makes contact at a single
+  // point. Otherwise, it will be on its side and make contact at two points.
   // The fully upright and on-side configurations permit readily predicting
   // the requisite force(s) and motion.
   void SlidingDiscretized(bool sliding_to_right, bool upright) {
@@ -2047,6 +2132,87 @@ class Constraint2DSolverTest : public ::testing::Test {
     EXPECT_NEAR(ga[2] * dt_, -vel_data_->kG[0], eps_ * cf.size());
   }
 
+  // Tests the rod in an upright sliding state, with sliding
+  // direction as specified. The rod will be constrained to prevent rotational
+  // acceleration using a bilateral constraint as well.
+  void SlidingPlusBilateralSoft(bool sliding_to_right) {
+    // Make the rod slide.
+    SetRodToRestingVerticalConfig();
+    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+    xc[3] = (sliding_to_right) ? 1 : -1;
+
+    // Set the coefficient of friction. A nonzero coefficient of friction should
+    // cause the rod to rotate.
+    const double mu_coulomb = 0.1;
+    rod_->set_mu_coulomb(mu_coulomb);
+
+    // A smallish dt should be fine.
+    const double dt = 1e-2;
+
+    // Compute the problem data.
+    const int ngc = 3;  // Number of generalized coordinates / velocities.
+    const Vector3d fext = rod_->ComputeExternalForces(*context_);
+    SoftConstraintProblemData<double> problem_data(ngc);
+    rod_->ComputeSoftProblemData(
+        xc.CopyToVector(), fext, dt, &problem_data);
+
+    // Add in bilateral constraints on rotational motion; angular motion will be
+    // a spring/damper:
+    // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
+    // \phi = \theta is the constraint.
+    const double k = 1e12, b = 1;
+    problem_data.Gb_mult = [](const MatrixX<double>& w) -> MatrixX<double> {
+      MatrixX<double> result(1, w.cols());   // Only one constraint.
+      for (int i = 0; i < w.cols(); ++i)
+        result(0, i) = w(2, i);
+      return result;
+    };
+    problem_data.Gb_transpose_mult =
+        [this](const MatrixX<double>& f) -> MatrixX<double> {
+          // A force (torque) applied to the third component needs no
+          // transformation.
+          DRAKE_DEMAND(f.rows() == 1);
+          MatrixX<double> result(get_rod_num_coordinates(), f.cols());
+          result.setZero();
+          for (int i = 0; i < f.cols(); ++i)
+            result(2, i) = f(0, i);
+          return result;
+        };
+
+    // Set the stiffness and damping.
+    problem_data.Kb = VectorX<double>(1);
+    problem_data.Kb(0, 0) = k;
+    problem_data.Bb = VectorX<double>(1);
+    problem_data.Bb(0, 0) = b;
+
+    // Compute the term that is a function of evaluating the constraint. We
+    // assume the constraint position and velocity are both zero at the current
+    // state.
+    problem_data.kB = (dt * k + b) *
+            (dt * problem_data.Gb_mult(problem_data.solve_inertia(fext)));
+
+    // Solve the constraint problem.
+    const double zeta = 1e6;
+    VectorX<double> cf;
+    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
+
+    // Compute the generalized force acting on the rod.
+    VectorX<double> tau_cf;
+    solver_.ComputeGeneralizedForceFromConstraintForces(
+        problem_data, cf, &tau_cf);
+
+    // Verify that the frictional force is approximately equal to the
+    // coefficient of friction times the normal force. We can only do this
+    // because the frictional force isn't large enough to stop the rod from
+    // sliding.
+    EXPECT_NEAR(cf[0] * mu_coulomb, std::abs(cf[1]), eps_);
+
+    // Compute the generalized acceleration of the rod and verify that the
+    // rotational acceleration is close to zero.
+    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
+    EXPECT_NEAR(ga[2], 0.0, 1e-8);
+  }
+
   // Tests the rod in a one-point sliding contact configuration with a second
   // constraint that prevents horizontal acceleration. This test tests the
   // interaction between contact and limit constraints.
@@ -2150,6 +2316,88 @@ class Constraint2DSolverTest : public ::testing::Test {
       solver_.ComputeGeneralizedAcceleration(*accel_data_, cf, &vdot);
       EXPECT_NEAR(vdot[1], -grav_accel, eps_);
     }
+  }
+
+  // Tests the rod in an upright sliding configuration with sliding velocity as
+  // specified. The rod will be constrained to prevent counter-clockwise
+  // rotational acceleration using a unilateral constraint; we will check that
+  // clockwise acceleration is allowed.
+  void SlidingPlusLimitSoft() {
+    // Make the rod slide to the right.
+    SetRodToRestingVerticalConfig();
+    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+    xc[3] = -1.0;
+
+    // Set the coefficient of friction. A nonzero coefficient of friction should
+    // cause the rod to rotate.
+    const double mu_coulomb = 0.1;
+    rod_->set_mu_coulomb(mu_coulomb);
+
+    // A smallish dt should be fine.
+    const double dt = 1e-2;
+
+    // Compute the problem data.
+    const int ngc = 3;  // Number of generalized coordinates / velocities.
+    const Vector3d fext = rod_->ComputeExternalForces(*context_);
+    SoftConstraintProblemData<double> problem_data(ngc);
+    rod_->ComputeSoftProblemData(
+        xc.CopyToVector(), fext, dt, &problem_data);
+
+    // Add in a unilateral constraint on rotational motion; angular motion will be
+    // a spring/damper:
+    // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
+    // \phi = \theta is the constraint.
+    const double k = 1e12, b = 1;
+    problem_data.Gu_mult = [](const MatrixX<double>& w) -> MatrixX<double> {
+      MatrixX<double> result(1, w.cols());   // Only one constraint.
+      for (int i = 0; i < w.cols(); ++i)
+        result(0, i) = -w(2, i);
+      return result;
+    };
+    problem_data.Gu_transpose_mult =
+        [this](const MatrixX<double>& f) -> MatrixX<double> {
+          // A force (torque) applied to the third component needs no
+          // transformation.
+          DRAKE_DEMAND(f.rows() == 1);
+          MatrixX<double> result(get_rod_num_coordinates(), f.cols());
+          result.setZero();
+          for (int i = 0; i < f.cols(); ++i)
+            result(2, i) = -f(0, i);
+          return result;
+        };
+
+    // Set the stiffness and damping.
+    problem_data.Ku = VectorX<double>(1);
+    problem_data.Ku(0, 0) = k;
+    problem_data.Bu = VectorX<double>(1);
+    problem_data.Bu(0, 0) = b;
+
+    // Compute the term that is a function of evaluating the constraint. We
+    // assume the constraint position and velocity are both zero at the current
+    // state.
+    problem_data.kU = (dt * k + b) *
+        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
+
+    // Solve the constraint problem.
+    const double zeta = 1e6;
+    VectorX<double> cf;
+    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
+
+    // Compute the generalized force acting on the rod.
+    VectorX<double> tau_cf;
+    solver_.ComputeGeneralizedForceFromConstraintForces(
+        problem_data, cf, &tau_cf);
+
+    // Verify that the frictional force is approximately equal to the
+    // coefficient of friction times the normal force. We can only do this
+    // because the frictional force isn't large enough to stop the rod from
+    // sliding.
+    EXPECT_NEAR(cf[0] * mu_coulomb, std::abs(cf[1]), eps_);
+
+    // Compute the generalized acceleration of the rod and verify that the
+    // rotational acceleration is close to zero.
+    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
+    EXPECT_NEAR(ga[2], 0.0, 1e-8);
   }
 
   // Tests the rod in a one-point sliding contact configuration with a second
@@ -2590,6 +2838,7 @@ TEST_F(Constraint2DSolverTest, SinglePointStickingBothSigns) {
   SinglePointStickingDiscretized(kForceAppliedToRight);
   SinglePointStickingDiscretized(kForceAppliedToLeft);
   SinglePointStickingSoft(kForceAppliedToRight);
+  SinglePointStickingSoft(kForceAppliedToLeft);
 }
 
 // Tests the rod in a two-point sticking configurations.
@@ -2600,6 +2849,8 @@ TEST_F(Constraint2DSolverTest, TwoPointStickingSign) {
   TwoPointSticking(kForceAppliedToLeft, kLCPSolver);
   TwoPointSticking(kForceAppliedToRight, kLinearSystemSolver);
   TwoPointSticking(kForceAppliedToLeft, kLinearSystemSolver);
+  TwoPointStickingSoft(kForceAppliedToRight);
+  TwoPointStickingSoft(kForceAppliedToLeft);
 }
 
 // Tests the rod in two-point non-sliding configurations that will transition
@@ -2636,6 +2887,8 @@ TEST_F(Constraint2DSolverTest, TwoPointSlidingTest) {
   Sliding(kSlideLeft, false /* not upright */, kLinearSystemSolver);
   SlidingDiscretized(kSlideRight, false /* not upright */);
   SlidingDiscretized(kSlideLeft, false /* not upright */);
+  SlidingSoft(kSlideRight, false /* not upright */);
+  SlidingSoft(kSlideLeft, false /* not upright */);
 }
 
 // Tests the rod in a single point sliding configuration, with sliding both
@@ -2648,6 +2901,8 @@ TEST_F(Constraint2DSolverTest, SinglePointSlidingTest) {
   Sliding(kSlideLeft, true /* upright */, kLinearSystemSolver);
   SlidingDiscretized(kSlideRight, true /* upright */);
   SlidingDiscretized(kSlideLeft, true /* upright */);
+  SlidingSoft(kSlideRight, true /* upright */);
+  SlidingSoft(kSlideLeft, true /* upright */);
 }
 
 // Tests the rod in a single point sliding configuration, with sliding both
@@ -2660,6 +2915,8 @@ TEST_F(Constraint2DSolverTest, SinglePointSlidingPlusBilateralTest) {
   SlidingPlusBilateral(kSlideLeft, kLinearSystemSolver);
   SlidingPlusBilateralDiscretized(kSlideRight);
   SlidingPlusBilateralDiscretized(kSlideLeft);
+  SlidingPlusBilateralSoft(kSlideRight);
+  SlidingPlusBilateralSoft(kSlideLeft);
 }
 
 // Tests the rod in a single point impacting configuration, with sliding both
@@ -2669,14 +2926,12 @@ TEST_F(Constraint2DSolverTest, SinglePointSlidingImpactPlusBilateralTest) {
   SlidingPlusBilateralImpact(kSlideLeft);
 }
 
-// Tests the rod in a one-point sliding contact configuration with a second
-// constraint that prevents horizontal acceleration. This test tests the
-// interaction between contact and limit constraints using both the LCP solver
-// and the linear system solver.
-TEST_F(Constraint2DSolverTest, OnePointPlusLimitTest) {
+// Tests the rod in contact configurations with a second constraint.
+TEST_F(Constraint2DSolverTest, ContactPlusLimitTest) {
   OnePointPlusLimit(kLCPSolver);
   OnePointPlusLimit(kLinearSystemSolver);
   OnePointPlusLimitDiscretized();
+  SlidingPlusLimitSoft();
 }
 
 // Tests the rod in a two-point contact configuration with both sticking and

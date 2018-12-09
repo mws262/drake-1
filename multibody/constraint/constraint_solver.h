@@ -2725,10 +2725,11 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   MatrixX<T> H_base = MatrixX<T>::Identity(nprimal, nprimal);
   H_base.topLeftCorner(nc, nc) *= zeta;
   H_base.bottomRightCorner(nu, nu) *= zeta;
-  const MatrixX<T> H = H_base + E.transpose() * E + F.transpose() * F;
+  const MatrixX<T> H = H_base + E_plus.transpose() * E_plus +
+      F_plus.transpose() * F_plus;
 
-  // Compute the gradient vector of the objective function
-  // (evaluated at lambda_star = 0).
+  // Compute the vector components that will be dotted with lambda_star to yield
+  // the gradient vector of the objective function.
   const VectorX<T> grad = E_plus.transpose() * d + F_plus.transpose() * e;
 
   // Compute the inequality affine constraint matrix (A).
@@ -2812,6 +2813,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   grad_lcp.segment(nc, nr + ns) = seg2;
   grad_lcp.segment(nc + nr + ns, nr + ns) = -seg2;
   grad_lcp.tail(nu) = seg3;
+  std::cout << "grad lcp: " << grad_lcp.transpose() << std::endl;
 
   // Now update A from 3 blocks to 4 blocks.
   // | B10 B11 B12 | -> | B10 B11 -B11 B12 |
@@ -2859,9 +2861,10 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   VectorX<T> zz;
   std::cout << "M: " << std::endl << MM << std::endl;
   std::cout << "q: " << qq.transpose() << std::endl;
-  bool success = lcp_.SolveLcpLemkeRegularized(MM, qq, &zz);
+//  bool success = lcp_.SolveLcpLemkeRegularized(MM, qq, &zz);
+  lcp_.SolveLcpLemke(MM, qq, &zz);
   std::cout << "z: " << zz.transpose() << std::endl;
-  DRAKE_DEMAND(success);
+//  DRAKE_DEMAND(success);
 
   // Determine the bilateral constraint forces.
   VectorX<T> lambda_hat(nc + nr + ns + nu);

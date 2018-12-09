@@ -494,7 +494,14 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> ComputeGeneralizedSoftContactForces(
       const VectorX<T>& state, const Vector3<T>& fext, double dt) const;
 
- private:
+  /// Computes the soft problem data for the rod. Most users should not need
+  /// this method and should instead call ComputeGeneralizedSoftContactForces();
+  /// this method exists so that additional constraints can be added to the rod.
+  void ComputeSoftProblemData(
+      const VectorX<T>& state, const Vector3<T>& fext, double dt,
+      multibody::constraint::SoftConstraintProblemData<T>* problem_data) const;
+
+    private:
   friend class Rod2DDAETest;
   friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
 

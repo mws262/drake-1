@@ -505,8 +505,9 @@ void Rod2D<T>::CopyPoseOut(
 }
 
 template <class T>
-Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
-    const VectorX<T>& state, const Vector3<T>& fext, double dt) const {
+void Rod2D<T>::ComputeSoftProblemData(
+    const VectorX<T>& state, const Vector3<T>& fext, double dt,
+    multibody::constraint::SoftConstraintProblemData<T>* problem_data) const {
   const auto& q = state.template segment<3>(0);
   Vector3<T> v = state.template segment<3>(3);
   const T& x = q(0);
@@ -516,9 +517,10 @@ Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
   const Vector2<T> v_WRo(v[0], v[1]);
   const T& w_WR = v[2];
 
-  // Construct the problem data.
+  // Ensure that the problem data generalized velocity variable dimension has
+  // been set correctly.
   const int ngc = 3;      // Number of generalized coords / velocities.
-  multibody::constraint::SoftConstraintProblemData<T> problem_data(ngc);
+  DRAKE_DEMAND(problem_data->num_velocities() == ngc);
 
   // Find left and right end point locations.
   std::vector<Vector2<T>> points, points_dot;
@@ -565,39 +567,34 @@ Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
   }
 
   // Set the coefficients of friction.
-  problem_data.mu.setOnes(nc) *= get_mu_coulomb();
+  problem_data->mu.setOnes(nc) *= get_mu_coulomb();
 
   // Set up the operators.
-  problem_data.Gn_mult = [&N](const MatrixX<T>& M) -> MatrixX<T> {
+  problem_data->Gn_mult = [N](const MatrixX<T>& M) -> MatrixX<T> {
     return N * M;
   };
-  problem_data.Gn_transpose_mult = [&N](const MatrixX<T>& M) -> MatrixX<T> {
+  problem_data->Gn_transpose_mult = [N](const MatrixX<T>& M) -> MatrixX<T> {
     return N.transpose() * M;
   };
-  problem_data.Gr_mult = [&F](const MatrixX<T>& M) -> MatrixX<T> {
+  problem_data->Gr_mult = [F](const MatrixX<T>& M) -> MatrixX<T> {
     return F * M;
   };
-  problem_data.Gr_transpose_mult = [&F](const MatrixX<T>& M) -> MatrixX<T> {
+  problem_data->Gr_transpose_mult = [F](const MatrixX<T>& M) -> MatrixX<T> {
     return F.transpose() * M;
   };
-  problem_data.solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
+  problem_data->solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
     return GetInverseInertiaMatrix() * mm;
   };
 
   // Update the generalized velocity vector with discretized external forces
   // (expressed in the world frame).
-  const Vector3<T> iM_fext = problem_data.solve_inertia(fext);
-
-  // Look for early exit.
-  if (nc == 0) {
-    return Vector3<T>::Zero();
-  }
+  const Vector3<T> iM_fext = problem_data->solve_inertia(fext);
 
   // Alias K and B parameters.
-  VectorX<T>& Kn = problem_data.Kn;
-  VectorX<T>& Bn = problem_data.Bn;
-  VectorX<T>& Kr = problem_data.Kr;
-  VectorX<T>& Br = problem_data.Br;
+  VectorX<T>& Kn = problem_data->Kn;
+  VectorX<T>& Bn = problem_data->Bn;
+  VectorX<T>& Kr = problem_data->Kr;
+  VectorX<T>& Br = problem_data->Br;
 
   // Kr is zero since there is no tangential "memory".
   Kr.setZero(nc);
@@ -612,19 +609,24 @@ Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
   // Set friction direction damping.
   Br.setOnes(nc) *= stiffness_;
 
-  std::cout << "Remove these debugging" << std::endl;
-  Kn.setOnes(nc) *= 1e4;
-  Bn.setOnes(nc) *= 1;
-  Br.setOnes(nc) *= 1e6;
-
   // Set k parameters.
   const auto h = dt;
-  problem_data.kN = Kn.asDiagonal() * phi_n0 +
+  problem_data->kN = Kn.asDiagonal() * phi_n0 +
       (h * Kn + Bn).asDiagonal() *
-          (dotphi_n0 + h * problem_data.Gn_mult(iM_fext));
-  problem_data.kR = Kr.asDiagonal() * phi_r0 +
+          (dotphi_n0 + h * problem_data->Gn_mult(iM_fext));
+  problem_data->kR = Kr.asDiagonal() * phi_r0 +
       (h * Kr + Br).asDiagonal() *
-          (dotphi_r0 + h * problem_data.Gr_mult(iM_fext));
+          (dotphi_r0 + h * problem_data->Gr_mult(iM_fext));
+}
+
+template <class T>
+Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
+    const VectorX<T>& state, const Vector3<T>& fext, double dt) const {
+  const int ngc = 3;      // Number of generalized coords / velocities.
+
+  // Construct the problem data.
+  multibody::constraint::SoftConstraintProblemData<T> problem_data(ngc);
+  ComputeSoftProblemData(state, fext, dt, &problem_data);
 
   // Solve the constraint problem.
   const double zeta = 1e6;
@@ -695,7 +697,7 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
 
   // Construct the problem data.
   const int ngc = 3;      // Number of generalized coords / velocities.
-  multibody::constraint::ConstraintVelProblemData<T> problem_data(ngc);
+  multibody::constraint::ConstraintVelProblemData<T> problem_data->(ngc);
 
   // Two contact points, corresponding to the two rod endpoints, are always
   // used, regardless of whether any part of the rod is in contact with the
@@ -730,56 +732,56 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   F(1, 2) = -(right[1] - y);
 
   // Set the number of tangent directions.
-  problem_data.r = { 1, 1 };
+  problem_data->r = { 1, 1 };
 
   // Get the total number of tangent directions.
   const int nr = std::accumulate(
-      problem_data.r.begin(), problem_data.r.end(), 0);
+      problem_data->r.begin(), problem_data->r.end(), 0);
 
   // Set the coefficients of friction.
-  problem_data.mu.setOnes(nc) *= get_mu_coulomb();
+  problem_data->mu.setOnes(nc) *= get_mu_coulomb();
 
   // Set up the operators.
-  problem_data.N_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->N_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
     return N * vv;
   };
-  problem_data.N_transpose_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->N_transpose_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
     return N.transpose() * vv;
   };
-  problem_data.F_transpose_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->F_transpose_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
     return F.transpose() * vv;
   };
-  problem_data.F_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->F_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
     return F * vv;
   };
-  problem_data.solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
+  problem_data->solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
     return GetInverseInertiaMatrix() * mm;
   };
 
   // Update the generalized velocity vector with discretized external forces
   // (expressed in the world frame).
   const Vector3<T> fext = ComputeExternalForces(context);
-  v += dt_ * problem_data.solve_inertia(fext);
-  problem_data.Mv = GetInertiaMatrix() * v;
+  v += dt_ * problem_data->solve_inertia(fext);
+  problem_data->Mv = GetInertiaMatrix() * v;
 
   // Set stabilization parameters.
-  problem_data.kN.resize(nc);
-  problem_data.kN[0] = erp * left[1] / dt_;
-  problem_data.kN[1] = erp * right[1] / dt_;
-  problem_data.kF.setZero(nr);
+  problem_data->kN.resize(nc);
+  problem_data->kN[0] = erp * left[1] / dt_;
+  problem_data->kN[1] = erp * right[1] / dt_;
+  problem_data->kF.setZero(nr);
 
   // Set regularization parameters.
-  problem_data.gammaN.setOnes(nc) *= cfm;
-  problem_data.gammaF.setOnes(nr) *= cfm;
-  problem_data.gammaE.setOnes(nc) *= cfm;
+  problem_data->gammaN.setOnes(nc) *= cfm;
+  problem_data->gammaF.setOnes(nr) *= cfm;
+  problem_data->gammaE.setOnes(nc) *= cfm;
 
   // Solve the constraint problem.
   VectorX<T> cf;
-  solver_.SolveImpactProblem(problem_data, &cf);
+  solver_.SolveImpactProblem(problem_data->, &cf);
 
   // Compute the updated velocity.
   VectorX<T> delta_v;
-  solver_.ComputeGeneralizedVelocityChange(problem_data, cf, &delta_v);
+  solver_.ComputeGeneralizedVelocityChange(problem_data->, cf, &delta_v);
 
   // Compute the new velocity. Note that external forces have already been
   // incorporated into v.
