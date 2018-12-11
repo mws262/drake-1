@@ -188,8 +188,8 @@ def main():
   all_plant.SetPositionsAndVelocities(robot_and_ball_context, ball_instance, x_ball)
 
   simulator.Initialize()
-#  simulator.StepTo(args.simulation_time)
-#  simulator.StepTo(.1)
+  simulator.StepTo(args.simulation_time)
+  simulator.StepTo(.1)
 
 if __name__ == "__main__":
   main()

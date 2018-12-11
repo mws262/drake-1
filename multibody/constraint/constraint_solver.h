@@ -2690,14 +2690,14 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   Eigen::PartialPivLU<MatrixX<T>> luC;
   if (C.rows() > 0)
     luC.compute(C);
-    auto C_solve = [&luC](const MatrixX<T>& m) -> MatrixX<T> {
-      if (luC.rows() == 0) {
-        DRAKE_DEMAND(m.rows() == 0);
-        return MatrixX<T>::Zero(0, m.cols());
-      } else {
-        return luC.solve(m);
-      }
-    };
+  auto C_solve = [&luC](const MatrixX<T>& m) -> MatrixX<T> {
+    if (luC.rows() == 0) {
+      DRAKE_DEMAND(m.rows() == 0);
+      return MatrixX<T>::Zero(0, m.cols());
+    } else {
+      return luC.solve(m);
+    }
+  };
 
   const MatrixX<T> Lambda = (M_solve(Gb.transpose() * C_solve(D)) +
       M_solve(diag_nv));
