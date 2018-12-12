@@ -2150,7 +2150,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     const double dt = 1e-2;
 
     // Compute the problem data.
-    const int ngc = 3;  // Number of generalized coordinates / velocities.
+    const int ngc = get_rod_num_coordinates();
     const Vector3d fext = rod_->ComputeExternalForces(*context_);
     SoftConstraintProblemData<double> problem_data(ngc);
     rod_->ComputeSoftProblemData(
@@ -2337,14 +2337,14 @@ class Constraint2DSolverTest : public ::testing::Test {
     const double dt = 1e-2;
 
     // Compute the problem data.
-    const int ngc = 3;  // Number of generalized coordinates / velocities.
+    const int ngc = get_rod_num_coordinates();
     const Vector3d fext = rod_->ComputeExternalForces(*context_);
     SoftConstraintProblemData<double> problem_data(ngc);
     rod_->ComputeSoftProblemData(
         xc.CopyToVector(), fext, dt, &problem_data);
 
-    // Add in a unilateral constraint on rotational motion; angular motion will be
-    // a spring/damper:
+    // Add in a unilateral constraint on rotational motion; angular motion will
+    // be a spring/damper:
     // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
     // \phi = \theta is the constraint.
     const double k = 1e12, b = 1;
@@ -2614,8 +2614,8 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     // Set the Jacobian entry- in this case, the limit is an upper limit on the
     // second coordinate (vertical position). The constraint is: v̇₂ ≤ 0, which
-    // we transform to the form: -v̇₂ ≥ 0 (explaining the provenance of the minus
-    // sign in L).
+    // we transform to the form: -v̇₂ ≥ 0 (explaining the provenance of the
+    // minus sign in L).
     const int num_limit_constraints = 1;
     MatrixX<double> L(accel_data_->kL.size(), ngc);
     L.setZero();
@@ -2822,6 +2822,128 @@ class Constraint2DSolverTest : public ::testing::Test {
     EXPECT_NEAR(vdot[1], 0, eps_);
   }
 
+  // Tests the rod in a two-point contacting configuration *realized through
+  // a configuration limit constraint*. No frictional forces are applied, so
+  // any velocity projections along directions other than the contact normal
+  // will be irrelevant.
+  void TwoPointAsLimitSoft() {
+    // Set the state of the rod to resting on its side.
+    SetRodToRestingHorizontalConfig();
+
+    // Set the time step to very small.
+    const double dt = 1e-8;
+
+    // Compute the problem data.
+    const int ngc = get_rod_num_coordinates();
+    Vector3d fext = rod_->ComputeExternalForces(*context_);
+    SoftConstraintProblemData<double> problem_data(ngc);
+    rod_->ComputeSoftProblemData(
+        context_->get_continuous_state().CopyToVector(), fext, dt,
+        &problem_data);
+
+    // Revise the problem to be a limit constraint preventing movement in the
+    // downward direction.
+    problem_data.mu.resize(0);
+    problem_data.Gn_mult = [](const MatrixX<double>& m) {
+      return MatrixX<double>(0, m.cols());
+    };
+    problem_data.Gn_transpose_mult = [ngc](const MatrixX<double>& m) {
+      return MatrixX<double>::Zero(ngc, m.cols());
+    };
+    problem_data.Gr_mult = [](const MatrixX<double>& m) {
+      return MatrixX<double>(0, m.cols());
+    };
+    problem_data.Gr_transpose_mult = [ngc](const MatrixX<double>& m) {
+      return MatrixX<double>::Zero(ngc, m.cols());
+    };
+    problem_data.Gs_mult = [](const MatrixX<double>& m) {
+      return MatrixX<double>(0, m.cols());
+    };
+    problem_data.Gs_transpose_mult = [ngc](const MatrixX<double>& m) {
+      return MatrixX<double>::Zero(ngc, m.cols());
+    };
+    problem_data.kN.resize(0);
+    problem_data.kR.resize(0);
+    problem_data.kS.resize(0);
+    problem_data.Kn.resize(0);
+    problem_data.Kr.resize(0);
+    problem_data.Ks.resize(0);
+    problem_data.Bn.resize(0);
+    problem_data.Br.resize(0);
+    problem_data.Bs.resize(0);
+
+    // Add in a unilateral constraint on vertical motion; motion will
+    // be a spring/damper:
+    // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
+    // \phi = y is the constraint.
+    const double k = 1e12, b = 1e12;
+
+    // Set the Jacobian entry- in this case, the limit is a lower limit on the
+    // second coordinate (vertical position).
+    const int num_limit_constraints = 1;
+    MatrixX<double> Gu(num_limit_constraints, ngc);
+    Gu.setZero();
+    Gu(0, 1) = 1;
+    problem_data.Gu_mult = [&Gu](const MatrixX<double>& m) -> MatrixX<double> {
+      return Gu * m;
+    };
+    problem_data.Gu_transpose_mult = [&Gu](const MatrixX<double>& m) ->
+        MatrixX<double> {
+      return Gu.transpose() * m;
+    };
+    problem_data.kU.setZero(num_limit_constraints);
+
+    // Set the stiffness and damping.
+    problem_data.Ku = VectorX<double>(num_limit_constraints);
+    problem_data.Ku(0, 0) = k;
+    problem_data.Bu = VectorX<double>(num_limit_constraints);
+    problem_data.Bu(0, 0) = b;
+
+    // Compute the term that is a function of evaluating the constraint. We
+    // assume the constraint position and velocity are both zero at the current
+    // state.
+    problem_data.kU = (dt * k + b) *
+        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
+
+    // Solve the constraint problem.
+    const double zeta = 1e6;
+    VectorX<double> cf;
+    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
+
+    // Verify the size of cf is as expected.
+    EXPECT_EQ(cf.size(), 1);
+
+    // Compute the generalized force acting on the rod.
+    VectorX<double> tau_cf;
+    solver_.ComputeGeneralizedForceFromConstraintForces(
+        problem_data, cf, &tau_cf);
+
+    // Rod should be motionless.
+    Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
+    EXPECT_LT(ga.norm(), eps_);
+
+    // Reset the Jacobian entry- in this case, the limit is an upper limit on
+    // the second coordinate (vertical position).
+    Gu *= -1;
+    problem_data.kU = (dt * k + b) *
+        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
+
+    // Resolve the problem. The constraint force should now be zero.
+    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
+    EXPECT_LT(cf.norm(), eps_);
+
+    // Now, reverse the external force (gravity) and make sure that the rod
+    // is motionless again.
+    fext = -fext;
+    problem_data.kU = (dt * k + b) *
+        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
+    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
+    solver_.ComputeGeneralizedForceFromConstraintForces(
+        problem_data, cf, &tau_cf);
+    ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
+    EXPECT_LT(ga.norm(), eps_);
+  }
+
  private:
   // The timestep size for discretization. Note: if the timestep is too
   // large, the accuracy might be too low for the necessary effect to emerge).
@@ -2959,6 +3081,7 @@ TEST_F(Constraint2DSolverTest, TwoPointAsLimitTest) {
   TwoPointAsLimit(kLCPSolver);
   TwoPointAsLimit(kLinearSystemSolver);
   TwoPointAsLimitDiscretized();
+  TwoPointAsLimitSoft();
 }
 
 // Tests the rod in a two-point configuration, in a situation where a force
