@@ -881,50 +881,6 @@ class Constraint2DSolverTest : public ::testing::Test {
     EXPECT_NEAR(ga.norm(), 0.0, std::sqrt(eps_));
   }
 
-  void HertzianContactSoft() {
-    // Get an accurate solution.
-    const double dt = eps_ * 100;
-
-    // Set the state of the rod to resting vertically with no velocity.
-    SetRodToRestingVerticalConfig();
-
-    // Get the external forces.
-    const Vector3d fext = rod_->ComputeExternalForces(*context_);
-
-    // From Hertzian contact, we know that a deformation of d m results in a
-    // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
-    // assume the default rod length of 2 m.
-    const double d = 1e-6;  // Deformation of 1 mm.
-    const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
-    const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
-    const double normal_force = 4.0 / 3 * elastic_modulus *
-        std::sqrt(endpoint_radius * d * d * d);
-
-    // To get a stiffness that, when multiplied by displacement yields a force,
-    // we have to make our stiffness a function of that displacement:
-    // k = 4/3 E* √(rd)
-    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
-    xc[1] -= d;
-    const double stiffness = 4.0 / 3 * elastic_modulus *
-        std::sqrt(endpoint_radius * d);
-    rod_->set_stiffness(stiffness);
-
-    // Hertzian contact assumptions are without dissipation (damping) and
-    // friction.
-    rod_->set_dissipation(0);
-    rod_->set_mu_coulomb(0.0);
-    rod_->set_mu_static(0.0);
-
-    // Solve the contact problem.
-    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
-        rod_->get_state(*context_).CopyToVector(), fext, dt);
-
-    // Get the normal force. Note: the LCP solver appears to be failing to
-    // solve the problem to the highest possible accuracy.
-    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
-    EXPECT_NEAR(normal_force, tau_cf[1], std::sqrt(eps_));
-  }
-
   void HertzianContactAsLimitSoft() {
     // Get an accurate solution.
     const double dt = eps_ * 100;
@@ -1844,33 +1800,6 @@ class Constraint2DSolverTest : public ::testing::Test {
     }
   }
 
-  void HertzianContactSoft() {
-    // Get an accurate solution.
-    const double dt = eps_ * 100;
-
-    // Set the state of the rod to resting vertically with no velocity.
-    SetRodToRestingVerticalConfig();
-
-    // Get the external forces.
-    const Vector3d fext = rod_->ComputeExternalForces(*context_);
-
-
-    // Hertzian contact assumptions are without dissipation (damping) and
-    // friction.
-    rod_->set_dissipation(0);
-    rod_->set_mu_coulomb(0.0);
-    rod_->set_mu_static(0.0);
-
-    // Solve the contact problem.
-    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
-        rod_->get_state(*context_).CopyToVector(), fext, dt);
-
-    // Get the normal force. Note: the LCP solver appears to be failing to
-    // solve the problem to the highest possible accuracy.
-    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
-    EXPECT_NEAR(normal_force, tau_cf[1], std::sqrt(eps_));
-  }
-
   // Tests the rod in a sliding configuration with sliding velocity as
   // specified. If `upright` is true, then the rod makes contact at a single
   // point. Otherwise, it will be on its side and make contact at two points.
@@ -1886,13 +1815,12 @@ class Constraint2DSolverTest : public ::testing::Test {
     ContinuousState<double>& xc = context_->get_mutable_continuous_state();
     xc[3] = (sliding_to_right) ? 1 : -1;
 
-    // Get the gravitational acceleration.
-    const double grav_accel = rod_->get_gravitational_acceleration();
-
-    // Set the coefficient of friction to zero. Note that a test that uses
-    // a non-zero coefficient of friction with sliding is
-    // SlidingPlusBilateralSoft().
+    // Hertzian contact assumptions are without dissipation (damping) and
+    // friction. Note that a test that uses a non-zero coefficient of friction
+    // with sliding is SlidingPlusBilateralSoft().
+    rod_->set_dissipation(0);
     rod_->set_mu_coulomb(0.0);
+    rod_->set_mu_static(0.0);
 
     // The smaller that dt is, the more accurate that the frictional force
     // computation will be.
@@ -1910,7 +1838,6 @@ class Constraint2DSolverTest : public ::testing::Test {
     // To get a stiffness that, when multiplied by displacement yields a force,
     // we have to make our stiffness a function of that displacement:
     // k = 4/3 E* √(rd)
-    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
     xc[1] -= d;
     const double stiffness = 4.0 / 3 * elastic_modulus *
         std::sqrt(endpoint_radius * d);
@@ -1921,7 +1848,13 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     // Compute the contact forces.
     const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
-        rod_->get_state(*context_).CopyToVector(), fext, small_dt);
+        rod_->get_state(*context_).CopyToVector(), fext, dt);
+
+    // Get the normal force. Note: the LCP solver appears to be failing to
+    // solve the problem to the highest possible accuracy.
+    const int num_contacts = (upright) ? 1 : 2;
+    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
+    EXPECT_NEAR(num_contacts * normal_force, tau_cf[1], std::sqrt(eps_));
 
     // There should be no frictional components.
     EXPECT_NEAR(tau_cf[0], 0, eps_);
@@ -3540,7 +3473,6 @@ TEST_F(Constraint2DSolverTest, BilateralOnly) {
 
 // A set of special tests for the soft constraint model.
 TEST_F(Constraint2DSolverTest, SoftSpecials) {
-  HertzianContactSoft();
   HertzianContactAsLimitSoft();
 }
 
