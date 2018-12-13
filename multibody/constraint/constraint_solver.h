@@ -2852,11 +2852,12 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   std::cout << "q: " << qq.transpose() << std::endl;
   std::cout << "(post normalized):" << std::endl;
   // Normalize values.
+/*
   using std::max;
   const T max_value = max(MM.norm(), qq.norm());
   MM /= max_value;
   qq /= max_value;
-
+*/
   // Solve the LCP.
   VectorX<T> zz;
   std::cout << "M: " << std::endl << MM << std::endl;
@@ -2872,7 +2873,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   lambda_hat.segment(nc, nr) = zz.segment(nc, nr) - zz.segment(nc + nr + ns, nr);
   lambda_hat.segment(nc + nr, ns) = zz.segment(nc + nr, ns) -
       zz.segment(nc + 2 * nr + ns, ns);
-  lambda_hat.tail(nu) = zz.tail(nu);
+  lambda_hat.tail(nu) = zz.segment(nc + nr + ns, nu);
   const VectorX<T> lambda_b = C_solve(c + D * Gstar.transpose() * lambda_hat);
 
   // Reconstruct the solution into the expected format:
