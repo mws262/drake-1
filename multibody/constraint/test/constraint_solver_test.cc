@@ -1844,6 +1844,33 @@ class Constraint2DSolverTest : public ::testing::Test {
     }
   }
 
+  void HertzianContactSoft() {
+    // Get an accurate solution.
+    const double dt = eps_ * 100;
+
+    // Set the state of the rod to resting vertically with no velocity.
+    SetRodToRestingVerticalConfig();
+
+    // Get the external forces.
+    const Vector3d fext = rod_->ComputeExternalForces(*context_);
+
+
+    // Hertzian contact assumptions are without dissipation (damping) and
+    // friction.
+    rod_->set_dissipation(0);
+    rod_->set_mu_coulomb(0.0);
+    rod_->set_mu_static(0.0);
+
+    // Solve the contact problem.
+    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
+        rod_->get_state(*context_).CopyToVector(), fext, dt);
+
+    // Get the normal force. Note: the LCP solver appears to be failing to
+    // solve the problem to the highest possible accuracy.
+    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
+    EXPECT_NEAR(normal_force, tau_cf[1], std::sqrt(eps_));
+  }
+
   // Tests the rod in a sliding configuration with sliding velocity as
   // specified. If `upright` is true, then the rod makes contact at a single
   // point. Otherwise, it will be on its side and make contact at two points.
@@ -1869,32 +1896,35 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     // The smaller that dt is, the more accurate that the frictional force
     // computation will be.
-    const double small_dt = eps_;
+    const double dt = eps_;
 
-    // Set the stiffness to relatively low.
-    rod_->set_stiffness(1e4);
+    // From Hertzian contact, we know that a deformation of d m results in a
+    // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
+    // assume the default rod length of 2 m.
+    const double d = 1e-6;  // Deformation of 1 mm.
+    const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
+    const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
+    const double normal_force = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d * d * d);
+
+    // To get a stiffness that, when multiplied by displacement yields a force,
+    // we have to make our stiffness a function of that displacement:
+    // k = 4/3 E* √(rd)
+    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+    xc[1] -= d;
+    const double stiffness = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d);
+    rod_->set_stiffness(stiffness);
 
     // Get the external forces.
     const Vector3d fext = rod_->ComputeExternalForces(*context_);
 
     // Compute the contact forces.
-    const Vector3d tau_cf_accurate = rod_->ComputeGeneralizedSoftContactForces(
+    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
         rod_->get_state(*context_).CopyToVector(), fext, small_dt);
 
     // There should be no frictional components.
-    EXPECT_NEAR(tau_cf_accurate[0], 0, eps_);
-
-    // The larger the dt, the closer to the gravitational force.
-    const double large_dt = 1e12;
-
-    // Recompute the contact forces.
-    const Vector3d tau_cf_inaccurate =
-        rod_->ComputeGeneralizedSoftContactForces(
-            rod_->get_state(*context_).CopyToVector(), fext, large_dt);
-
-    // The normal component should essentially counteract the force due to
-    // gravity.
-    EXPECT_NEAR(-grav_accel * rod_->get_rod_mass(), tau_cf_inaccurate[1], eps_);
+    EXPECT_NEAR(tau_cf[0], 0, eps_);
   }
 
   // Tests the rod in a sliding configuration with sliding velocity as
