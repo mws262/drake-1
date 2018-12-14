@@ -881,110 +881,6 @@ class Constraint2DSolverTest : public ::testing::Test {
     EXPECT_NEAR(ga.norm(), 0.0, std::sqrt(eps_));
   }
 
-  void HertzianContactAsLimitSoft() {
-    // Get an accurate solution.
-    const double dt = eps_ * 100;
-
-    // Set the state of the rod to resting vertically with no velocity.
-    SetRodToRestingVerticalConfig();
-
-    // Get the external forces.
-    const Vector3d fext = rod_->ComputeExternalForces(*context_);
-
-    // From Hertzian contact, we know that a deformation of d m results in a
-    // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
-    // assume the default rod length of 2 m.
-    const double d = 1e-6;  // Deformation of 1 mm.
-    const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
-    const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
-    const double normal_force = 4.0 / 3 * elastic_modulus *
-        std::sqrt(endpoint_radius * d * d * d);
-
-    // To get a stiffness that, when multiplied by displacement yields a force,
-    // we have to make our stiffness a function of that displacement:
-    // k = 4/3 E* √(rd)
-    const double stiffness = 4.0 / 3 * elastic_modulus *
-        std::sqrt(endpoint_radius * d);
-
-    // Compute the problem data.
-    const int ngc = get_rod_num_coordinates();
-    SoftConstraintProblemData<double> problem_data(ngc);
-    rod_->ComputeSoftProblemData(context_->get_continuous_state().
-        CopyToVector(), fext, dt, &problem_data);
-
-    // Revise the problem to be a limit constraint preventing movement in the
-    // downward direction.
-    problem_data.mu.resize(0);
-    problem_data.Gn_mult = [](const MatrixX<double>& m) {
-      return MatrixX<double>(0, m.cols());
-    };
-    problem_data.Gn_transpose_mult = [ngc](const MatrixX<double>& m) {
-      return MatrixX<double>::Zero(ngc, m.cols());
-    };
-    problem_data.Gr_mult = [](const MatrixX<double>& m) {
-      return MatrixX<double>(0, m.cols());
-    };
-    problem_data.Gr_transpose_mult = [ngc](const MatrixX<double>& m) {
-      return MatrixX<double>::Zero(ngc, m.cols());
-    };
-    problem_data.Gs_mult = [](const MatrixX<double>& m) {
-      return MatrixX<double>(0, m.cols());
-    };
-    problem_data.Gs_transpose_mult = [ngc](const MatrixX<double>& m) {
-      return MatrixX<double>::Zero(ngc, m.cols());
-    };
-    problem_data.kN.resize(0);
-    problem_data.kR.resize(0);
-    problem_data.kS.resize(0);
-    problem_data.Kn.resize(0);
-    problem_data.Kr.resize(0);
-    problem_data.Ks.resize(0);
-    problem_data.Bn.resize(0);
-    problem_data.Br.resize(0);
-    problem_data.Bs.resize(0);
-
-    // Set the Jacobian entry- in this case, the limit is a lower limit on the
-    // second coordinate (vertical position).
-    const int num_limit_constraints = 1;
-    MatrixX<double> Gu(num_limit_constraints, ngc);
-    Gu.setZero();
-    Gu(0, 1) = 1;
-    problem_data.Gu_mult = [&Gu](const MatrixX<double>& m) -> MatrixX<double> {
-      return Gu * m;
-    };
-    problem_data.Gu_transpose_mult = [&Gu](const MatrixX<double>& m) ->
-        MatrixX<double> {
-      return Gu.transpose() * m;
-    };
-    problem_data.kU.setZero(num_limit_constraints);
-
-    // Set the stiffness and damping.
-    problem_data.Ku = VectorX<double>(num_limit_constraints);
-    problem_data.Ku(0, 0) = stiffness;
-    problem_data.Bu = VectorX<double>(num_limit_constraints);
-    problem_data.Bu(0, 0) = 0.0;  // No dissipation for Hertzian contact.
-
-    // Compute the term that is a function of evaluating the constraint. We
-    // assume the constraint position and velocity are both zero at the current
-    // state.
-    problem_data.kU = (dt * stiffness) *
-        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
-    problem_data.kU[0] += stiffness * -d; // Add in deformation.
-
-    // Solve the constraint problem.
-    const double zeta = 1e6;
-    VectorX<double> cf;
-    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
-
-    // Verify the size of cf is as expected.
-    EXPECT_EQ(cf.size(), 1);
-
-    // Get the normal force. Note: the LCP solver appears to be failing to
-    // solve the problem to the highest possible accuracy.
-    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
-    EXPECT_NEAR(normal_force, cf[0], std::sqrt(eps_));
-  }
-
   // Tests the rod in a two-point sticking configuration (i.e., force should
   // be applied with no resulting tangential motion), with force applied either
   // to the right or to the left (force_applied_to_right = false) and using
@@ -1450,6 +1346,60 @@ class Constraint2DSolverTest : public ::testing::Test {
     }
   }
 
+  // Tests the rod in a two-point contact configuration, without sliding
+  // occurring at either contact point, that will transition to sliding from the
+  // external force (applied toward the right or the left, as specified).
+  void TwoPointNonSlidingToSlidingSoft(bool applied_to_right) {
+    // Set the state of the rod to resting on its side w/ no velocity.
+    SetRodToRestingHorizontalConfig();
+
+    // Set the contact to large friction.
+    const double mu_static = 0.1, mu_coulomb = 0.1;
+    rod_->set_mu_coulomb(mu_coulomb);
+    rod_->set_mu_static(mu_static);
+
+    // The smaller that dt is, the more accurate that the frictional force
+    // computation will be.
+    const double dt = eps_;
+
+    // From Hertzian contact, we know that a deformation of d m results in a
+    // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
+    // assume the default rod length of 2 m.
+    const double d = 1e-6;  // Deformation of 1 mm.
+    const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
+    const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
+    const double normal_force = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d * d * d);
+
+    // To get a stiffness that, when multiplied by displacement yields a force,
+    // we have to make our stiffness a function of that displacement:
+    // k = 4/3 E* √(rd)
+    ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+    xc[1] -= d;
+    const double stiffness = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d);
+    rod_->set_stiffness(stiffness);
+
+    // Get the external forces, adding a force applied horizontally.
+    const double horz_f = (applied_to_right) ? 100.0 : -100;
+    const Vector3d fext = rod_->ComputeExternalForces(*context_) +
+        Vector3d(horz_f, 0, 0);
+
+    // Compute the contact forces.
+    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
+        rod_->get_state(*context_).CopyToVector(), fext, dt);
+
+    // Get the normal force. Note: the LCP solver appears to be failing to
+    // solve the problem to the highest possible accuracy.
+    const int num_contacts = 2;
+    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
+    EXPECT_NEAR(num_contacts * normal_force, tau_cf[1], std::sqrt(eps_));
+
+    // The frictional force should be opposing the normal force.
+    const double ff_expected = tau_cf[1] * mu_coulomb;
+    EXPECT_EQ(tau_cf[0], ff_expected * ((applied_to_right) ? -1 : 1));
+  }
+
   // Tests the rod in a two-point impact, with initial velocity sliding to the
   // right or left, as specified, with impulses insufficient to put the rod
   // into stiction.
@@ -1824,7 +1774,7 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     // The smaller that dt is, the more accurate that the frictional force
     // computation will be.
-    const double dt = eps_;
+    const double dt = eps_ * 100;
 
     // From Hertzian contact, we know that a deformation of d m results in a
     // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
@@ -2933,24 +2883,36 @@ class Constraint2DSolverTest : public ::testing::Test {
     EXPECT_NEAR(vdot[1], 0, eps_);
   }
 
-  // Tests the rod in a two-point contacting configuration *realized through
-  // a configuration limit constraint*. No frictional forces are applied, so
-  // any velocity projections along directions other than the contact normal
-  // will be irrelevant.
   void TwoPointAsLimitSoft() {
+    // Get an accurate solution.
+    const double dt = eps_ * 100;
+
     // Set the state of the rod to resting on its side.
     SetRodToRestingHorizontalConfig();
 
-    // Set the time step to very small.
-    const double dt = 1e-8;
+    // Get the external forces.
+    const Vector3d fext = rod_->ComputeExternalForces(*context_);
+
+    // From Hertzian contact, we know that a deformation of d m results in a
+    // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
+    // assume the default rod length of 2 m.
+    const double d = 1e-6;  // Deformation of 1 mm.
+    const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
+    const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
+    const double normal_force = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d * d * d);
+
+    // To get a stiffness that, when multiplied by displacement yields a force,
+    // we have to make our stiffness a function of that displacement:
+    // k = 4/3 E* √(rd)
+    const double stiffness = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d);
 
     // Compute the problem data.
     const int ngc = get_rod_num_coordinates();
-    Vector3d fext = rod_->ComputeExternalForces(*context_);
     SoftConstraintProblemData<double> problem_data(ngc);
-    rod_->ComputeSoftProblemData(
-        context_->get_continuous_state().CopyToVector(), fext, dt,
-        &problem_data);
+    rod_->ComputeSoftProblemData(context_->get_continuous_state().
+        CopyToVector(), fext, dt, &problem_data);
 
     // Revise the problem to be a limit constraint preventing movement in the
     // downward direction.
@@ -2983,12 +2945,6 @@ class Constraint2DSolverTest : public ::testing::Test {
     problem_data.Br.resize(0);
     problem_data.Bs.resize(0);
 
-    // Add in a unilateral constraint on vertical motion; motion will
-    // be a spring/damper:
-    // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
-    // \phi = y is the constraint.
-    const double k = 1e12, b = 1e12;
-
     // Set the Jacobian entry- in this case, the limit is a lower limit on the
     // second coordinate (vertical position).
     const int num_limit_constraints = 1;
@@ -3006,15 +2962,16 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     // Set the stiffness and damping.
     problem_data.Ku = VectorX<double>(num_limit_constraints);
-    problem_data.Ku(0, 0) = k;
+    problem_data.Ku(0, 0) = stiffness;
     problem_data.Bu = VectorX<double>(num_limit_constraints);
-    problem_data.Bu(0, 0) = b;
+    problem_data.Bu(0, 0) = 0.0;  // No dissipation for Hertzian contact.
 
     // Compute the term that is a function of evaluating the constraint. We
     // assume the constraint position and velocity are both zero at the current
     // state.
-    problem_data.kU = (dt * k + b) *
+    problem_data.kU = (dt * stiffness) *
         (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
+    problem_data.kU[0] += stiffness * -d; // Add in deformation.
 
     // Solve the constraint problem.
     const double zeta = 1e6;
@@ -3024,35 +2981,10 @@ class Constraint2DSolverTest : public ::testing::Test {
     // Verify the size of cf is as expected.
     EXPECT_EQ(cf.size(), 1);
 
-    // Compute the generalized force acting on the rod.
-    VectorX<double> tau_cf;
-    solver_.ComputeGeneralizedForceFromConstraintForces(
-        problem_data, cf, &tau_cf);
-
-    // Rod should be motionless.
-    Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
-    EXPECT_LT(ga.norm(), eps_);
-
-    // Reset the Jacobian entry- in this case, the limit is an upper limit on
-    // the second coordinate (vertical position).
-    Gu *= -1;
-    problem_data.kU = (dt * k + b) *
-        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
-
-    // Resolve the problem. The constraint force should now be zero.
-    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
-    EXPECT_LT(cf.norm(), eps_);
-
-    // Now, reverse the external force (gravity) and make sure that the rod
-    // is motionless again.
-    fext = -fext;
-    problem_data.kU = (dt * k + b) *
-        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
-    solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
-    solver_.ComputeGeneralizedForceFromConstraintForces(
-        problem_data, cf, &tau_cf);
-    ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
-    EXPECT_LT(ga.norm(), eps_);
+    // Get the normal force. Note: the LCP solver appears to be failing to
+    // solve the problem to the highest possible accuracy.
+    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
+    EXPECT_NEAR(normal_force, cf[0], std::sqrt(eps_));
   }
 
  private:
@@ -3094,6 +3026,8 @@ TEST_F(Constraint2DSolverTest, TwoPointNonSlidingToSlidingSign) {
   TwoPointNonSlidingToSliding(kForceAppliedToLeft);
   TwoPointNonSlidingToSlidingDiscretized(kForceAppliedToRight);
   TwoPointNonSlidingToSlidingDiscretized(kForceAppliedToLeft);
+  TwoPointNonSlidingToSlidingSoft(kForceAppliedToRight);
+  TwoPointNonSlidingToSlidingSoft(kForceAppliedToLeft);
 }
 
 // Tests the rod in a two-point impact which is insufficient to put the rod
@@ -3469,11 +3403,6 @@ TEST_F(Constraint2DSolverTest, BilateralOnly) {
   solver_.ComputeGeneralizedVelocityChange(*vel_data_, cf, &gv);
   EXPECT_NEAR(v[2] + gv[2], -vel_data_->kG[0],
               eps_ * cf.size());
-}
-
-// A set of special tests for the soft constraint model.
-TEST_F(Constraint2DSolverTest, SoftSpecials) {
-  HertzianContactAsLimitSoft();
 }
 
 }  // namespace

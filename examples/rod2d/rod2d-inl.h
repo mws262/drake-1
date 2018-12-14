@@ -607,7 +607,7 @@ void Rod2D<T>::ComputeSoftProblemData(
       kCharacteristicDeformation);
 
   // Set friction direction damping.
-  Br.setOnes(nc) *= stiffness_;
+  Br.setOnes(nc) *= 1e13;
 
   // Set k parameters.
   const auto h = dt;
@@ -660,6 +660,7 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   const Vector3<T> fext = ComputeExternalForces(context);
   const Vector3<T> tau_cf = ComputeGeneralizedSoftContactForces(
       state.CopyToVector(), fext, dt_);
+  std::cout << "Generalized soft contact forces: " << tau_cf << std::endl;
 
   // Compute the new velocity.
   const Vector3<T> v = state.get_value().template segment<3>(3);

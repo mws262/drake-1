@@ -5,6 +5,8 @@
 
 #include <gflags/gflags.h>
 
+#include <Eigen/Core>
+
 #include "drake/common/text_logging.h"
 #include "drake/common/text_logging_gflags.h"
 #include "drake/examples/rod2d/rod2d.h"
@@ -107,6 +109,7 @@ int main(int argc, char* argv[]) {
 
   // Set the names of the systems.
   rod->set_name("rod");
+  rod->set_stiffness(1e11);
   aggregator->set_name("aggregator");
   converter->set_name("converter");
 
