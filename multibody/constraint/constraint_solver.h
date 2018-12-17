@@ -9,6 +9,8 @@
 
 #include "drake/common/text_logging.h"
 #include "drake/multibody/constraint/constraint_problem_data.h"
+#include "drake/solvers/gurobi_solver.h"
+#include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/moby_lcp_solver.h"
 
 namespace drake {
@@ -2752,14 +2754,45 @@ void ConstraintSolver<T>::SolveConstraintProblem(
       eta.asDiagonal() * Gu_Lambda * Gu.transpose();
   A.block(nu, nc + nr + ns, nc, nu) = Xi.asDiagonal() * Gn_Lambda *
       Gu.transpose();
-  std::cout << (Gn_Lambda * Gn.transpose()) << std::endl;
-  std::cout << (Xi.asDiagonal() * Gn_Lambda * Gn.transpose()) << std::endl;
 
   // Compute the inequality affine constraint vector (q).
   VectorX<T> q(naffine_true);
   q.head(nu) = -problem_data.kU;
   q.tail(nc) = -problem_data.kN;
 
+  // Construct a mathematical program to solve this.
+  solvers::MathematicalProgram math_program = {};
+  solvers::VectorXDecisionVariable lambda_hat;
+  lambda_hat = math_program.NewContinuousVariables(nprimal);
+  math_program.AddQuadraticCost(H, grad, lambda_hat);
+
+  // Add affine constraints Aλ >= q.
+  const double inf = std::numeric_limits<double>::infinity();
+  math_program.AddLinearConstraint(
+      A, q, VectorX<T>::Constant(inf, q.rows()), lambda_hat);
+
+  // Add constraints lambda_n >= 0.
+  for (int i = 0; i < nc; ++i)
+    math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(i));
+
+  // Add constraints lambda_u >= 0.
+  for (int i = 0; i < nu; ++i)
+    math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
+
+  // Add the Lorentz cone constraints.
+  for (int i = 0; i < nc; ++i) {
+    math_program.AddLorentzConeConstraint(
+        Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
+                                      +lambda_hat(i + nc),
+                                      +lambda_hat(i + nc + nr)));
+  }
+
+  // Call Gurobi to solve the mathematical program.
+  solvers::GurobiSolver gurobi_solver;
+  solvers::MathematicalProgramResult result;
+  gurobi_solver.Solve(math_program, {}, {}, &result);
+  const auto lambda_hat_sol = math_program.GetSolution(lambda_hat, result);
+/*
   // TODO: Replace this with the MathematicalProgram framework.
   // To solve the QP using the Moby LCP solver, we have to replace variables
   // that can take on negative values (lambda_r, lambda_s) with lambda_r+,
@@ -2817,7 +2850,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
 
   // Now update A from 3 blocks to 4 blocks.
   // | B10 B11 B12 | -> | B10 B11 -B11 B12 |
-  MatrixX<T> A_lcp(naffine_true + nc /* friction pyramid */, nprimal_lcp);
+  MatrixX<T> A_lcp(naffine_true + nc, nprimal_lcp);
   const Eigen::Ref<const MatrixX<T>> B10 = A.block(0, 0, naffine_true, nc);
   const Eigen::Ref<const MatrixX<T>> B11 = A.block(0, nc, naffine_true, nr + ns);
   const Eigen::Ref<const MatrixX<T>> B12 = A.block(0, nc + nr + ns, naffine_true, nu);
@@ -2851,13 +2884,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   std::cout << "M: " << std::endl << MM << std::endl;
   std::cout << "q: " << qq.transpose() << std::endl;
   std::cout << "(post normalized):" << std::endl;
-  // Normalize values.
-/*
-  using std::max;
-  const T max_value = max(MM.norm(), qq.norm());
-  MM /= max_value;
-  qq /= max_value;
-*/
+
   // Solve the LCP.
   VectorX<T> zz;
   std::cout << "M: " << std::endl << MM << std::endl;
@@ -2866,20 +2893,15 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   lcp_.SolveLcpLemke(MM, qq, &zz);
   std::cout << "z: " << zz.transpose() << std::endl;
 //  DRAKE_DEMAND(success);
-
+*/
   // Determine the bilateral constraint forces.
-  VectorX<T> lambda_hat(nc + nr + ns + nu);
-  lambda_hat.head(nc) = zz.head(nc);
-  lambda_hat.segment(nc, nr) = zz.segment(nc, nr) - zz.segment(nc + nr + ns, nr);
-  lambda_hat.segment(nc + nr, ns) = zz.segment(nc + nr, ns) -
-      zz.segment(nc + 2 * nr + ns, ns);
-  lambda_hat.tail(nu) = zz.segment(nc + nr + ns, nu);
-  const VectorX<T> lambda_b = C_solve(c + D * Gstar.transpose() * lambda_hat);
+  const VectorX<T> lambda_b = C_solve(c + D * Gstar.transpose() *
+      lambda_hat_sol);
 
   // Reconstruct the solution into the expected format:
   // [  lambda_n  lambda_r  lambda_s  lambda_u  lambda_b  ]
   cf->resize(nc + nr + ns + nu + nb);
-  cf->head(nc + nr + ns + nu) = lambda_hat;
+  cf->head(nc + nr + ns + nu) = lambda_hat_sol;
   cf->tail(nb) = lambda_b;
 }
 
