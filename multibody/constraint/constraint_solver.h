@@ -2766,6 +2766,12 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   lambda_hat = math_program.NewContinuousVariables(nprimal);
   math_program.AddQuadraticCost(H, grad, lambda_hat);
 
+  // Check whether the problem is 2D (or contact-free, both will be treated the
+  // same.
+  const bool is_2D = (ns == 0);
+  if (ns != nr && ns > 0)
+    throw std::logic_error("Can't compute mixed 2D/3D problems.");
+
   // Add affine constraints Aλ >= q.
   const double inf = std::numeric_limits<double>::infinity();
   math_program.AddLinearConstraint(
@@ -2779,12 +2785,24 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   for (int i = 0; i < nu; ++i)
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
 
-  // Add the Lorentz cone constraints.
-  for (int i = 0; i < nc; ++i) {
-    math_program.AddLorentzConeConstraint(
-        Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
-                                      +lambda_hat(i + nc),
-                                      +lambda_hat(i + nc + nr)));
+  // Add the friction cone constraints.
+  if (is_2D) {
+    MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
+    for (int i = 0; i < nc; ++i) {
+      A_mu(i, i) = problem_data.mu[i];
+      A_mu(i, i + nc) = -1;
+    }
+    math_program.AddLinearConstraint(A_mu, VectorX<T>::Zero(nc * 2),
+                                     VectorX<T>::Constant(inf, q.rows()),
+                                     lambda_hat);
+
+  } else {
+    for (int i = 0; i < nc; ++i) {
+      math_program.AddLorentzConeConstraint(
+          Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
+                                        +lambda_hat(i + nc),
+                                        +lambda_hat(i + nc + nr)));
+    }
   }
 
   // Call Gurobi to solve the mathematical program.
