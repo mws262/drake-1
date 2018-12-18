@@ -2769,7 +2769,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   // Add affine constraints Aλ >= q.
   const double inf = std::numeric_limits<double>::infinity();
   math_program.AddLinearConstraint(
-      A, q, VectorX<T>::Constant(inf, q.rows()), lambda_hat);
+      A, q, VectorX<T>::Ones(q.rows()) * inf, lambda_hat);
 
   // Add constraints lambda_n >= 0.
   for (int i = 0; i < nc; ++i)
@@ -2780,17 +2780,35 @@ void ConstraintSolver<T>::SolveConstraintProblem(
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
 
   // Add the Lorentz cone constraints.
-  for (int i = 0; i < nc; ++i) {
-    math_program.AddLorentzConeConstraint(
-        Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
-                                      +lambda_hat(i + nc),
-                                      +lambda_hat(i + nc + nr)));
+  if (ns == 0) {
+    MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
+    for (int i = 0; i < nc; ++i) {
+      A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
+      A_mu(i, i + nc) = -1.0;
+      A_mu(i + nc, i + nc) = 1.0;
+    }
+    math_program.AddLinearConstraint(
+        A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
+        lambda_hat);
+
+  } else {
+    for (int i = 0; i < nc; ++i) {
+      math_program.AddLorentzConeConstraint(
+          Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
+                                        +lambda_hat(i + nc),
+                                        +lambda_hat(i + nc + nr)));
+    }
   }
 
   // Call Gurobi to solve the mathematical program.
   solvers::GurobiSolver gurobi_solver;
   solvers::MathematicalProgramResult result;
   gurobi_solver.Solve(math_program, {}, {}, &result);
+  if (result.get_solution_result() != solvers::kSolutionFound) {
+    throw std::runtime_error(fmt::format(
+        "Gurobi failed to find a solution: return type {}",
+        result.get_solution_result()));
+  }
   const auto lambda_hat_sol = math_program.GetSolution(lambda_hat, result);
 /*
   // TODO: Replace this with the MathematicalProgram framework.
