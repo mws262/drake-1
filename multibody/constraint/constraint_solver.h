@@ -2807,6 +2807,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   solvers::MathematicalProgramResult result;
   gurobi_solver.Solve(math_program, {}, {}, &result);
   if (result.get_solution_result() != solvers::kSolutionFound) {
+    std::cout << result.get_solver_details().GetValue<solvers::GurobiSolverDetails>().optimization_status << "\n";
     throw std::runtime_error(fmt::format(
         "Gurobi failed to find a solution: return type {}",
         result.get_solution_result()));

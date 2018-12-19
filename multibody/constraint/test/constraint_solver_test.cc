@@ -2208,7 +2208,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     rod_->set_mu_coulomb(mu_coulomb);
 
     // A smallish dt should be fine.
-    const double dt = 1e-2;
+    const double dt = eps_ * 100;
 
     // Compute the problem data.
     const int ngc = get_rod_num_coordinates();
