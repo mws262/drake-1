@@ -10,8 +10,10 @@
 #include "drake/common/text_logging.h"
 #include "drake/multibody/constraint/constraint_problem_data.h"
 #include "drake/solvers/gurobi_solver.h"
+#include "drake/solvers/ipopt_solver.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/moby_lcp_solver.h"
+#include "drake/solvers/mosek_solver.h"
 
 namespace drake {
 namespace multibody {
@@ -614,6 +616,9 @@ class ConstraintSolver {
       std::vector<Vector2<T>>* contact_forces);
 
  private:
+  static VectorX<T> SolveMathematicalProgram(
+    const solvers::MathematicalProgram& math_program,
+    const solvers::VectorXDecisionVariable& lambda_hat);
   static void PopulatePackedConstraintForcesFromLcpSolution(
       const ConstraintVelProblemData<T>& problem_data,
       const MlcpToLcpData& mlcp_to_lcp_data,
@@ -2637,6 +2642,54 @@ void ConstraintSolver<T>::CalcContactForcesInContactFrames(
 }
 
 template <typename T>
+VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
+    const solvers::MathematicalProgram& math_program,
+    const solvers::VectorXDecisionVariable& lambda_hat) {
+  solvers::MathematicalProgramResult result;
+
+  // Set the initial failure string.
+  std::string failure_string;
+
+  // Try Gurobi first.
+  solvers::GurobiSolver gurobi_solver;
+  gurobi_solver.Solve(math_program, {}, {}, &result);
+  if (result.get_solution_result() == solvers::kSolutionFound) {
+    return math_program.GetSolution(lambda_hat, result);    
+  } else {
+    failure_string += fmt::format(
+            "Gurobi failed to find a solution: return type {}\n",
+            result.get_solution_result());
+  }
+
+  // Try again using Mosek.
+  result = {};
+  solvers::MosekSolver mosek_solver;
+  mosek_solver.Solve(math_program, {}, {}, &result);
+  if (result.get_solution_result() == solvers::kSolutionFound) {
+    return math_program.GetSolution(lambda_hat, result);    
+  } else {
+    failure_string += fmt::format(
+            "Mosek failed to find a solution: return type {}\n",
+            result.get_solution_result());
+  }
+
+  // Try again using IPOPT.
+  result = {};
+  solvers::IpoptSolver ipopt_solver;
+  ipopt_solver.Solve(math_program, {}, {}, &result);
+  if (result.get_solution_result() == solvers::kSolutionFound) {
+    return math_program.GetSolution(lambda_hat, result);    
+  } else {
+    failure_string += fmt::format(
+            "Ipopt failed to find a solution: return type {}\n",
+            result.get_solution_result());
+  }
+
+  // If still here, all failed.
+  throw std::runtime_error(failure_string);
+}
+
+template <typename T>
 void ConstraintSolver<T>::SolveConstraintProblem(
     const SoftConstraintProblemData<T>& problem_data,
     double zeta,
@@ -2782,37 +2835,28 @@ void ConstraintSolver<T>::SolveConstraintProblem(
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
 
   // Add the Lorentz cone constraints.
-  if (ns == 0) {
-    MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
-    for (int i = 0; i < nc; ++i) {
-      A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
-      A_mu(i, i + nc) = -1.0;
-      A_mu(i + nc, i + nc) = 1.0;
-    }
-    math_program.AddLinearConstraint(
-        A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
-        lambda_hat);
-
-  } else {
-    for (int i = 0; i < nc; ++i) {
-      math_program.AddLorentzConeConstraint(
-          Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
-                                        +lambda_hat(i + nc),
-                                        +lambda_hat(i + nc + nr)));
+  if (nc > 0) {
+      if (ns == 0) {
+        MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
+       for (int i = 0; i < nc; ++i) {
+       A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
+       A_mu(i, i + nc) = -1.0;
+       A_mu(i + nc, i + nc) = 1.0;
+     }
+     math_program.AddLinearConstraint(
+         A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
+         lambda_hat);
+      } else {
+     for (int i = 0; i < nc; ++i) {
+       math_program.AddLorentzConeConstraint(
+           Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
+                                         +lambda_hat(i + nc),
+                                         +lambda_hat(i + nc + nr)));
+     }
     }
   }
 
-  // Call Gurobi to solve the mathematical program.
-  solvers::GurobiSolver gurobi_solver;
-  solvers::MathematicalProgramResult result;
-  gurobi_solver.Solve(math_program, {}, {}, &result);
-  if (result.get_solution_result() != solvers::kSolutionFound) {
-    std::cout << result.get_solver_details().GetValue<solvers::GurobiSolverDetails>().optimization_status << "\n";
-    throw std::runtime_error(fmt::format(
-        "Gurobi failed to find a solution: return type {}",
-        result.get_solution_result()));
-  }
-  const auto lambda_hat_sol = math_program.GetSolution(lambda_hat, result);
+  const VectorX<T> lambda_hat_sol = SolveMathematicalProgram(math_program, lambda_hat);
 /*
   // TODO: Replace this with the MathematicalProgram framework.
   // To solve the QP using the Moby LCP solver, we have to replace variables
