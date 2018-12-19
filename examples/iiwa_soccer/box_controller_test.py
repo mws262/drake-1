@@ -44,11 +44,11 @@ class ControllerTest(unittest.TestCase):
     v_ball_des = plan.GetBallQVAndVdot(t)[self.controller.nq_ball():self.controller.nq_ball()+self.controller.nv_ball()]
 
     # Set q and v.
-    tree = self.controller.robot_and_ball_plant.tree()
-    q = tree.SetPositionsInArray(self.robot_instance, q_robot_des, q)
-    q = tree.SetPositionsInArray(self.ball_instance, q_ball_des, q)
-    v = tree.SetVelocitiesInArray(self.robot_instance, v_robot_des, v)
-    v = tree.SetVelocitiesInArray(self.ball_instance, v_ball_des, v)
+    plant = self.controller.robot_and_ball_plant
+    plant.SetPositionsInArray(self.robot_instance, q_robot_des, q)
+    plant.SetPositionsInArray(self.ball_instance, q_ball_des, q)
+    plant.SetVelocitiesInArray(self.robot_instance, v_robot_des, v)
+    plant.SetVelocitiesInArray(self.ball_instance, v_ball_des, v)
 
     # Construct the robot reference positions and velocities and set them equal
     # to the current positions and velocities.
@@ -129,7 +129,7 @@ class ControllerTest(unittest.TestCase):
     # Copy the elements corresponding to the robot out of v.
     vselected = self.all_plant.tree().GetVelocitiesFromArray(self.controller.robot_instance, v)
     v_all_but_zero = np.zeros([nv])
-    v_all_but_zero = self.all_plant.tree().SetVelocitiesInArray(self.controller.robot_instance, vselected, v_all_but_zero)
+    self.all_plant.SetVelocitiesInArray(self.controller.robot_instance, vselected, v_all_but_zero)
     vselected_row = np.zeros([len(vselected), 1])
     vselected_row[:,0] = vselected
 
@@ -148,9 +148,9 @@ class ControllerTest(unittest.TestCase):
     v[:] = np.linspace(1, 10, nv)
 
     # Copy the elements corresponding to the ball out of v.
-    vselected = self.all_plant.tree().GetVelocitiesFromArray(self.controller.ball_instance, v)
+    vselected = self.all_plant.GetVelocitiesFromArray(self.controller.ball_instance, v)
     v_all_but_zero = np.zeros([nv])
-    v_all_but_zero = self.all_plant.tree().SetVelocitiesInArray(self.controller.ball_instance, vselected, v_all_but_zero)
+    self.all_plant.SetVelocitiesInArray(self.controller.ball_instance, vselected, v_all_but_zero)
     vselected_row = np.zeros([len(vselected), 1])
     vselected_row[:,0] = vselected
 

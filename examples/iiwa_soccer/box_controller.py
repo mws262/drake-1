@@ -127,8 +127,8 @@ class BoxController(LeafSystem):
     qrobot = self.get_q_robot(context)
     qball = self.get_q_ball(context)
     all_q = np.zeros([len(qrobot) + len(qball)])
-    all_q = self.robot_and_ball_plant.tree().SetPositionsInArray(self.robot_instance, qrobot, all_q)
-    all_q = self.robot_and_ball_plant.tree().SetPositionsInArray(self.ball_instance, qball, all_q)
+    self.robot_and_ball_plant.SetPositionsInArray(self.robot_instance, qrobot, all_q)
+    self.robot_and_ball_plant.SetPositionsInArray(self.ball_instance, qball, all_q)
     return all_q
 
   # Gets the robot and ball velocities.
@@ -136,8 +136,8 @@ class BoxController(LeafSystem):
     vrobot = self.get_v_robot(context)
     vball = self.get_v_ball(context)
     all_v = np.zeros([len(vrobot) + len(vball)])
-    all_v = self.robot_and_ball_plant.tree().SetVelocitiesInArray(self.robot_instance, vrobot, all_v)
-    all_v = self.robot_and_ball_plant.tree().SetVelocitiesInArray(self.ball_instance, vball, all_v)
+    self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, vrobot, all_v)
+    self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, vball, all_v)
     return all_v
 
   # Gets the robot configuration.
@@ -275,12 +275,12 @@ class BoxController(LeafSystem):
 
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body A.
-      J_WAc = all_plant.tree().CalcPointsGeometricJacobianExpressedInWorld(
+      J_WAc = all_plant.CalcPointsGeometricJacobianExpressedInWorld(
           self.robot_and_ball_context, body_A.body_frame(), pc_W)
 
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body B.
-      J_WBc = all_plant.tree().CalcPointsGeometricJacobianExpressedInWorld(
+      J_WBc = all_plant.CalcPointsGeometricJacobianExpressedInWorld(
           self.robot_and_ball_context, body_B.body_frame(), pc_W)
 
       # Compute the linear components of the Jacobian.
@@ -459,7 +459,7 @@ class BoxController(LeafSystem):
 
     # Transform the velocities to time derivatives of generalized
     # coordinates.
-    qdot0 = self.robot_and_ball_plant.MapVelocityToQDot(self.robot_and_ball_context, v0, len(q0))
+    qdot0 = self.robot_and_ball_plant.MapVelocityToQDot(self.robot_and_ball_context, v0)
     dt = 1.0/self.control_freq
 
     # Get the estimated position of the ball and the robot at the next time
@@ -597,7 +597,7 @@ class BoxController(LeafSystem):
 
     # Now set the velocities in the generalized velocity array to ones.
     ones_nv_robot = np.ones([self.nv_robot()])
-    v = self.robot_and_ball_plant.tree().SetVelocitiesInArray(self.robot_instance, ones_nv_robot, v)
+    self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, ones_nv_robot, v)
 
     # The matrix is of size nv_robot() + nv_ball() x nv_robot().
     B = np.zeros([self.nv_robot() + self.nv_ball(), self.nv_robot()])
