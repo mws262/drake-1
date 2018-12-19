@@ -2730,6 +2730,8 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   const MatrixX<T> H = H_base + E_plus.transpose() * E_plus +
       F_plus.transpose() * F_plus;
 
+  std::cout << "Hessian: " << std::endl << H << std::endl;
+
   // Compute the vector components that will be dotted with lambda_star to yield
   // the gradient vector of the objective function.
   const VectorX<T> grad = E_plus.transpose() * d + F_plus.transpose() * e;

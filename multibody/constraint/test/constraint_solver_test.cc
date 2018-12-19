@@ -1389,15 +1389,15 @@ class Constraint2DSolverTest : public ::testing::Test {
     const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
         rod_->get_state(*context_).CopyToVector(), fext, dt);
 
-    // Get the normal force. Note: the LCP solver appears to be failing to
-    // solve the problem to the highest possible accuracy.
+    // Get the normal force.
     const int num_contacts = 2;
     EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
     EXPECT_NEAR(num_contacts * normal_force, tau_cf[1], std::sqrt(eps_));
 
     // The frictional force should be opposing the normal force.
     const double ff_expected = tau_cf[1] * mu_coulomb;
-    EXPECT_EQ(tau_cf[0], ff_expected * ((applied_to_right) ? -1 : 1));
+    EXPECT_NEAR(tau_cf[0], ff_expected * ((applied_to_right) ? -1 : 1),
+                std::sqrt(eps_));
   }
 
   // Tests the rod in a two-point impact, with initial velocity sliding to the
@@ -2395,7 +2395,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     rod_->set_mu_coulomb(mu_coulomb);
 
     // A smallish dt should be fine.
-    const double dt = 1e-2;
+    const double dt = eps_ * 100;
 
     // Compute the problem data.
     const int ngc = get_rod_num_coordinates();
@@ -2408,7 +2408,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     // be a spring/damper:
     // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
     // \phi = \theta is the constraint.
-    const double k = 1e12, b = 1;
+    const double k = 1e12, b = 0;
     problem_data.Gu_mult = [](const MatrixX<double>& w) -> MatrixX<double> {
       MatrixX<double> result(1, w.cols());   // Only one constraint.
       for (int i = 0; i < w.cols(); ++i)
@@ -2436,8 +2436,10 @@ class Constraint2DSolverTest : public ::testing::Test {
     // Compute the term that is a function of evaluating the constraint. We
     // assume the constraint position and velocity are both zero at the current
     // state.
-    problem_data.kU = (dt * k + b) *
-        (dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
+    const VectorX<double> phi_u0 = VectorX<double>::Constant(1, 1e-6);
+    const VectorX<double> dotphi_u0 = VectorX<double>::Zero(1);
+    problem_data.kU = k * phi_u0 + (dt * k + b) * (dotphi_u0 +
+        dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
 
     // Solve the constraint problem.
     const double zeta = 1e6;
@@ -2455,10 +2457,14 @@ class Constraint2DSolverTest : public ::testing::Test {
     // sliding.
     EXPECT_NEAR(cf[0] * mu_coulomb, std::abs(cf[1]), eps_);
 
+    // Compute the force applied at the limit.
+    const double flimit = phi_u0.norm() * k;
+    EXPECT_NEAR(cf[2], flimit, eps_);
+
     // Compute the generalized acceleration of the rod and verify that the
     // rotational acceleration is close to zero.
-    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
-    EXPECT_NEAR(ga[2], 0.0, 1e-8);
+//    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
+//    EXPECT_NEAR(ga[2], 0.0, 1e-8);
   }
 
   // Tests the rod in a one-point sliding contact configuration with a second
