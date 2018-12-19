@@ -12,6 +12,7 @@
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/moby_lcp_solver.h"
+#include "drake/solvers/osqp_solver.h"
 
 namespace drake {
 namespace multibody {
@@ -2775,7 +2776,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   // Add affine constraints Aλ >= q.
   const double inf = std::numeric_limits<double>::infinity();
   math_program.AddLinearConstraint(
-      A, q, VectorX<T>::Constant(inf, q.rows()), lambda_hat);
+      A, q, VectorX<T>::Ones(q.rows()) * inf, lambda_hat);
 
   // Add constraints lambda_n >= 0.
   for (int i = 0; i < nc; ++i)
@@ -2785,16 +2786,17 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   for (int i = 0; i < nu; ++i)
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
 
-  // Add the friction cone constraints.
+  // Add the Lorentz cone constraints.
   if (is_2D) {
     MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
     for (int i = 0; i < nc; ++i) {
-      A_mu(i, i) = problem_data.mu[i];
-      A_mu(i, i + nc) = -1;
+      A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
+      A_mu(i, i + nc) = -1.0;
+      A_mu(i + nc, i + nc) = 1.0;
     }
-    math_program.AddLinearConstraint(A_mu, VectorX<T>::Zero(nc * 2),
-                                     VectorX<T>::Constant(inf, q.rows()),
-                                     lambda_hat);
+    math_program.AddLinearConstraint(
+        A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
+        lambda_hat);
 
   } else {
     for (int i = 0; i < nc; ++i) {
@@ -2805,10 +2807,22 @@ void ConstraintSolver<T>::SolveConstraintProblem(
     }
   }
 
-  // Call Gurobi to solve the mathematical program.
-  solvers::GurobiSolver gurobi_solver;
+  // Solve the program.
   solvers::MathematicalProgramResult result;
-  gurobi_solver.Solve(math_program, {}, {}, &result);
+  if (is_2D) {
+    solvers::OsqpSolver osqp_solver;
+    osqp_solver.Solve(math_program, {}, {}, &result);
+  } else {
+    // Call Gurobi to solve the mathematical program.
+    solvers::GurobiSolver gurobi_solver;
+    gurobi_solver.Solve(math_program, {}, {}, &result);
+  }
+
+  if (result.get_solution_result() != solvers::kSolutionFound) {
+    throw std::runtime_error(fmt::format(
+        "Failed to find a solution: return type {}",
+        result.get_solution_result()));
+  }
   const auto lambda_hat_sol = math_program.GetSolution(lambda_hat, result);
 /*
   // TODO: Replace this with the MathematicalProgram framework.
