@@ -707,6 +707,31 @@ class BoxController(LeafSystem):
     assert soln_err < tol
     return [ z, K, rhs ]
 
+  # TODO: finish this.
+  # Computes the motor torques for ComputeActuationForCotnactDesiredAndContacting()
+  # using the stable constraint model with Coulomb friction.
+  def ComputeContactControlMotorTorques(self):
+    # Construct the actuation and weighting matrices.
+    B = self.ConstructRobotActuationMatrix()
+    P = self.ConstructBallVelocityWeightingMatrix()
+
+    # Compute the soft problem data for the MultibodyPlant.
+
+    # Get the ball "error" (differential) in q and v.
+
+    # Convert the ball differential in q to a differential in v.
+
+    # Add row outputs to the Gb_mult(.) operator.
+
+    # Add the same row outputs to the Gb_transpose_mult(.) operator.
+
+    # Update stiffness and damping coefficients Kb and Bb.   
+
+    # Update phi_b0 and dotphi_b0 terms by altering kB. 
+
+    # Solve the constraint problem.
+
+
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using the no-slip model.
   # iM: the inverse of the joint robot/ball generalized inertia matrix

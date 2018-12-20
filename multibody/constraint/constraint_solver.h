@@ -10,9 +10,10 @@
 #include "drake/common/text_logging.h"
 #include "drake/multibody/constraint/constraint_problem_data.h"
 #include "drake/solvers/gurobi_solver.h"
+#include "drake/solvers/ipopt_solver.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/moby_lcp_solver.h"
-#include "drake/solvers/osqp_solver.h"
+#include "drake/solvers/mosek_solver.h"
 
 namespace drake {
 namespace multibody {
@@ -2638,6 +2639,54 @@ void ConstraintSolver<T>::CalcContactForcesInContactFrames(
 }
 
 template <typename T>
+VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
+    const solvers::MathematicalProgram& math_program,
+    const solvers::VectorXDecisionVariable& lambda_hat) {
+  solvers::MathematicalProgramResult result;
+
+  // Set the initial failure string.
+  std::string failure_string;
+
+  // Try Gurobi first.
+  solvers::GurobiSolver gurobi_solver;
+  gurobi_solver.Solve(math_program, {}, {}, &result);
+  if (result.get_solution_result() == solvers::kSolutionFound) {
+    return math_program.GetSolution(lambda_hat, result);    
+  } else {
+    failure_string += fmt::format(
+            "Gurobi failed to find a solution: return type {}\n",
+            result.get_solution_result());
+  }
+
+  // Try again using Mosek.
+  result = {};
+  solvers::MosekSolver mosek_solver;
+  mosek_solver.Solve(math_program, {}, {}, &result);
+  if (result.get_solution_result() == solvers::kSolutionFound) {
+    return math_program.GetSolution(lambda_hat, result);    
+  } else {
+    failure_string += fmt::format(
+            "Mosek failed to find a solution: return type {}\n",
+            result.get_solution_result());
+  }
+
+  // Try again using IPOPT.
+  result = {};
+  solvers::IpoptSolver ipopt_solver;
+  ipopt_solver.Solve(math_program, {}, {}, &result);
+  if (result.get_solution_result() == solvers::kSolutionFound) {
+    return math_program.GetSolution(lambda_hat, result);    
+  } else {
+    failure_string += fmt::format(
+            "Ipopt failed to find a solution: return type {}\n",
+            result.get_solution_result());
+  }
+
+  // If still here, all failed.
+  throw std::runtime_error(failure_string);
+}
+
+template <typename T>
 void ConstraintSolver<T>::SolveConstraintProblem(
     const SoftConstraintProblemData<T>& problem_data,
     double zeta,
@@ -2731,6 +2780,8 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   const MatrixX<T> H = H_base + E_plus.transpose() * E_plus +
       F_plus.transpose() * F_plus;
 
+  std::cout << "Hessian: " << std::endl << H << std::endl;
+
   // Compute the vector components that will be dotted with lambda_star to yield
   // the gradient vector of the objective function.
   const VectorX<T> grad = E_plus.transpose() * d + F_plus.transpose() * e;
@@ -2767,12 +2818,6 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   lambda_hat = math_program.NewContinuousVariables(nprimal);
   math_program.AddQuadraticCost(H, grad, lambda_hat);
 
-  // Check whether the problem is 2D (or contact-free, both will be treated the
-  // same.
-  const bool is_2D = (ns == 0);
-  if (ns != nr && ns > 0)
-    throw std::logic_error("Can't compute mixed 2D/3D problems.");
-
   // Add affine constraints Aλ >= q.
   const double inf = std::numeric_limits<double>::infinity();
   math_program.AddLinearConstraint(
@@ -2786,44 +2831,35 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   for (int i = 0; i < nu; ++i)
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
 
+  std::cout << "Hessian: " << std::endl << H << std::endl;
+  std::cout << "gradient: " << grad.transpose() << std::endl;
+  std::cout << "A: " << std::endl << A << std::endl;
+  std::cout << "q: " << q.transpose() << std::endl;
+
   // Add the Lorentz cone constraints.
-  if (is_2D) {
-    MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
-    for (int i = 0; i < nc; ++i) {
-      A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
-      A_mu(i, i + nc) = -1.0;
-      A_mu(i + nc, i + nc) = 1.0;
+  if (nc > 0) {
+      if (ns == 0) {
+        MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
+       for (int i = 0; i < nc; ++i) {
+       A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
+       A_mu(i, i + nc) = -1.0;
+       A_mu(i + nc, i + nc) = 1.0;
+     }
+    std::cout << "A(mu): " << std::endl << A_mu << std::endl; 
+     math_program.AddLinearConstraint(
+         A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
+         lambda_hat);
+      } else {
+     for (int i = 0; i < nc; ++i) {
+       math_program.AddLorentzConeConstraint(
+           Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
+                                         +lambda_hat(i + nc),
+                                         +lambda_hat(i + nc + nr)));
+     }
     }
-    math_program.AddLinearConstraint(
-        A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
-        lambda_hat);
-
-  } else {
-    for (int i = 0; i < nc; ++i) {
-      math_program.AddLorentzConeConstraint(
-          Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
-                                        +lambda_hat(i + nc),
-                                        +lambda_hat(i + nc + nr)));
-    }
   }
 
-  // Solve the program.
-  solvers::MathematicalProgramResult result;
-  if (is_2D) {
-    solvers::OsqpSolver osqp_solver;
-    osqp_solver.Solve(math_program, {}, {}, &result);
-  } else {
-    // Call Gurobi to solve the mathematical program.
-    solvers::GurobiSolver gurobi_solver;
-    gurobi_solver.Solve(math_program, {}, {}, &result);
-  }
-
-  if (result.get_solution_result() != solvers::kSolutionFound) {
-    throw std::runtime_error(fmt::format(
-        "Failed to find a solution: return type {}",
-        result.get_solution_result()));
-  }
-  const auto lambda_hat_sol = math_program.GetSolution(lambda_hat, result);
+  const VectorX<T> lambda_hat_sol = SolveMathematicalProgram(math_program, lambda_hat);
 /*
   // TODO: Replace this with the MathematicalProgram framework.
   // To solve the QP using the Moby LCP solver, we have to replace variables
