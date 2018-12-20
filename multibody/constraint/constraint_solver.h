@@ -616,6 +616,9 @@ class ConstraintSolver {
       std::vector<Vector2<T>>* contact_forces);
 
  private:
+  static VectorX<T> SolveMathematicalProgram(
+      const solvers::MathematicalProgram& math_program,
+      const solvers::VectorXDecisionVariable& lambda_hat);
   static void PopulatePackedConstraintForcesFromLcpSolution(
       const ConstraintVelProblemData<T>& problem_data,
       const MlcpToLcpData& mlcp_to_lcp_data,

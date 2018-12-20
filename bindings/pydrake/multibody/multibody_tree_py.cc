@@ -654,6 +654,19 @@ void init_multibody_plant(py::module m) {
             },
             py::arg("context"), py::arg("body"),
             doc.MultibodyPlant.EvalBodySpatialVelocityInWorld.doc)
+        .def("CalcPointsGeometricJacobianExpressedInWorld",
+             [](const Class* self, const Context<T>& context,
+                const Frame<T>& frame_F,
+                const Eigen::Ref<const MatrixX<T>>& p_WQ_list) {
+               const int num_points = p_WQ_list.cols();
+               MatrixX<T> Jv_WFq(3 * num_points, self->num_velocities());
+               self->CalcPointsGeometricJacobianExpressedInWorld(
+                   context, frame_F, p_WQ_list, &Jv_WFq);
+               return Jv_WFq;
+             },
+             py::arg("context"), py::arg("frame_F"),
+             py::arg("p_WQ_list") = Vector3<T>::Zero().eval(),
+             doc.MultibodyPlant.CalcPointsGeometricJacobianExpressedInWorld.doc_4args)
         .def("CalcJacobianSpatialVelocity",
             [](const Class* self, const systems::Context<T>& context,
                 JacobianWrtVariable with_respect_to, const Frame<T>& frame_B,
@@ -837,7 +850,7 @@ void init_multibody_plant(py::module m) {
                 multibody::ModelInstanceIndex>(
                 &Class::get_actuation_input_port),
             py_reference_internal,
-            doc.MultibodyPlant.get_actuation_input_port.doc_1args)        
+            doc.MultibodyPlant.get_actuation_input_port.doc_1args)
         .def("get_god_input_port",
              overload_cast_explicit<const systems::InputPort<T>&>(
                  &Class::get_god_input_port),

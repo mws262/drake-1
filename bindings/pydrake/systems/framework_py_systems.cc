@@ -266,20 +266,6 @@ struct Impl {
     // knows this is abstract?
     DefineTemplateClassWithDefault<System<T>, PySystem>(
         m, "System", GetPyParam<T>(), doc.SystemBase.doc)
-        .def ("MapVelocityToQDot",
-              [](const System<T>* self, const Context<T>& context,
-                 const Eigen::Ref<const VectorX<T>>& v, int nq) -> VectorX<T> {
-      BasicVector<T> output(nq);
-      self->MapVelocityToQDot(context, v, &output);
-      return output.CopyToVector();
-    })
-        .def ("MapQDotToVelocity",
-              [](const System<T>* self, const Context<T>& context,
-                 const Eigen::Ref<const VectorX<T>>& qdot, int nv) -> VectorX<T> {
-                BasicVector<T> output(nv);
-                self->MapQDotToVelocity(context, qdot, &output);
-                return output.CopyToVector();
-              })
         .def("set_name", &System<T>::set_name, doc.SystemBase.set_name.doc)
         // Topology.
         .def("get_num_input_ports", &System<T>::get_num_input_ports,
