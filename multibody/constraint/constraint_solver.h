@@ -2783,8 +2783,6 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   const MatrixX<T> H = H_base + E_plus.transpose() * E_plus +
       F_plus.transpose() * F_plus;
 
-  std::cout << "Hessian: " << std::endl << H << std::endl;
-
   // Compute the vector components that will be dotted with lambda_star to yield
   // the gradient vector of the objective function.
   const VectorX<T> grad = E_plus.transpose() * d + F_plus.transpose() * e;
@@ -2834,6 +2832,11 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   for (int i = 0; i < nu; ++i)
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
 
+  std::cout << "Hessian: " << std::endl << H << std::endl;
+  std::cout << "gradient: " << grad.transpose() << std::endl;
+  std::cout << "A: " << std::endl << A << std::endl;
+  std::cout << "q: " << q.transpose() << std::endl;
+
   // Add the Lorentz cone constraints.
   if (nc > 0) {
       if (ns == 0) {
@@ -2843,6 +2846,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
        A_mu(i, i + nc) = -1.0;
        A_mu(i + nc, i + nc) = 1.0;
      }
+    std::cout << "A(mu): " << std::endl << A_mu << std::endl; 
      math_program.AddLinearConstraint(
          A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
          lambda_hat);

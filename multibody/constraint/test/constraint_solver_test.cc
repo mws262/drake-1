@@ -2384,9 +2384,31 @@ class Constraint2DSolverTest : public ::testing::Test {
   // rotational acceleration using a unilateral constraint; we will check that
   // clockwise acceleration is allowed.
   void SlidingPlusLimitSoft() {
-    // Make the rod slide to the right.
+    // Set the rod to a vertical configuration.
     SetRodToRestingVerticalConfig();
+
+    // From Hertzian contact, we know that a deformation of d m results in a
+    // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
+    // assume the default rod length of 2 m.
+    const double d = 1e-6;  // Deformation of 1 mm.
+    const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
+    const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
+    //const double normal_force = 4.0 / 3 * elastic_modulus *
+    //    std::sqrt(endpoint_radius * d * d * d);
+
+    // To get a stiffness that, when multiplied by displacement yields a force,
+    // we have to make our stiffness a function of that displacement:
+    // k = 4/3 E* √(rd)
     ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+    xc[1] -= d;
+    const double stiffness = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d);
+    rod_->set_stiffness(stiffness);
+
+    // Use no damping to allow predicting contact force more readily.
+    rod_->set_dissipation(0);  
+
+    // Make the rod slide to the left.
     xc[3] = -1.0;
 
     // Set the coefficient of friction. A nonzero coefficient of friction should
@@ -2403,7 +2425,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     SoftConstraintProblemData<double> problem_data(ngc);
     rod_->ComputeSoftProblemData(
         xc.CopyToVector(), fext, dt, &problem_data);
-
+/*
     // Add in a unilateral constraint on rotational motion; angular motion will
     // be a spring/damper:
     // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
@@ -2440,7 +2462,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     const VectorX<double> dotphi_u0 = VectorX<double>::Zero(1);
     problem_data.kU = k * phi_u0 + (dt * k + b) * (dotphi_u0 +
         dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
-
+*/
     // Solve the constraint problem.
     const double zeta = 1e6;
     VectorX<double> cf;
@@ -2458,8 +2480,8 @@ class Constraint2DSolverTest : public ::testing::Test {
     EXPECT_NEAR(cf[0] * mu_coulomb, std::abs(cf[1]), eps_);
 
     // Compute the force applied at the limit.
-    const double flimit = phi_u0.norm() * k;
-    EXPECT_NEAR(cf[2], flimit, eps_);
+ //   const double flimit = phi_u0.norm() * k;
+ //   EXPECT_NEAR(cf[2], flimit, eps_);
 
     // Compute the generalized acceleration of the rod and verify that the
     // rotational acceleration is close to zero.
