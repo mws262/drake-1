@@ -276,12 +276,12 @@ class BoxController(LeafSystem):
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body A.
       J_WAc = all_plant.CalcPointsGeometricJacobianExpressedInWorld(
-          self.robot_and_ball_context, body_A.body_frame(), pc_W)
+          self.robot_and_ball_context, body_A.body_frame(), pr_WA)
 
       # Get the geometric Jacobian for the velocity of the contact point
       # as moving with Body B.
       J_WBc = all_plant.CalcPointsGeometricJacobianExpressedInWorld(
-          self.robot_and_ball_context, body_B.body_frame(), pc_W)
+          self.robot_and_ball_context, body_B.body_frame(), pr_WB)
 
       # Compute the linear components of the Jacobian.
       J = J_WAc - J_WBc
@@ -554,7 +554,7 @@ class BoxController(LeafSystem):
     for body in foot_bodies_in_robot_tree:
       if body.name() == body_A.name():
         foot_body_to_use = body
-    J_WAc = robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
+    J_WAc = self.robot_plant.CalcPointsGeometricJacobianExpressedInWorld(
         self.robot_context, foot_body_to_use.body_frame(), closest_Aw)
     q_robot_des = q_robot
 
@@ -568,7 +568,7 @@ class BoxController(LeafSystem):
       # difference in configuration to a difference in velocity coordinates.
       # TODO: Explain why this is allowable.
       self.robot_plant.SetPositions(self.robot_context, q_robot)
-      dv = self.robot_plant.MapQDotToVelocity(self.robot_context, q_robot_des - q_robot, len(v_robot_des))
+      dv = self.robot_plant.MapQDotToVelocity(self.robot_context, q_robot_des - q_robot)
       vdot = np.diag(self.robot_gv_kp).dot(dv) + np.diag(self.robot_gv_kd).dot(v_robot_des - v_robot)
     else:
       vdot = np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_kd).dot(v_robot_des - v_robot)
@@ -671,7 +671,7 @@ class BoxController(LeafSystem):
     nv = self.nv_ball() + self.nv_robot()
     v = np.zeros([nv])
     dummy_ball_v = np.ones([self.nv_ball()])
-    v = self.robot_and_ball_plant.tree().SetVelocitiesInArray(self.ball_instance, dummy_ball_v, v)
+    self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, dummy_ball_v, v)
 
     # Set the velocities weighting.
     W = np.zeros([len(dummy_ball_v), nv])
@@ -957,6 +957,41 @@ class BoxController(LeafSystem):
       print "torque: " + str(f_act)
 
     return [f_act, f_contact_generalized ]
+
+  # Finds contacts only between the ball and the robot.
+  def FindBallGroundContacts(self, all_q):
+    # Get contacts between the robot and ball, and ball and the ground.
+    contacts = self.FindContacts(all_q)
+
+    # Get the ball and ground bodies.
+    ball_body = self.get_ball_from_robot_and_ball_plant()
+    world_body = self.get_ground_from_robot_and_ball_plant()
+
+    # Evaluate scene graph's output port, getting a SceneGraph reference.
+    query_object = self.robot_and_ball_plant.EvalAbstractInput(
+      self.robot_and_ball_context, self.geometry_query_input_port.get_index()).get_value()
+    inspector = query_object.inspector()
+
+    # Get the tree corresponding to all bodies.
+    all_plant = self.robot_and_ball_plant
+
+    # Remove contacts between all but the ball and the ground.
+    i = 0
+    while i < len(contacts):
+      geometry_A_id = contacts[i].id_A
+      geometry_B_id = contacts[i].id_B
+      frame_A_id = inspector.GetFrameId(geometry_A_id)
+      frame_B_id = inspector.GetFrameId(geometry_B_id)
+      body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+      body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+      body_A_B_pair = self.MakeSortedPair(body_A, body_B)
+      if body_A_B_pair != self.MakeSortedPair(ball_body, world_body):
+        contacts[i] = contacts[-1]
+        del contacts[-1]
+      else:
+        i += 1
+
+    return contacts
 
   # Finds contacts only between the ball and the robot.
   def FindRobotBallContacts(self, all_q):
