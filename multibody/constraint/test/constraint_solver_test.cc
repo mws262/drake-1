@@ -1766,8 +1766,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     xc[3] = (sliding_to_right) ? 1 : -1;
 
     // Hertzian contact assumptions are without dissipation (damping) and
-    // friction. Note that a test that uses a non-zero coefficient of friction
-    // with sliding is SlidingPlusBilateralSoft().
+    // friction.
     rod_->set_dissipation(0);
     rod_->set_mu_coulomb(0.0);
     rod_->set_mu_static(0.0);
@@ -1797,17 +1796,30 @@ class Constraint2DSolverTest : public ::testing::Test {
     const Vector3d fext = rod_->ComputeExternalForces(*context_);
 
     // Compute the contact forces.
-    const Vector3d tau_cf = rod_->ComputeGeneralizedSoftContactForces(
+    const Vector3d tau_cf_muzero = rod_->ComputeGeneralizedSoftContactForces(
         rod_->get_state(*context_).CopyToVector(), fext, dt);
 
-    // Get the normal force. Note: the LCP solver appears to be failing to
-    // solve the problem to the highest possible accuracy.
+    // Get the normal force. 
     const int num_contacts = (upright) ? 1 : 2;
     EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
-    EXPECT_NEAR(num_contacts * normal_force, tau_cf[1], std::sqrt(eps_));
+    EXPECT_NEAR(num_contacts * normal_force, tau_cf_muzero[1],
+        std::sqrt(eps_));
 
     // There should be no frictional components.
-    EXPECT_NEAR(tau_cf[0], 0, eps_);
+    EXPECT_NEAR(tau_cf_muzero[0], 0, eps_);
+
+    // --------- Second part of the test adds friction.
+    const double mu_coulomb = 0.1;
+    rod_->set_mu_coulomb(mu_coulomb);
+    rod_->set_mu_static(mu_coulomb);
+
+    // Compute the contact forces again.
+    const Vector3d tau_cf_friction = rod_->ComputeGeneralizedSoftContactForces(
+        rod_->get_state(*context_).CopyToVector(), fext, dt);
+
+    // Verify that friction was applied.
+    EXPECT_NEAR(std::abs(tau_cf_friction[0]), mu_coulomb * tau_cf_friction[1],
+        std::sqrt(eps_));
   }
 
   // Tests the rod in a sliding configuration with sliding velocity as
@@ -2091,8 +2103,8 @@ class Constraint2DSolverTest : public ::testing::Test {
   }
 
   // Tests the rod in an upright sliding state, with sliding
-  // direction as specified. The rod will be constrained to prevent rotational
-  // acceleration using a bilateral constraint as well.
+  // direction as specified. A bilateral constraint will be
+  // TODO(edrumwri): Fix this comment.
   void SlidingPlusBilateralDiscretized(bool sliding_to_right) {
     using std::max;
 
@@ -2194,18 +2206,35 @@ class Constraint2DSolverTest : public ::testing::Test {
   }
 
   // Tests the rod in an upright sliding state, with sliding
-  // direction as specified. The rod will be constrained to prevent rotational
-  // acceleration using a bilateral constraint as well.
+  // direction as specified.
+  // TODO(edrumwri): Fix this comment.
   void SlidingPlusBilateralSoft(bool sliding_to_right) {
     // Make the rod slide.
     SetRodToRestingVerticalConfig();
     ContinuousState<double>& xc = context_->get_mutable_continuous_state();
     xc[3] = (sliding_to_right) ? 1 : -1;
 
-    // Set the coefficient of friction. A nonzero coefficient of friction should
-    // cause the rod to rotate.
-    const double mu_coulomb = 0.1;
-    rod_->set_mu_coulomb(mu_coulomb);
+    // From Hertzian contact, we know that a deformation of d m results in a
+    // force of 4/3 E* √(rd³) Newtons. To determine reasonable values, we
+    // assume the default rod length of 2 m.
+    const double d = 1e-6;  // Deformation of 1 mm.
+    const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
+    const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
+    const double normal_force = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d * d * d);
+
+    // To get a stiffness that, when multiplied by displacement yields a force,
+    // we have to make our stiffness a function of that displacement:
+    // k = 4/3 E* √(rd)
+    xc[1] -= d;
+    const double stiffness = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d);
+    rod_->set_stiffness(stiffness);
+
+    // Use no damping or friction to predicting contact forces readily.
+    rod_->set_dissipation(0);
+    rod_->set_mu_coulomb(0);
+    rod_->set_mu_static(0);
 
     // A smallish dt should be fine.
     const double dt = eps_ * 100;
@@ -2217,43 +2246,42 @@ class Constraint2DSolverTest : public ::testing::Test {
     rod_->ComputeSoftProblemData(
         xc.CopyToVector(), fext, dt, &problem_data);
 
-    // Add in bilateral constraints on rotational motion; angular motion will be
-    // a spring/damper:
-    // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
-    // \phi = \theta is the constraint.
-    const double k = 1e12, b = 1;
+    // Add in bilateral constraints on linear motion.
+    // \ddot{x} + b\dot{x} + kx = 0.
+    // \phi = x is the constraint.
     problem_data.Gb_mult = [](const MatrixX<double>& w) -> MatrixX<double> {
       MatrixX<double> result(1, w.cols());   // Only one constraint.
       for (int i = 0; i < w.cols(); ++i)
-        result(0, i) = w(2, i);
+        result(0, i) = w(1, i);  // Vertical component.
       return result;
     };
     problem_data.Gb_transpose_mult =
         [this](const MatrixX<double>& f) -> MatrixX<double> {
-          // A force (torque) applied to the third component needs no
+          // A force applied to the second (vertical) component needs no
           // transformation.
           DRAKE_DEMAND(f.rows() == 1);
           MatrixX<double> result(get_rod_num_coordinates(), f.cols());
           result.setZero();
           for (int i = 0; i < f.cols(); ++i)
-            result(2, i) = f(0, i);
+            result(1, i) = f(0, i);
           return result;
         };
 
     // Set the stiffness and damping.
     problem_data.Kb = VectorX<double>(1);
-    problem_data.Kb(0, 0) = k;
+    problem_data.Kb(0, 0) = stiffness;
     problem_data.Bb = VectorX<double>(1);
-    problem_data.Bb(0, 0) = b;
+    problem_data.Bb(0, 0) = 0;
 
     // Compute the term that is a function of evaluating the constraint. We
-    // assume the constraint position and velocity are both zero at the current
-    // state.
-    problem_data.kB = (dt * k + b) *
-            (dt * problem_data.Gb_mult(problem_data.solve_inertia(fext)));
+    // assume the constraint velocity is zero at the current state.
+    const VectorX<double> phi_b0 = VectorX<double>::Constant(1, -d);
+    const VectorX<double> dotphi_b0 = VectorX<double>::Zero(1);
+    problem_data.kB = stiffness * phi_b0 + (dt * stiffness) * (dotphi_b0 +
+        dt * problem_data.Gb_mult(problem_data.solve_inertia(fext)));
 
     // Solve the constraint problem.
-    const double zeta = 1e6;
+    const double zeta = 1.0 / dt;
     VectorX<double> cf;
     solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
 
@@ -2262,16 +2290,16 @@ class Constraint2DSolverTest : public ::testing::Test {
     solver_.ComputeGeneralizedForceFromConstraintForces(
         problem_data, cf, &tau_cf);
 
-    // Verify that the frictional force is approximately equal to the
-    // coefficient of friction times the normal force. We can only do this
-    // because the frictional force isn't large enough to stop the rod from
-    // sliding.
-    EXPECT_NEAR(cf[0] * mu_coulomb, std::abs(cf[1]), eps_);
+    // Check the normal force.
+    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
+    EXPECT_NEAR(cf[0], normal_force, std::sqrt(eps_));
 
-    // Compute the generalized acceleration of the rod and verify that the
-    // rotational acceleration is close to zero.
-    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
-    EXPECT_NEAR(ga[2], 0.0, 1e-8);
+    // Verify that the frictional force is approximately zero.
+    EXPECT_NEAR(cf[1], 0, eps_);
+
+    // Compute the force applied by the bilateral constraint.
+    const double fBilat = phi_b0.norm() * stiffness;
+    EXPECT_NEAR(cf[2], fBilat, std::sqrt(eps_));
   }
 
   // Tests the rod in a one-point sliding contact configuration with a second
@@ -2380,9 +2408,8 @@ class Constraint2DSolverTest : public ::testing::Test {
   }
 
   // Tests the rod in an upright sliding configuration with sliding velocity as
-  // specified. The rod will be constrained to prevent counter-clockwise
-  // rotational acceleration using a unilateral constraint; we will check that
-  // clockwise acceleration is allowed.
+  // specified.
+  // TODO(edrumwri): Fix this comment.
   void SlidingPlusLimitSoft() {
     // Set the rod to a vertical configuration.
     SetRodToRestingVerticalConfig();
@@ -2393,8 +2420,8 @@ class Constraint2DSolverTest : public ::testing::Test {
     const double d = 1e-6;  // Deformation of 1 mm.
     const double endpoint_radius = 0.1; // Rod endpoint radius of 0.1 m.
     const double elastic_modulus = 1e11; // "Somewhere around steel, IIRC, Pa?"
-    //const double normal_force = 4.0 / 3 * elastic_modulus *
-    //    std::sqrt(endpoint_radius * d * d * d);
+    const double normal_force = 4.0 / 3 * elastic_modulus *
+        std::sqrt(endpoint_radius * d * d * d);
 
     // To get a stiffness that, when multiplied by displacement yields a force,
     // we have to make our stiffness a function of that displacement:
@@ -2405,16 +2432,13 @@ class Constraint2DSolverTest : public ::testing::Test {
         std::sqrt(endpoint_radius * d);
     rod_->set_stiffness(stiffness);
 
-    // Use no damping to allow predicting contact force more readily.
-    rod_->set_dissipation(0);  
+    // Use no damping or friction to predicting contact forces readily.
+    rod_->set_dissipation(0);
+    rod_->set_mu_coulomb(0);
+    rod_->set_mu_static(0);
 
     // Make the rod slide to the left.
     xc[3] = -1.0;
-
-    // Set the coefficient of friction. A nonzero coefficient of friction should
-    // cause the rod to rotate.
-    const double mu_coulomb = 0.1;
-    rod_->set_mu_coulomb(mu_coulomb);
 
     // A smallish dt should be fine.
     const double dt = eps_ * 100;
@@ -2425,46 +2449,43 @@ class Constraint2DSolverTest : public ::testing::Test {
     SoftConstraintProblemData<double> problem_data(ngc);
     rod_->ComputeSoftProblemData(
         xc.CopyToVector(), fext, dt, &problem_data);
-/*
-    // Add in a unilateral constraint on rotational motion; angular motion will
-    // be a spring/damper:
-    // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
-    // \phi = \theta is the constraint.
-    const double k = 1e12, b = 0;
+
+    // Add in a unilateral constraint on linear motion.
+    // \ddot{x} + b\dot{x} + kx = 0.
+    // \phi = x is the constraint.
     problem_data.Gu_mult = [](const MatrixX<double>& w) -> MatrixX<double> {
       MatrixX<double> result(1, w.cols());   // Only one constraint.
       for (int i = 0; i < w.cols(); ++i)
-        result(0, i) = -w(2, i);
+        result(0, i) = -w(1, i);  // Vertical component.
       return result;
     };
     problem_data.Gu_transpose_mult =
         [this](const MatrixX<double>& f) -> MatrixX<double> {
-          // A force (torque) applied to the third component needs no
+          // A force applied to the second (vertical) component needs no
           // transformation.
           DRAKE_DEMAND(f.rows() == 1);
           MatrixX<double> result(get_rod_num_coordinates(), f.cols());
           result.setZero();
           for (int i = 0; i < f.cols(); ++i)
-            result(2, i) = -f(0, i);
+            result(1, i) = -f(0, i);
           return result;
         };
 
     // Set the stiffness and damping.
     problem_data.Ku = VectorX<double>(1);
-    problem_data.Ku(0, 0) = k;
+    problem_data.Ku(0, 0) = stiffness;
     problem_data.Bu = VectorX<double>(1);
-    problem_data.Bu(0, 0) = b;
+    problem_data.Bu(0, 0) = 0;
 
     // Compute the term that is a function of evaluating the constraint. We
-    // assume the constraint position and velocity are both zero at the current
-    // state.
-    const VectorX<double> phi_u0 = VectorX<double>::Constant(1, 1e-6);
+    // assume the constraint velocity is zero at the current state.
+    const VectorX<double> phi_u0 = VectorX<double>::Constant(1, -d);
     const VectorX<double> dotphi_u0 = VectorX<double>::Zero(1);
-    problem_data.kU = k * phi_u0 + (dt * k + b) * (dotphi_u0 +
+    problem_data.kU = stiffness * phi_u0 + (dt * stiffness) * (dotphi_u0 +
         dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
-*/
+
     // Solve the constraint problem.
-    const double zeta = 1e6;
+    const double zeta = 1 / dt;
     VectorX<double> cf;
     solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
 
@@ -2473,20 +2494,16 @@ class Constraint2DSolverTest : public ::testing::Test {
     solver_.ComputeGeneralizedForceFromConstraintForces(
         problem_data, cf, &tau_cf);
 
-    // Verify that the frictional force is approximately equal to the
-    // coefficient of friction times the normal force. We can only do this
-    // because the frictional force isn't large enough to stop the rod from
-    // sliding.
-    EXPECT_NEAR(cf[0] * mu_coulomb, std::abs(cf[1]), eps_);
+    // Check the normal force.
+    EXPECT_NEAR(normal_force, stiffness * d, std::sqrt(eps_));
+    EXPECT_NEAR(cf[0], normal_force, std::sqrt(eps_));
+
+    // Verify that the frictional force is approximately zero.
+    EXPECT_NEAR(cf[1], 0, eps_);
 
     // Compute the force applied at the limit.
- //   const double flimit = phi_u0.norm() * k;
- //   EXPECT_NEAR(cf[2], flimit, eps_);
-
-    // Compute the generalized acceleration of the rod and verify that the
-    // rotational acceleration is close to zero.
-//    const Vector3d ga = rod_->GetInverseInertiaMatrix() * (fext + tau_cf);
-//    EXPECT_NEAR(ga[2], 0.0, 1e-8);
+    const double flimit = phi_u0.norm() * stiffness;
+    EXPECT_NEAR(cf[2], flimit, std::sqrt(eps_));
   }
 
   // Tests the rod in a one-point sliding contact configuration with a second
@@ -3002,7 +3019,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     problem_data.kU[0] += stiffness * -d; // Add in deformation.
 
     // Solve the constraint problem.
-    const double zeta = 1e6;
+    const double zeta = 1 / dt;
     VectorX<double> cf;
     solver_.SolveConstraintProblem(problem_data, zeta, dt, &cf);
 
