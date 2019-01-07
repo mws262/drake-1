@@ -1769,8 +1769,8 @@ class Constraint2DSolverTest : public ::testing::Test {
     // friction. Note that a test that uses a non-zero coefficient of friction
     // with sliding is SlidingPlusBilateralSoft().
     rod_->set_dissipation(0);
-    rod_->set_mu_coulomb(0.0);
-    rod_->set_mu_static(0.0);
+    rod_->set_mu_coulomb(0.1);
+    rod_->set_mu_static(0.1);
 
     // The smaller that dt is, the more accurate that the frictional force
     // computation will be.
@@ -2413,10 +2413,11 @@ class Constraint2DSolverTest : public ::testing::Test {
 
     // Set the coefficient of friction. A nonzero coefficient of friction should
     // cause the rod to rotate.
-    const double mu_coulomb = 0.1;
+    const double mu_coulomb = 0.0;
     rod_->set_mu_coulomb(mu_coulomb);
 
-    // A smallish dt should be fine.
+    // The smaller that dt is, the more accurate that the frictional force
+    // computation will be.
     const double dt = eps_ * 100;
 
     // Compute the problem data.
@@ -2425,7 +2426,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     SoftConstraintProblemData<double> problem_data(ngc);
     rod_->ComputeSoftProblemData(
         xc.CopyToVector(), fext, dt, &problem_data);
-/*
+
     // Add in a unilateral constraint on rotational motion; angular motion will
     // be a spring/damper:
     // \ddot{\theta} + b\dot{\theta} + k\theta = 0.
@@ -2462,7 +2463,7 @@ class Constraint2DSolverTest : public ::testing::Test {
     const VectorX<double> dotphi_u0 = VectorX<double>::Zero(1);
     problem_data.kU = k * phi_u0 + (dt * k + b) * (dotphi_u0 +
         dt * problem_data.Gu_mult(problem_data.solve_inertia(fext)));
-*/
+
     // Solve the constraint problem.
     const double zeta = 1e6;
     VectorX<double> cf;
@@ -2480,8 +2481,8 @@ class Constraint2DSolverTest : public ::testing::Test {
     EXPECT_NEAR(cf[0] * mu_coulomb, std::abs(cf[1]), eps_);
 
     // Compute the force applied at the limit.
- //   const double flimit = phi_u0.norm() * k;
- //   EXPECT_NEAR(cf[2], flimit, eps_);
+    const double flimit = phi_u0.norm() * k;
+    EXPECT_NEAR(cf[2], flimit, eps_);
 
     // Compute the generalized acceleration of the rod and verify that the
     // rotational acceleration is close to zero.

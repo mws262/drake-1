@@ -333,7 +333,7 @@ class ControllerTest(unittest.TestCase):
     # discretization to the new configuration.
     dt = 1e-3
     vnew_robot = v_robot + dt*vdot_robot
-    qd_robot = self.robot_plant.MapVelocityToQDot(robot_context, vnew_robot, len(q_robot))
+    qd_robot = self.robot_plant.MapVelocityToQDot(robot_context, vnew_robot)
     qnew_robot = q_robot + dt*qd_robot
 
     # Set the new position and velocity "estimates" of the robot.
@@ -388,7 +388,7 @@ class ControllerTest(unittest.TestCase):
     [N, S, T, Ndot, Sdot, Tdot] = self.controller.ConstructJacobians(contacts, q)
 
     # Set a time step.
-    dt = 1e-6
+    dt = 1e-5
 
     # Get the inspector.
     robot_and_ball_context = self.controller.robot_and_ball_context
@@ -397,6 +397,12 @@ class ControllerTest(unittest.TestCase):
     query_object = self.all_plant.EvalAbstractInput(
         robot_and_ball_context, self.controller.geometry_query_input_port.get_index()).get_value()
     inspector = query_object.inspector()
+
+    # TODO: Remove me after done testing.
+    #self.all_plant.SetVelocitiesInArray(self.controller.robot_instance, [1, 1, 0, 0, 0, 0], v)    
+    #self.all_plant.SetVelocitiesInArray(self.controller.ball_instance, [1, 1, 0, 0, 0, 0], v)
+    dbg_out += '\nVelocity: ' + str(v)
+    dbg_out += '\nQdot: ' + str(self.all_plant.MapVelocityToQDot(robot_and_ball_context, v))
 
     # Examine each point of contact.
     for i in range(len(contacts)):
@@ -408,7 +414,7 @@ class ControllerTest(unittest.TestCase):
       frame_B_id = inspector.GetFrameId(geometry_B_id)
       body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
       body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
-      dbg_out += "Processing contact between " + body_A.name() + " and " + body_B.name()
+      dbg_out += "\nProcessing contact between " + body_A.name() + " and " + body_B.name()
 
       # The Jacobians yield the instantaneous movement of a contact point along
       # the various directions. Determine the location of the contact point
@@ -431,14 +437,14 @@ class ControllerTest(unittest.TestCase):
 
       # Update the generalized coordinates of the multibodies using a first-order
       # approximation and the arbitrary velocity.
-      qdot = self.all_plant.MapVelocityToQDot(robot_and_ball_context, v, len(q))
+      qdot = self.all_plant.MapVelocityToQDot(robot_and_ball_context, v)
       qnew = q + dt*qdot
-      dbg_out += '\nq_robot (old): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, q))
-      dbg_out += '\nq_robot (new): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qnew))
-      dbg_out += '\nqdot_robot: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qdot))
-      dbg_out += '\nq_ball (old): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, q))
-      dbg_out += '\nq_ball (new): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qnew))
-      dbg_out += '\nqdot_ball: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qdot))
+      dbg_out += '\nq_robot (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, q))
+      dbg_out += '\nq_robot (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qnew))
+      dbg_out += '\ndt * qdot_robot: ' + str(dt * self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qdot))
+      dbg_out += '\nq_ball (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, q))
+      dbg_out += '\nq_ball (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qnew))
+      dbg_out += '\ndt * qdot_ball: ' + str(dt * self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qdot))
       self.all_plant.SetPositions(robot_and_ball_context, qnew)
 
       # Determine the new locations of the points on the bodies. The difference
@@ -496,8 +502,9 @@ class ControllerTest(unittest.TestCase):
     p_true = (pr_WA + pr_WB) * 0.5
 
     # Verify that the planned and actual contact points are collocated.
+    distance_tol = 1e-5
     self.assertEqual(len(contacts), 1)  # How do we choose from > 1?
-    self.assertLess(np.linalg.norm(p.flatten() - p_true.flatten()), 1e-8, msg='Points are not collocated at time ' + str(t) + ', p planned: ' + str(p) + ', p from geometry engine: ' + str(p_true))
+    self.assertLess(np.linalg.norm(p.flatten() - p_true.flatten()), distance_tol, msg='Points are not collocated at time ' + str(t) + ', p planned: ' + str(p) + ', p from geometry engine: ' + str(p_true))
 
     # Construct the Jacobian matrices using the controller function.
     N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
@@ -511,6 +518,7 @@ class ControllerTest(unittest.TestCase):
     Sv = S.dot(v)
     Tv = T.dot(v)
     dbg_out = '\n\nDebugging output follows:'
+    db_out += '\nN:\n' + str(N)
     dbg_out += '\nNv: ' + str(Nv)
     dbg_out += '\nSv: ' + str(Sv)
     dbg_out += '\nTv: ' + str(Tv)
@@ -529,7 +537,9 @@ class ControllerTest(unittest.TestCase):
     # Advance time, finding a point at which contact is desired.
     dt = 1e-3
     t = 0.0
-    while True:
+    within_tolerance = True
+    fail_message = ''
+    while t <= t_final:
       # Determine whether the plan indicates contact is desired.
       if not plan.IsContactDesired(t):
         t += dt
@@ -542,12 +552,20 @@ class ControllerTest(unittest.TestCase):
       dist_thresh = 1e-6
       dist_robot_ball = self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)
       dist_ground_ball = self.controller.GetSignedDistanceFromBallToGround(self.controller_context)
-      self.assertLess(abs(dist_robot_ball), dist_thresh, msg='Robot/ball contact desired at t='+str(t)+' but signed distance is large (' + str(dist_robot_ball) + ').')
-      self.assertLess(abs(dist_ground_ball), dist_thresh, msg='Ball/ground contact desired at t='+str(t)+' but signed distance is large (' + str(dist_ground_ball) + ').')
+      if abs(dist_robot_ball) > dist_thresh:
+        within_tolerance = False
+        fail_message += 'Robot/ball contact desired at t='+str(t)+' but signed distance is large (' + str(dist_robot_ball) + ').'
+      if abs(dist_ground_ball) > dist_thresh:
+        within_tolerance = False
+        fail_message += 'Ball/ground contact desired at t='+str(t)+' but signed distance is large (' + str(dist_ground_ball) + ').'
+
+      # TODO: Delete this assertion (use the one outside of the loop) when building in release mode.
+      self.assertTrue(within_tolerance, msg=fail_message)
 
       # Update t.
       t += dt
 
+    self.assertTrue(within_tolerance, msg=fail_message)
 
 
 if __name__ == "__main__":

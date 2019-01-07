@@ -554,7 +554,7 @@ class BoxController(LeafSystem):
     for body in foot_bodies_in_robot_tree:
       if body.name() == body_A.name():
         foot_body_to_use = body
-    J_WAc = robot_tree.CalcPointsGeometricJacobianExpressedInWorld(
+    J_WAc = self.robot_plant.CalcPointsGeometricJacobianExpressedInWorld(
         self.robot_context, foot_body_to_use.body_frame(), closest_Aw)
     q_robot_des = q_robot
 
@@ -568,7 +568,7 @@ class BoxController(LeafSystem):
       # difference in configuration to a difference in velocity coordinates.
       # TODO: Explain why this is allowable.
       self.robot_plant.SetPositions(self.robot_context, q_robot)
-      dv = self.robot_plant.MapQDotToVelocity(self.robot_context, q_robot_des - q_robot, len(v_robot_des))
+      dv = self.robot_plant.MapQDotToVelocity(self.robot_context, q_robot_des - q_robot)
       vdot = np.diag(self.robot_gv_kp).dot(dv) + np.diag(self.robot_gv_kd).dot(v_robot_des - v_robot)
     else:
       vdot = np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_kd).dot(v_robot_des - v_robot)
@@ -671,7 +671,7 @@ class BoxController(LeafSystem):
     nv = self.nv_ball() + self.nv_robot()
     v = np.zeros([nv])
     dummy_ball_v = np.ones([self.nv_ball()])
-    v = self.robot_and_ball_plant.tree().SetVelocitiesInArray(self.ball_instance, dummy_ball_v, v)
+    self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, dummy_ball_v, v)
 
     # Set the velocities weighting.
     W = np.zeros([len(dummy_ball_v), nv])
