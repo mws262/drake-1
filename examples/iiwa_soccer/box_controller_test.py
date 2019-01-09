@@ -113,7 +113,7 @@ class ControllerTest(unittest.TestCase):
       frame_B_id = inspector.GetFrameId(geometry_B_id)
       body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
       body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
-      print "Contact found between " + body_A.name() + " and " + body_B.name()
+      print "Contact found between " + body_A.name() + " and " + body_B.name() + " at: " + str(i.p_WCa)
 
   # This tests the control matrix for the robot (box).
   def test_ControlMatrix(self):
@@ -324,6 +324,7 @@ class ControllerTest(unittest.TestCase):
     fext = -self.robot_plant.tree().CalcInverseDynamics(
         robot_context, np.zeros([self.controller.nv_robot()]), link_wrenches)
     vdot_robot = np.linalg.inv(M).dot(self.output.get_vector_data(0).CopyToVector() + fext)
+    dbg_out += '\nDesired robot velocity: ' + str(vdot_robot)
 
     # Get the current distance from the robot to the ball.
     old_dist = self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)
@@ -333,7 +334,7 @@ class ControllerTest(unittest.TestCase):
     # discretization to the new configuration.
     dt = 1e-3
     vnew_robot = v_robot + dt*vdot_robot
-    qd_robot = self.robot_plant.MapVelocityToQDot(robot_context, vnew_robot)
+    qd_robot = self.robot_plant.MapVelocityToQDot(robot_context, vnew_robot, len(q_robot))
     qnew_robot = q_robot + dt*qd_robot
 
     # Set the new position and velocity "estimates" of the robot.
@@ -352,10 +353,11 @@ class ControllerTest(unittest.TestCase):
 
     # Get the new distance from the box to the ball.
     new_dist = self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)
+    dbg_out += '\nOld distance: ' + str(old_dist) + ' new distance: ' +  str(new_dist)
 
     self.assertLess(new_dist, old_dist, msg=dbg_out)
 
-  # Check that Jacobian construction is correct.
+  # Check that contact Jacobian construction is correct.
   def test_JacobianConstruction(self):
     # Get the plan.
     plan = self.controller.plan
@@ -387,6 +389,7 @@ class ControllerTest(unittest.TestCase):
     # Construct the Jacobian matrices using the controller function.
     [N, S, T, Ndot, Sdot, Tdot] = self.controller.ConstructJacobians(contacts, q)
 
+    self.PrintContacts(t)
     # Set a time step.
     dt = 1e-5
 
@@ -397,12 +400,6 @@ class ControllerTest(unittest.TestCase):
     query_object = self.all_plant.EvalAbstractInput(
         robot_and_ball_context, self.controller.geometry_query_input_port.get_index()).get_value()
     inspector = query_object.inspector()
-
-    # TODO: Remove me after done testing.
-    #self.all_plant.SetVelocitiesInArray(self.controller.robot_instance, [1, 1, 0, 0, 0, 0], v)    
-    #self.all_plant.SetVelocitiesInArray(self.controller.ball_instance, [1, 1, 0, 0, 0, 0], v)
-    dbg_out += '\nVelocity: ' + str(v)
-    dbg_out += '\nQdot: ' + str(self.all_plant.MapVelocityToQDot(robot_and_ball_context, v))
 
     # Examine each point of contact.
     for i in range(len(contacts)):
@@ -430,6 +427,7 @@ class ControllerTest(unittest.TestCase):
       pdot_W = R_WC.dot(pdot_C)
 
       # Get the components of the contact point in the body frames.
+      self.all_plant.SetPositions(robot_and_ball_context, q)
       X_WA = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_A)
       X_WB = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_B)
       p_A = X_WA.inverse().multiply(point_pair.p_WCa)
@@ -439,12 +437,14 @@ class ControllerTest(unittest.TestCase):
       # approximation and the arbitrary velocity.
       qdot = self.all_plant.MapVelocityToQDot(robot_and_ball_context, v)
       qnew = q + dt*qdot
-      dbg_out += '\nq_robot (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, q))
-      dbg_out += '\nq_robot (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qnew))
-      dbg_out += '\ndt * qdot_robot: ' + str(dt * self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qdot))
-      dbg_out += '\nq_ball (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, q))
-      dbg_out += '\nq_ball (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qnew))
-      dbg_out += '\ndt * qdot_ball: ' + str(dt * self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qdot))
+      dbg_out += '\nWorld contact point on A: ' + str(point_pair.p_WCa) + '  on B: ' + str(point_pair.p_WCb)
+      dbg_out += '\nBody contact point on A: ' + str(p_A) + '  on B: ' + str(p_B)
+      dbg_out += '\nq_robot (old): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, q))
+      dbg_out += '\nq_robot (new): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qnew))
+      dbg_out += '\nqdot_robot: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qdot))
+      dbg_out += '\nq_ball (old): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, q))
+      dbg_out += '\nq_ball (new): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qnew))
+      dbg_out += '\nqdot_ball: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qdot))
       self.all_plant.SetPositions(robot_and_ball_context, qnew)
 
       # Determine the new locations of the points on the bodies. The difference
@@ -456,6 +456,8 @@ class ControllerTest(unittest.TestCase):
       # The *velocity* at a point of contact, C, measured in the global frame is
       # the limit as h -> 0 of the difference in point location between t and
       # t + h, divided by h.
+      dbg_out += '\nNew point location p_W_A: ' + str(X_WA_new.multiply(p_A))
+      dbg_out += '\nNew point location p_W_B: ' + str(X_WB_new.multiply(p_B))
       pdot_W_A_approx = (X_WA_new.multiply(p_A) - X_WA.multiply(p_A)) / dt
       pdot_W_B_approx = (X_WB_new.multiply(p_B) - X_WB.multiply(p_B)) / dt
       dbg_out += '\npdot_W_A (approx): ' + str(pdot_W_A_approx)
@@ -468,8 +470,86 @@ class ControllerTest(unittest.TestCase):
       dbg_out += '\npdot_W (true): ' + str(pdot_W) + '\n'
       self.assertLess(np.linalg.norm(pdot_W.flatten() - pdot_W_approx.flatten()), dt, msg='pdot - ~approx too large (>' + str(dt) + ')' + dbg_out)
 
+  # Checks that planned contact points are equivalent to contact points
+  # returned by the collision detector. 
+  def test_PlannedRobotBallContactsCoincidentWithCollisionDetectionPoints(self):
+    # Get the plan.
+    plan = self.controller.plan
+
+    # Advance time, finding a point at which contact is desired *and* where the
+    # robot is contacting the ball.
+    dt = 1e-3
+    t = 0.0
+    t_final = plan.end_time()
+    while t <= t_final:
+      # Set the planned q and v.
+      if plan.IsContactDesired(t):
+        q, v = self.SetStates(t)
+
+      # Look for robot/ball.
+      contacts = self.controller.FindRobotBallContacts(q)
+      if len(contacts) > 0:
+        # Get the *planned* point of contact in the world.
+        # Set the contact point to an arbitrary point in the world.
+        p = plan.GetContactKinematics(t)[0:3]
+
+        # Get the computed contact point location in the world.
+        pr_WA = contacts[0].p_WCa
+        pr_WB = contacts[0].p_WCb
+        p_true = (pr_WA + pr_WB) * 0.5
+
+        # Verify that the planned and actual contact points are collocated.
+        dist_tol = 1e-8
+        self.assertEqual(len(contacts), 1)  # How do we choose from > 1?
+        dist = np.linalg.norm(p.flatten() - p_true.flatten())
+        err_msg = 'Points are not collocated at time ' + str(t) + ', p planned: ' + str(p) + ', p from geometry engine: ' + str(p_true), 'distance: ' + str(dist)
+        self.assertLess(dist, dist_tol, msg=err_msg)
+
+      t += dt
+
+  # Check that velocity at the ball/ground contact point remains sufficiently close to zero.
+  def test_ZeroVelocityBallGroundContact(self):
+    # Get the plan.
+    plan = self.controller.plan
+
+    # Advance time, finding a point at which contact is desired *and* where the
+    # robot is contacting the ball.
+    dt = 1e-3
+    t = 0.0
+    t_final = plan.end_time()
+    while t <= t_final:
+      # Set the planned q and v.
+      if plan.IsContactDesired(t):
+        q, v = self.SetStates(t)
+
+      # Look for robot/ball.
+      contacts = self.controller.FindBallGroundContacts(q)
+      if len(contacts) > 0:
+        # Get the computed contact point location in the world.
+        pr_WA = contacts[0].p_WCa
+        pr_WB = contacts[0].p_WCb
+        p_true = (pr_WA + pr_WB) * 0.5
+
+        # Construct the Jacobian matrices using the controller function.
+        N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
+
+        # Output all contacting bodies
+        self.PrintContacts(t)
+
+        # Verify that the velocity at the contact point is approximately zero.
+        zero_velocity_tol = 1e-12
+        Nv = N.dot(v)
+        dbg_out = '\n\nDebugging output follows:'
+        dbg_out += '\nNv: ' + str(Nv)
+        self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
+        break
+
+      # No contact desired or exactly two contacts not found.
+      t += dt
+      assert t < t_final
+
   # Check that velocity at the contact point remains sufficiently close to zero.
-  def test_ZeroVelocityAtContact(self):
+  def test_ZeroVelocityAtRobotBallContact(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -486,46 +566,26 @@ class ControllerTest(unittest.TestCase):
       # Look for robot/ball.
       contacts = self.controller.FindRobotBallContacts(q)
       if len(contacts) > 0:
-        break
+        # Construct the Jacobian matrices using the controller function.
+        N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
 
-      # No contact desired or exactly two contacts not found.
+        # Output all contacting bodies
+        self.PrintContacts(t)
+
+        # Verify that the velocity at the contact points are approximately zero.
+        zero_velocity_tol = 1e-12
+        Nv = N.dot(v)
+        Sv = S.dot(v)
+        Tv = T.dot(v)
+        dbg_out = '\n\nDebugging output follows:'
+        dbg_out += '\nNv: ' + str(Nv)
+        dbg_out += '\nSv: ' + str(Sv)
+        dbg_out += '\nTv: ' + str(Tv)
+        self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
+        self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
+        self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
+
       t += dt
-      assert t < t_final
-
-    # Get the *planned* point of contact in the world.
-    # Set the contact point to an arbitrary point in the world.
-    p = plan.GetContactKinematics(t)[0:3]
-
-    # Get the computed contact point location in the world.
-    pr_WA = contacts[0].p_WCa
-    pr_WB = contacts[0].p_WCb
-    p_true = (pr_WA + pr_WB) * 0.5
-
-    # Verify that the planned and actual contact points are collocated.
-    distance_tol = 1e-5
-    self.assertEqual(len(contacts), 1)  # How do we choose from > 1?
-    self.assertLess(np.linalg.norm(p.flatten() - p_true.flatten()), distance_tol, msg='Points are not collocated at time ' + str(t) + ', p planned: ' + str(p) + ', p from geometry engine: ' + str(p_true))
-
-    # Construct the Jacobian matrices using the controller function.
-    N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
-
-    # Output all contacting bodies
-    self.PrintContacts(t)
-
-    # Verify that the velocity at the contact points are approximately zero.
-    zero_velocity_tol = 1e-12
-    Nv = N.dot(v)
-    Sv = S.dot(v)
-    Tv = T.dot(v)
-    dbg_out = '\n\nDebugging output follows:'
-    db_out += '\nN:\n' + str(N)
-    dbg_out += '\nNv: ' + str(Nv)
-    dbg_out += '\nSv: ' + str(Sv)
-    dbg_out += '\nTv: ' + str(Tv)
-    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
-    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
-    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
-
 
   # Check that the *absolute* contact distance when the plan indicates contact
   # is desired always lies below a threshold.

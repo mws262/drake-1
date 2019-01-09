@@ -14,6 +14,7 @@
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/moby_lcp_solver.h"
 #include "drake/solvers/mosek_solver.h"
+#include "drake/solvers/osqp_solver.h"
 
 namespace drake {
 namespace multibody {
@@ -2652,7 +2653,9 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
 
   // Try Gurobi first.
   solvers::GurobiSolver gurobi_solver;
-  gurobi_solver.Solve(math_program, {}, {}, &result);
+  try {
+    gurobi_solver.Solve(math_program, {}, {}, &result);
+  } catch (...) {}
   if (result.get_solution_result() == solvers::kSolutionFound) {
     return math_program.GetSolution(lambda_hat, result);    
   } else {
@@ -2664,7 +2667,9 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
   // Try again using Mosek.
   result = {};
   solvers::MosekSolver mosek_solver;
-  mosek_solver.Solve(math_program, {}, {}, &result);
+  try {
+    mosek_solver.Solve(math_program, {}, {}, &result);
+  } catch (...) {}
   if (result.get_solution_result() == solvers::kSolutionFound) {
     return math_program.GetSolution(lambda_hat, result);    
   } else {
@@ -2672,11 +2677,27 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
             "Mosek failed to find a solution: return type {}\n",
             result.get_solution_result());
   }
-
+/*
+  // Try again using Osqp.
+  result = {};
+  solvers::OsqpSolver osqp_solver;
+  try {
+    osqp_solver.Solve(math_program, {}, {}, &result);
+  } catch (...) {}
+  if (result.get_solution_result() == solvers::kSolutionFound) {
+    return math_program.GetSolution(lambda_hat, result);    
+  } else {
+    failure_string += fmt::format(
+            "Osqp failed to find a solution: return type {}\n",
+            result.get_solution_result());
+  }
+*/
   // Try again using IPOPT.
   result = {};
   solvers::IpoptSolver ipopt_solver;
-  ipopt_solver.Solve(math_program, {}, {}, &result);
+  try {
+    ipopt_solver.Solve(math_program, {}, {}, &result);
+  } catch (...) {}
   if (result.get_solution_result() == solvers::kSolutionFound) {
     return math_program.GetSolution(lambda_hat, result);    
   } else {

@@ -606,8 +606,9 @@ void Rod2D<T>::ComputeSoftProblemData(
   Bn.setOnes(nc) *= TransformDissipationToDampingAboutDeformation(
       kCharacteristicDeformation);
 
-  // Set friction direction damping.
-  Br.setOnes(nc) *= 1e13;
+  // Set friction direction damping. The smaller the step size,
+  // the smaller that this can be.
+  Br.setOnes(nc) *= 1e13 * std::pow(dt, 1.0/333);
 
   // Set k parameters.
   const auto h = dt;
@@ -629,7 +630,7 @@ Vector3<T> Rod2D<T>::ComputeGeneralizedSoftContactForces(
   ComputeSoftProblemData(state, fext, dt, &problem_data);
 
   // Solve the constraint problem.
-  const double zeta = 1e6;
+  const double zeta = 1.0 / dt;
 
   // Solve the constraint problem.
   VectorX<T> cf;

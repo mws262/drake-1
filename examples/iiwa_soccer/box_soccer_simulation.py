@@ -50,6 +50,8 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   # Finalize the plants.
   robot_plant.Finalize()
   all_plant.Finalize(scene_graph)
+  assert robot_plant.num_actuators() == 0
+  assert all_plant.num_actuators() == 0
   assert all_plant.geometry_source_is_registered()
 
   # Connect MBP and SceneGraph.
