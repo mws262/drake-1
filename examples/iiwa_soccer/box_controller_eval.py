@@ -80,12 +80,16 @@ class BoxControllerEvaluator:
 
         return [q, v]
 
-
-    def Evaluate(self, t):
+    # Evaluates the ability of the controller to deal with sliding contact
+    # between the ball and the robot. In order of preference, we want the robot
+    # to (1) regulate the desired ball deformation while reducing the slip
+    # velocity, (2) maintain contact with the ball while reducing the slip
+    # velocity, and (3) maintain contact with the ball.
+    def EvaluateSlipPerturbation(self, t):
         # Set the states.
 
-        # Perturb the relative robot/ball velocity.
-        
+        # Perturb the slip velocity.
+
         # Simulate the system forward by one controller time cycle.
 
         # Evaluate how well the controller performed.
