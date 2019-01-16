@@ -80,16 +80,99 @@ class BoxControllerEvaluator:
 
         return [q, v]
 
+    # Projects a 2D vector `v` to the (3D) plane defined by the normal `n`.
+    def ProjectFrom2DTo3D(v, n):
+
+
     # Evaluates the ability of the controller to deal with sliding contact
     # between the ball and the robot. In order of preference, we want the robot
     # to (1) regulate the desired ball deformation while reducing the slip
     # velocity, (2) maintain contact with the ball while reducing the slip
     # velocity, and (3) maintain contact with the ball.
+    # Returns a tuple with the first element being:
+    #    -1 if the ball is no longer contacting the ground,
+    #    -2 if the ball is no longer contacting the robot,
+    #     0 otherwise
+    # and the second element being the ???
     def EvaluateSlipPerturbation(self, t):
         # Set the states.
+        q, v = self.SetStates(t)
+        contacts = self.controller.FindContacts()
 
-        # Perturb the slip velocity.
+        # Ensure that the robot/ball and the ball/ground are contacting.
+        assert self.controller.IsRobotContactingBall(contacts)
+        assert self.controller.IsBallContactingGround(contacts)
+
+        # Verify that there are exactly two points of contact.
+        assert len(contacts) == 2
+
+        # Get the amount of interpenetration between the robot and the ball.
+
+        # Get the contact normal.
+        n_BA_W = point_pair.nhat_BA_W
+
+        # The slip velocity will be a two-dimensional vector. Sample from
+        # a Normal distribution.
+        slip_velocity = np.zeros([2])
+        slip_velocity[0] = np.random.normal()
+        slip_velocity[1] = np.random.normal()
+
+        # Project the 2D vector to the plane defined by the contact normal.
+        v_perturb = ProjectFrom2DTo3D(slip_velocity, n_BA_W)
+
+        # Evaluate scene graph's output port, getting a SceneGraph reference.
+        all_plant = self.controller.robot_and_ball_plant
+        all_context = self.controller.robot_and_ball_context
+        query_object = all_plant.EvalAbstractInput(all_context,
+            self.controller.geometry_query_input_port.get_index()).get_value()
+        inspector = query_object.inspector()
+
+        # Get the ball body.
+        ball_body = self.get_ball_from_robot_and_ball_plant()
+
+        # Get the contact and swap bodies (if necessary) so that body_A
+        # corresponds to the robot.
+        robot_ball_contacts = self.controller.FindRobotBallContacts(q)
+        assert len(robot_ball_contacts) == 1
+        geometry_A_id = robot_ball_contacts[0].id_A
+        geometry_B_id = robot_ball_contacts[0].id_B
+        frame_A_id = inspector.GetFrameId(geometry_A_id)
+        frame_B_id = inspector.GetFrameId(geometry_B_id)
+        body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+        body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+        if body_B != ball_body:
+            # Swap A and B.
+            body_A, body_B = body_B, body_A
+            robot_ball_contacts[0].p_WCa, robot_ball_contacts[0].p_WCb = robot_ball_contacts[0].p_WCb, robot_ball_contacts[0].p_WCa
+            robot_ball_contacts[0].nhat_BA_W *= -1
+
+        # Get the contact point in the robot frame.
+        contact_point_W = robot_ball_contacts[0].p_WCa
+        X_WA = all_plant.EvalBodyPoseInWorld(all_context, body_A)
+        contact_point_A = X_WA.inverse().multiply(contact_point_W)
+
+        # Get the contact Jacobian for the robot.
+        J_WAc = self.controller.robot_plant.CalcPointsGeometricJacobianExpressedInWorld(
+            self.controller.robot_context, body_B.body_frame(), contact_point_A)
+
+        # Use the Jacobian pseudo-inverse to transform the velocity perturbation
+        # to the change in robot generalized velocity.
+        v_robot_perturb, residuals, rank, singular_values = np.linalg.lstsq(J_WAc, v_perturb)
 
         # Simulate the system forward by one controller time cycle.
 
-        # Evaluate how well the controller performed.
+        # Get the new robot configuration.
+        contacts = self.controller.FindContacts(qnew)
+    
+        # Check whether the ball is still contacting the ground.
+        if (not self.controller.IsBallContactingGround(contacts)):
+            return [-1, 0]
+
+        # Check whether the ball and robot are still contacting.
+        if (not self.controller.IsRobotContactingBall(contacts)):
+            return [-2, 0]
+
+        # If still here, all contacts are still maintained. Compute the slip
+        # velocities for the ball/ground and ball/robot.
+
+        # Compute the change in slip velocities.
