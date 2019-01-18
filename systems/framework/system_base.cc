@@ -237,9 +237,10 @@ void SystemBase::ThrowInputPortHasWrongType(
 void SystemBase::ThrowCantEvaluateInputPort(const char* func,
                                             InputPortIndex port) const {
   throw std::logic_error(
-      fmt::format("{}: input port[{}] is neither connected nor fixed so "
-                      "cannot be evaluated. (System {})",
-                  FmtFunc(func), port, GetSystemPathname()));
+      fmt::format("{}: input port[{}] (named {}) is neither connected nor fixed"
+                      " so cannot be evaluated. (System {})",
+                  FmtFunc(func), port, get_input_port_base(port).get_name(),
+                  GetSystemPathname()));
 }
 
 }  // namespace systems

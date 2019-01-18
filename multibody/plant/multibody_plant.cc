@@ -1070,6 +1070,9 @@ void MultibodyPlant<T>::AddGeneralizedGodForces(
   // Evaluate the "God" input over each model instance.
   for (ModelInstanceIndex model_instance_index(0);
        model_instance_index < num_model_instances(); ++model_instance_index) {
+    if (num_velocities(model_instance_index) == 0)
+      continue;
+
     // Evaluate the God input.
     Eigen::VectorBlock<const VectorX<T>> god_input =
         this->EvalEigenVectorInput(context,
@@ -1500,6 +1503,8 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
        model_instance_index < num_model_instances(); ++model_instance_index) {
     const int instance_num_velocities =
         tree().num_velocities(model_instance_index);
+    if (instance_num_velocities == 0)
+      continue;
     instance_god_ports_[model_instance_index] = this->DeclareVectorInputPort(
         tree().GetModelInstanceName(model_instance_index) +
         "_god_input", systems::BasicVector<T>(

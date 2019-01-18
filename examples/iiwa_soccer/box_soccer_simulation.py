@@ -1,11 +1,13 @@
 #  Kuka iiwa plays soccer. Wow!
 
+import trace
 import argparse
 import numpy as np
 from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
-Multiplexer, LcmPublisherSystem, MobilizerIndex, ConstantVectorSource, Isometry3, Quaternion)
+Multiplexer, LcmPublisherSystem, MobilizerIndex, ConstantVectorSource,
+Isometry3, Quaternion, Parser)
 from box_controller import BoxController
 
 robot_model_name = "box_model"
@@ -31,6 +33,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   # Construct a multibody plant just for kinematics/dynamics calculations.
   robot_plant = MultibodyPlant(mbp_step_size)
   AddModelFromSdfFile(file_name=arm_fname, plant=robot_plant)
+  #Parser(plant=robot_plant).AddModelFromFile(file_name=arm_fname)
 
   # Construct the multibody plant using both the robot and ball models.
   all_plant = mbw_builder.AddSystem(MultibodyPlant(mbp_step_size))
@@ -39,6 +42,8 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   ball_instance_id = AddModelFromSdfFile(file_name=ball_fname, plant=all_plant,
                                          scene_graph=scene_graph)
   AddModelFromSdfFile(file_name=ground_fname, plant=all_plant, scene_graph=scene_graph)
+  #robot_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=arm_fname)
+  #ball_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=ball_fname)
 
   # Weld the ground to the world.
   all_plant.WeldFrames(all_plant.world_frame(), all_plant.GetFrameByName("ground_body"))
@@ -136,7 +141,6 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
 
   return [ controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance ]
 
-
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument(
@@ -146,7 +150,7 @@ def main():
       "--target_realtime_rate", type=float, default=1.0,
       help="Desired rate relative to real time.  See documentation for "
            "Simulator::set_target_realtime_rate() for details.")
-  parser.add_argument(        "--time_step", type=float, default=0.,
+  parser.add_argument(        "--time_step", type=float, default=0.01,
       help="If greater than zero, the plant is modeled as a system with "
            "discrete updates and period equal to this time_step. "
            "If 0, the plant is modeled as a continuous system.")
@@ -166,9 +170,9 @@ def main():
 
   # Joint gains for the robot.
   nv_robot = 6
-  robot_gv_kp = np.ones([nv_robot, 1]) * 10
-  robot_gv_ki = np.ones([nv_robot, 1]) * 0.1
-  robot_gv_kd = np.ones([nv_robot, 1]) * 1.0
+  robot_gv_kp = np.ones([nv_robot]) * 10
+  robot_gv_ki = np.ones([nv_robot]) * 0.1
+  robot_gv_kd = np.ones([nv_robot]) * 1.0
 
   controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance = BuildBlockDiagram(args.time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
 
@@ -179,20 +183,20 @@ def main():
   # Set the initial conditions, according to the plan.
   context = simulator.get_mutable_context()
 
-  # Set the robot and ball state to the initial one in the plan.
+  # Set the robot and ball state to the one at the specified time in the plan.
   mbw_context = diagram.GetMutableSubsystemContext(mbw, context)
   robot_and_ball_context = mbw.GetMutableSubsystemContext(all_plant, mbw_context)
   plan = controller.plan
-  t0 = 0
-  x_robot = plan.GetRobotQVAndVdot(t0)[0:controller.nq_robot()+controller.nv_robot()]
-  x_ball = plan.GetBallQVAndVdot(t0)[0:controller.nq_ball()+controller.nv_ball()]
+  x_robot = plan.GetRobotQVAndVdot(0)[0:controller.nq_robot()+controller.nv_robot()]
+  x_ball = plan.GetBallQVAndVdot(0)[0:controller.nq_ball()+controller.nv_ball()]
   all_plant.SetPositionsAndVelocities(robot_and_ball_context, robot_instance, x_robot)
   all_plant.SetPositionsAndVelocities(robot_and_ball_context, ball_instance, x_ball)
 
+  # Step to the time.
   simulator.Initialize()
   simulator.StepTo(args.simulation_time)
-  simulator.StepTo(.1)
 
 if __name__ == "__main__":
+  #tracer = trace.Trace(trace=1, count=0)
+  #tracer.run('main()')
   main()
-

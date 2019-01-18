@@ -3,6 +3,7 @@ import numpy as np
 from manipulation_plan import ManipulationPlan
 
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType, BasicVector, MultibodyForces)
+from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
   def __init__(self, robot_type, all_plant, robot_plant, mbw, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance, ball_instance):
@@ -230,7 +231,7 @@ class BoxController(LeafSystem):
     all_plant = self.robot_and_ball_plant
 
     # Get the numbers of contacts and generalized velocities.
-    nc = len(contacts) 
+    nc = len(contacts)
 
     # Set the number of generalized velocities.
     nv = all_plant.num_velocities()
@@ -324,7 +325,7 @@ class BoxController(LeafSystem):
     # Set qddot_robot_des using error feedback.
     qddot = qddot_robot_des + np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_ki).diag(get_integral_value(context)) + np.diag(self.robot_gv_kd).dot(qdot_robot_des - qd_robot)
 
-    # Set the state in the robot context to q_robot and qd_robot. 
+    # Set the state in the robot context to q_robot and qd_robot.
     x = self.robot_plant.tree().get_mutable_multibody_state_vector(
       robot_context)
     assert len(x) == len(q_robot) + len(qd_robot)
@@ -698,6 +699,15 @@ class BoxController(LeafSystem):
     rhs[0:nprimal] = -c
     rhs[nprimal:nprimal+ndual] = b
 
+    print 'H: '
+    print H
+    print 'A: '
+    print A
+    print 'c: '
+    print c
+    print 'b: '
+    print b
+
     # Solve the KKT system.
     z, residuals, rank, singular_values = np.linalg.lstsq(K, rhs)
 
@@ -725,9 +735,9 @@ class BoxController(LeafSystem):
 
     # Add the same row outputs to the Gb_transpose_mult(.) operator.
 
-    # Update stiffness and damping coefficients Kb and Bb.   
+    # Update stiffness and damping coefficients Kb and Bb.
 
-    # Update phi_b0 and dotphi_b0 terms by altering kB. 
+    # Update phi_b0 and dotphi_b0 terms by altering kB.
 
     # Solve the constraint problem.
 
@@ -839,13 +849,22 @@ class BoxController(LeafSystem):
     # Compute the linear terms.
     c = D.T.dot(iM.dot(P.T).dot(-vdot_ball_des + P.dot(iM.dot(fext))))
 
-    # Set the affine constraint matrix.
-    A = N.dot(iM.dot(D))
-    b = -N.dot(iM.dot(fext)) - Ndot_v
-    assert len(b) == ndual
+    # Set the affine constraint matrix. Note: for this method to work, contact
+    # forces must be non-negative.
+    A = np.zeros([nc*2, nprimal])
+    b = np.zeros([nc*2, 1])
+    A[0:nc,:] = N.dot(iM.dot(D))
+    A[nc:, -nc:] = np.eye(nc)
+    b[0:nc] = -N.dot(iM.dot(fext)) - Ndot_v
 
-    # Setup and solve the KKT system.
-    z, K, rhs = self.ConstructAndSolveKKTSystem(nprimal, ndual, H, A, c, b)
+    # Solve the QP.
+    prog = mathematicalprogram.MathematicalProgram()
+    vars = prog.NewContinuousVariables(len(c), "vars")
+    prog.AddQuadraticCost(H, c, vars)
+    prog.AddLinearConstraint(A, b, np.ones([len(b), 1]) * 1e8, vars)
+    result = prog.Solve()
+    assert result == mathematicalprogram.SolutionResult.kSolutionFound
+    z = prog.GetSolution(vars)
 
     # Get the actuation forces and the contact forces.
     f_act = z[0:B_cols]
@@ -883,7 +902,7 @@ class BoxController(LeafSystem):
 
     # Compute the contribution from force elements.
     link_wrenches = MultibodyForces(all_plant.tree())
- 
+
     # Compute the external forces.
     fext = -all_plant.tree().CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
     fext = np.reshape(fext, [len(v), 1])
@@ -920,7 +939,7 @@ class BoxController(LeafSystem):
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
-    assert np.min(f_contact_n) >= -1e-8
+    assert np.min(f_contact_n) >= -1e-1
 
     # Compute the generalized contact forces.
     if self.controller_type == 'NoFrictionalForcesApplied':
@@ -1080,6 +1099,35 @@ class BoxController(LeafSystem):
 
     return contacts
 
+  # Determines whether the ball and the ground are in contact.
+  def IsBallContactingGround(self, contacts):
+    # Get the ball and ground bodies.
+    ball_body = self.get_ball_from_robot_and_ball_plant()
+    ground_body = self.get_ground_from_robot_and_ball_plant()
+
+    # Make sorted pairs to check.
+    ball_ground_pair = self.MakeSortedPair(ball_body, ground_body)
+
+    # Evaluate scene graph's output port, getting a SceneGraph reference.
+    query_object = self.robot_and_ball_plant.EvalAbstractInput(
+      self.robot_and_ball_context,
+      self.geometry_query_input_port.get_index()).get_value()
+    inspector = query_object.inspector()
+
+    for contact in contacts:
+      geometry_A_id = contact.id_A
+      geometry_B_id = contact.id_B
+      frame_A_id = inspector.GetFrameId(geometry_A_id)
+      frame_B_id = inspector.GetFrameId(geometry_B_id)
+      body_A = self.robot_and_ball_plant.GetBodyFromFrameId(frame_A_id)
+      body_B = self.robot_and_ball_plant.GetBodyFromFrameId(frame_B_id)
+      body_A_B_pair = self.MakeSortedPair(body_A, body_B)
+      if body_A_B_pair == ball_ground_pair:
+        return True
+
+    # No contact found.
+    return False
+
   # Determines whether the ball and the robot are in contact.
   def IsRobotContactingBall(self, contacts):
     # Get the ball body and foot bodies.
@@ -1142,12 +1190,12 @@ class BoxController(LeafSystem):
     output_vec[:] = tau.flatten()
 
 
-  def DoCalcTimeDerivatives(self, context, derivatives):
+  def _DoCalcTimeDerivatives(self, context, derivatives):
     # Determine whether we're in a contacting or not-contacting phase.
     contact_intended = self.plan.IsContactDesired(context.get_time())
 
     if contact_intended:
-      derivatives.get_mutable_vector().SetFromVector(np.zeros([nv_robot(), 1]))
+      derivatives.get_mutable_vector().SetFromVector(np.zeros([self.nq_robot()]))
     else:
       # Get the desired robot configuration.
       q_robot_des = self.plan.GetRobotQVAndVdot(
