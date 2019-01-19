@@ -213,6 +213,9 @@ class BoxControllerEvaluator:
         plan = self.controller.plan
         t_final = plan.end_time()
 
+        # Open file for writing.
+        handle = open('slip_eval.dat', 'w')
+
         # Advance time, finding a point at which contact is desired.
         dt = 1e-3
         t = 0.0
@@ -233,11 +236,15 @@ class BoxControllerEvaluator:
                 continue
 
             # Evaluate.
-            print self.EvaluateSlipPerturbationAtTime(t)
+            output = self.EvaluateSlipPerturbationAtTime(t)
+            handle.write(str(t) + ': ' + str(output[0]) + ' ' + str(output[1]) + '\n')
+            handle.flush()
 
             # Update t.
             t += dt
 
+        # Close the file- all done!
+        handle.close();
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
