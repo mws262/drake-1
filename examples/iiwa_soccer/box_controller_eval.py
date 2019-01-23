@@ -88,6 +88,53 @@ class BoxControllerEvaluator:
         P = R[:,0:2]
         return P.dot(v)
 
+    # Evaluates the ability of the controller to regulate the ball acceleration
+    # as the ball and robot remain in contact.
+    def EvaluateContactTrackingPerformanceAtTime(self, t):
+        # Set the states.
+        q, v = self.SetStates(t)
+        contacts = self.controller.FindContacts(q)
+
+        # Ensure that the robot/ball and the ball/ground are contacting.
+        assert self.controller.IsRobotContactingBall(contacts)
+        assert self.controller.IsBallContactingGround(contacts)
+
+        # Verify that there are exactly two points of contact.
+        assert len(contacts) == 2
+
+        # Prepare to simulate the system forward by one controller time cycle, using time and
+        # configuration set from time t and the newly perturbed configuration.
+        all_plant = self.controller.robot_and_ball_plant
+        all_context = self.controller.robot_and_ball_context
+        simulator = Simulator(self.diagram)
+        simulator.set_publish_every_time_step(True)
+        context = simulator.get_mutable_context()
+        mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, context)
+        robot_and_ball_context = self.mbw.GetMutableSubsystemContext(all_plant, mbw_context)
+        plan = self.controller.plan
+        context.set_time(t)
+        robot_and_ball_state = robot_and_ball_context.get_mutable_state()
+        robot_and_ball_state = all_context.get_state()
+
+        # Step the simulation forward in time.
+        dt = 1e-5
+        print v
+        simulator.StepTo(t + dt)
+
+        # Get the new velocities.
+        vnew = all_plant.GetVelocities(robot_and_ball_context)
+
+        # Approximate the acceleration, and get the ball acceleration out.
+        vdot_approx = (vnew - v) / dt
+        vdot_approx_ball = all_plant.GetVelocitiesFromArray(self.controller.ball_instance, vdot_approx)
+
+        # Compare against the desired acceleration for the ball at this time.
+        vdot_des_ball = self.controller.plan.GetBallQVAndVdot(t)[-6:]
+        print 'Vdot: ' + str(vdot_approx_ball)
+        print 'Vdot (des): ' + str(vdot_des_ball)
+        return np.linalg.norm(vdot_des_ball - vdot_approx_ball)
+
+
     # Evaluates the ability of the controller to deal with sliding contact
     # between the ball and the robot. In order of preference, we want the robot
     # to (1) regulate the desired ball deformation while reducing the slip
@@ -205,7 +252,6 @@ class BoxControllerEvaluator:
         new_slip_norm = np.linalg.norm([np.linalg.norm(Sv), np.linalg.norm(Tv)])
         return [0, new_slip_norm / np.linalg.norm(slip_velocity)]
 
-
     # Evaluates the ability of the controller to deal with slip at all points in
     # time.
     def EvaluateSlipPerturbation(self):
@@ -246,6 +292,47 @@ class BoxControllerEvaluator:
         # Close the file- all done!
         handle.close();
 
+    # Evaluates the ability of the controller to track the desired position
+    # and velocity for when the robot and ball are supposed to remain in contact.
+    def EvaluateContactTrackingPerformance(self):
+        # Get the plan.
+        plan = self.controller.plan
+        t_final = plan.end_time()
+
+        # Open file for writing.
+        handle = open('ball_tracking.dat', 'w')
+
+        # Advance time, finding a point at which contact is desired.
+        dt = 1e-3
+        t = 0.0
+        while t <= t_final:
+            # Determine whether the plan indicates contact is desired.
+            if not plan.IsContactDesired(t):
+                t += dt
+                continue
+
+            # Get the contacts.
+            q, v = self.SetStates(t)
+            contacts = self.controller.FindContacts(q)
+
+            # Verify that the robot is contacting the ball.
+            if (not self.controller.IsRobotContactingBall(contacts)):
+                print 'Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.'
+                t += dt
+                continue
+
+            # Evaluate.
+            output = self.EvaluateContactTrackingPerformanceAtTime(t)
+            handle.write(str(t) + ': ' + str(output[0]) + ' ' + str(output[1]) + '\n')
+            handle.flush()
+
+            # Update t.
+            t += dt
+
+        # Close the file- all done!
+        handle.close();
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--time_step", type=float, default=0.,
@@ -272,8 +359,8 @@ def main():
 
     # Construct and run the evaluator.
     bce = BoxControllerEvaluator(args.time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
-    bce.EvaluateSlipPerturbation()
-
+    #bce.EvaluateSlipPerturbation()
+    bce.EvaluateContactTrackingPerformance()
 
 if __name__ == "__main__":
     main()
