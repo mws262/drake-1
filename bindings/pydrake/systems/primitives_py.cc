@@ -87,8 +87,23 @@ PYBIND11_MODULE(primitives, m) {
     DefineTemplateClassWithDefault<ConstantVectorSource<T>, LeafSystem<T>>(
         m, "ConstantVectorSource", GetPyParam<T>(), doc.ConstantValueSource.doc)
         .def(py::init<VectorX<T>>(), py::arg("source_value"),
-            doc.ConstantValueSource.ctor.doc_3);
-
+            doc.ConstantValueSource.ctor.doc_3)
+        .def("get_source_value",
+            [](const ConstantVectorSource<T>* self,
+                const Context<T>& context) -> const BasicVector<T>& {
+              return self->get_source_value(context);
+            },
+            py_reference_internal,
+            py::arg("context"),
+            doc.ConstantVectorSource.get_source_value.doc)
+        .def("get_mutable_source_value",
+            [](ConstantVectorSource<T>* self,
+                Context<T>* context) -> BasicVector<T>& {
+              return self->get_mutable_source_value(context);
+            },
+            py_reference_internal,
+            py::arg("context"),
+            doc.ConstantVectorSource.get_mutable_source_value.doc);
     DefineTemplateClassWithDefault<Demultiplexer<T>, LeafSystem<T>>(
         m, "Demultiplexer", GetPyParam<T>(), doc.Demultiplexer.doc)
         .def(py::init<int, int>(), py::arg("size"),

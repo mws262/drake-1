@@ -1,6 +1,7 @@
 # TODO: turn this system into an actual discrete system (estimated time required: 30m)
 import numpy as np
 from manipulation_plan import ManipulationPlan
+from embedded_box_soccer_sim import EmbeddedSimulation
 
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType, BasicVector, MultibodyForces)
 from pydrake.solvers import mathematicalprogram
@@ -26,7 +27,7 @@ class BoxController(LeafSystem):
     self.mbw = mbw
 
     # Set the controller type.
-    self.controller_type = 'NoFrictionalForcesApplied'
+    self.controller_type = 'NoSlip'
 
     if robot_type == 'box':
       self.command_output_size = self.robot_plant.num_velocities()
@@ -807,6 +808,79 @@ class BoxController(LeafSystem):
     return [f_act, f_contact, z[0:nprimal], D, P, B]
 
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
+  # using a "learned" dynamics model.
+  def ComputeContactControlMotorTorquesUsingLearnedDynamics(self, iM, fext, vdot_ball_des):
+    # Construct the actuation and weighting matrices.
+    B = self.ConstructRobotActuationMatrix()
+    P = self.ConstructBallVelocityWeightingMatrix()
+
+    # Primal variables are motor torques and accelerations.
+    nv, nu = B.shape
+    nprimal = nu + nv
+
+    # Primal variables are motor torques and contact force magnitudes.
+    B_rows, B_cols = B.shape
+    nc = len(Ndot_v)
+    nprimal = B_cols + nc
+    nv = B_rows
+
+    # Initialize epsilon.
+    epsilon = np.zeros([nv, 1])
+
+    # Construct the Hessian matrix and linear term.
+    H = P.T.dot(P)
+    c = -P.T.dot(vdot_ball_des)
+
+    # Construct the equality constraint matrix.
+    M = iM.I
+    A = np.zeros([nv, nv + nu])
+    A[:,0:nc] = M
+    A[:,nc:] = -B
+
+    # Build the embedded simulation, if necessary.
+    if self.embedded_sim is None:
+        # TODO: Build it!
+
+    # TODO: Get the current system velocity.
+
+    while True:
+      # Compute b.
+      b = fext + epsilon
+
+      # Solve the QP.
+      prog = mathematicalprogram.MathematicalProgram()
+      vars = prog.NewContinuousVariables(len(c), "vars")
+      prog.AddQuadraticCost(H, c, vars)
+      prog.AddLinearConstraint(A, b, b, vars)
+      result = prog.Solve()
+      assert result == mathematicalprogram.SolutionResult.kSolutionFound
+      z = prog.GetSolution(vars)
+      u = z[:-nv]
+
+      # Update the state in the embedded simulation.
+
+      # Apply the controls to the embedded simulation.
+      self.embedded_sim.ApplyControls(u)
+
+      # Simulate the system forward in time.
+
+      # Get the new system velocity.
+
+      # Compute the estimated acceleration.
+      vdot_approx = (vnew - v) / self.embedded_sim.delta_t
+
+      # Compute delta-epsilon.
+      delta_epsilon = M.dot(vdot_approx) - fext - B.dot(u) - epsilon
+
+      # If delta-epsilon is sufficiently small, quit.
+      if delta_epsilon < 1e-6:
+        break
+
+      # Update epsilon.
+      epsilon += delta_epsilon
+
+
+  # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # under the requirement that no tangential forces are applied- the robot
   # can only apply "normal" forces.
   # iM: the inverse of the joint robot/ball generalized inertia matrix
@@ -828,10 +902,6 @@ class BoxController(LeafSystem):
     nc = len(Ndot_v)
     nprimal = B_cols + nc
     nv = B_rows
-
-    # Dual variables (Lagrange multipliers) correspond to number of linear
-    # constraint equations.
-    ndual = nc
 
     # Construct the matrices necessary to construct the Hessian.
     N_rows, N_cols = N.shape
