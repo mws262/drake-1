@@ -676,7 +676,7 @@ void init_multibody_plant(py::module m) {
              },
              py::arg("context"), py::arg("frame_F"),
              py::arg("p_WQ_list") = Vector3<T>::Zero().eval(),
-             doc.MultibodyPlant.CalcPointsGeometricJacobianExpressedInWorld.doc_4args)
+             doc.MultibodyPlant.CalcPointsGeometricJacobianExpressedInWorld.doc)
         .def("CalcJacobianSpatialVelocity",
             [](const Class* self, const systems::Context<T>& context,
                 JacobianWrtVariable with_respect_to, const Frame<T>& frame_B,

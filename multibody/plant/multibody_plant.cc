@@ -1108,7 +1108,7 @@ void MultibodyPlant<T>::AddGeneralizedGodForces(
 
     // Incorporate it into MultibodyForces.
     tau_instance.setZero();
-    tree().SetVelocitiesInArray(model_instance_index, god_input, &tau_instance);
+    SetVelocitiesInArray(model_instance_index, god_input, &tau_instance);
     tau += tau_instance;
   }
 }
@@ -1534,11 +1534,11 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
   for (ModelInstanceIndex model_instance_index(0);
        model_instance_index < num_model_instances(); ++model_instance_index) {
     const int instance_num_velocities =
-        tree().num_velocities(model_instance_index);
+        num_velocities(model_instance_index);
     if (instance_num_velocities == 0)
       continue;
     instance_god_ports_[model_instance_index] = this->DeclareVectorInputPort(
-        tree().GetModelInstanceName(model_instance_index) +
+        GetModelInstanceName(model_instance_index) +
         "_god_input", systems::BasicVector<T>(
             instance_num_velocities)).get_index();
     }

@@ -87,7 +87,7 @@ PYBIND11_MODULE(primitives, m) {
     DefineTemplateClassWithDefault<ConstantVectorSource<T>, LeafSystem<T>>(
         m, "ConstantVectorSource", GetPyParam<T>(), doc.ConstantValueSource.doc)
         .def(py::init<VectorX<T>>(), py::arg("source_value"),
-            doc.ConstantValueSource.ctor.doc_3)
+            doc.ConstantValueSource.ctor.doc)
         .def("get_source_value",
             [](const ConstantVectorSource<T>* self,
                 const Context<T>& context) -> const BasicVector<T>& {
