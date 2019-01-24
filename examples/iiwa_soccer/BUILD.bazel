@@ -229,4 +229,22 @@ drake_py_binary(
     ],
 )
 
+drake_py_binary(
+    name = "box_controller_eval",
+    srcs = [
+        "box_controller_eval.py",
+        "box_controller.py",
+        "manipulation_plan.py",
+    ],
+    add_test_rule = 1,
+    data = [
+        ":models",
+        "//examples/contact_model:bowling_ball",
+        ":plan",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
 

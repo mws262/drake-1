@@ -113,12 +113,13 @@ class BoxControllerEvaluator:
         robot_and_ball_context = self.mbw.GetMutableSubsystemContext(all_plant, mbw_context)
         plan = self.controller.plan
         context.set_time(t)
-        robot_and_ball_state = robot_and_ball_context.get_mutable_state()
-        robot_and_ball_state = all_context.get_state()
+        all_plant.SetPositions(robot_and_ball_context, q)
+        all_plant.SetVelocities(robot_and_ball_context, v)
+        assert np.linalg.norm(all_plant.GetVelocities(robot_and_ball_context) - v) < 1e-10
+        assert np.linalg.norm(all_plant.GetPositions(robot_and_ball_context) - q) < 1e-10
 
         # Step the simulation forward in time.
         dt = 1e-5
-        print v
         simulator.StepTo(t + dt)
 
         # Get the new velocities.
@@ -130,8 +131,8 @@ class BoxControllerEvaluator:
 
         # Compare against the desired acceleration for the ball at this time.
         vdot_des_ball = self.controller.plan.GetBallQVAndVdot(t)[-6:]
-        print 'Vdot: ' + str(vdot_approx_ball)
-        print 'Vdot (des): ' + str(vdot_des_ball)
+        #print 'Vdot: ' + str(vdot_approx_ball)
+        #print 'Vdot (des): ' + str(vdot_des_ball)
         return np.linalg.norm(vdot_des_ball - vdot_approx_ball)
 
 
@@ -323,7 +324,7 @@ class BoxControllerEvaluator:
 
             # Evaluate.
             output = self.EvaluateContactTrackingPerformanceAtTime(t)
-            handle.write(str(t) + ': ' + str(output[0]) + ' ' + str(output[1]) + '\n')
+            handle.write(str(t) + ': ' + str(output) + '\n')
             handle.flush()
 
             # Update t.
