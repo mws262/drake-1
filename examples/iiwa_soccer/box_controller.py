@@ -26,7 +26,7 @@ class BoxController(LeafSystem):
     self.mbw = mbw
 
     # Set the controller type.
-    self.controller_type = 'NoFrictionalForcesApplied'
+    self.controller_type = 'NoSlip'#'NoFrictionalForcesApplied'
 
     if robot_type == 'box':
       self.command_output_size = self.robot_plant.num_velocities()
@@ -762,20 +762,15 @@ class BoxController(LeafSystem):
     P = self.ConstructBallVelocityWeightingMatrix()
 
     # Primal variables are motor torques and contact force magnitudes.
-    B_rows, B_cols = B.shape
+    nv, nu = B.shape
     ncontact_variables = len(Zdot_v)
     nc = ncontact_variables/3
-    nprimal = B_cols + ncontact_variables
-    nv = B_rows
-
-    # Dual variables (Lagrange multipliers) correspond to number of linear
-    # constraint equations.
-    ndual = ncontact_variables
+    nprimal = nu + ncontact_variables
 
     # Construct the matrices necessary to construct the Hessian.
     Z_rows, Z_cols = Z.shape
     D = np.zeros([nv, nprimal])
-    D[0:B_rows, 0:B_cols] = B
+    D[0:nv, 0:nu] = B
     D[-Z_cols:, -Z_rows:] = Z.T
 
     # Set the Hessian matrix for the QP.
@@ -789,16 +784,26 @@ class BoxController(LeafSystem):
     c = D.T.dot(iM.dot(P.T).dot(-vdot_ball_des + P.dot(iM.dot(fext))))
 
     # Set the affine constraint matrix.
-    A = Z.dot(iM.dot(D))
-    b = -Z.dot(iM.dot(fext)) - Zdot_v
-    assert len(b) == ndual
+    A = np.zeros([nc*4, nprimal])
+    A[0:nc*3, :] = Z.dot(iM.dot(D))
+    A[nc*3:, nu:nu+nc] = np.eye(nc)    # Constraint normal forces to be non-negative.
+    b = np.zeros([nc*4, 1])
+    b[0:nc*3] = -Z.dot(iM.dot(fext)) - Zdot_v
 
-    # Setup and solve the KKT system.
-    z, K, rhs = self.ConstructAndSolveKKTSystem(nprimal, ndual, H, A, c, b)
+    # Solve the QP.
+    prog = mathematicalprogram.MathematicalProgram()
+    vars = prog.NewContinuousVariables(len(c), "vars")
+    prog.AddQuadraticCost(H, c, vars)
+    prog.AddLinearConstraint(A, b, np.ones([len(b), 1]) * 1e8, vars)
+    result = prog.Solve()
+    assert result == mathematicalprogram.SolutionResult.kSolutionFound
+    z = prog.GetSolution(vars)
 
     # Get the actuation forces and the contact forces.
-    f_act = z[0:B_cols]
-    f_contact = z[B_cols:nprimal]
+    f_act = z[0:nu]
+    f_contact = z[nu:nprimal]
+
+    print 'Frictional forces: ' + str(f_contact[nc:])
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
@@ -849,8 +854,7 @@ class BoxController(LeafSystem):
     # Compute the linear terms.
     c = D.T.dot(iM.dot(P.T).dot(-vdot_ball_des + P.dot(iM.dot(fext))))
 
-    # Set the affine constraint matrix. Note: for this method to work, contact
-    # forces must be non-negative.
+    # Set the affine constraint matrix.
     A = np.zeros([nc*2, nprimal])
     b = np.zeros([nc*2, 1])
     A[0:nc,:] = N.dot(iM.dot(D))
@@ -921,10 +925,10 @@ class BoxController(LeafSystem):
     Z[-nc:,:] = T
 
     # Set the time-derivatives of the Jacobians times the velocity.
-    Zdot_v = np.zeros([nc * 3])
-    Zdot_v[0:nc] = Ndot_v[:,0]
-    Zdot_v[nc:2*nc] = Sdot_v[:, 0]
-    Zdot_v[-nc:] = Tdot_v[:, 0]
+    Zdot_v = np.zeros([nc * 3, 1])
+    Zdot_v[0:nc,0] = Ndot_v[:,0]
+    Zdot_v[nc:2*nc,0] = Sdot_v[:, 0]
+    Zdot_v[-nc:,0] = Tdot_v[:, 0]
 
     # Compute torques without applying any tangential forces.
     if self.controller_type == 'NoFrictionalForcesApplied':
