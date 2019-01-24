@@ -127,6 +127,7 @@ class BoxControllerEvaluator:
 
         # Approximate the acceleration, and get the ball acceleration out.
         vdot_approx = (vnew - v) / dt
+        print vdot_approx
         vdot_approx_ball = all_plant.GetVelocitiesFromArray(self.controller.ball_instance, vdot_approx)
 
         # Compare against the desired acceleration for the ball at this time.

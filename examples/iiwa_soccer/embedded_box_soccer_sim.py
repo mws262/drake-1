@@ -18,7 +18,18 @@ ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
 class EmbeddedSim:
 
-  def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd):
+  def __init__(self, dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd):
+      self.delta_t = dt
+      self.control_input, self.diagram, self.all_plant, self.mbw, robot_instance, ball_instance = self.BuildBlockDiagram(dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+
+      self.simulator = Simulator(self.diagram)
+      self.simulator.set_publish_every_time_step(True)
+
+      # Set the initial conditions, according to the plan.
+      self.context = self.simulator.get_mutable_context()
+
+  # Constructs the necessary block diagram.
+  def BuildBlockDiagram(self, mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd):
     # Construct DiagramBuilder objects for both "MultibodyWorld" and the total
     # diagram (comprising all systems).
     builder = DiagramBuilder()
@@ -43,7 +54,6 @@ class EmbeddedSim:
 
     # Add gravity to the models.
     all_plant.AddForceElement(UniformGravityFieldElement([0, 0, -9.81]))
-    robot_plant.AddForceElement(UniformGravityFieldElement([0, 0, -9.81]))
 
     # Finalize the plants.
     all_plant.Finalize(scene_graph)
@@ -92,7 +102,7 @@ class EmbeddedSim:
     builder.Connect(control_input.get_output_port(0), mbw.get_input_port(robot_god_input))
 
     # Construct a constant source to "plug" the ball God input.
-    zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([controller.nv_ball()])))
+    zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([nv_ball])))
     builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
 
     # Build the diagram.
@@ -100,38 +110,31 @@ class EmbeddedSim:
 
     return [ control_input, diagram, all_plant, mbw, robot_instance, ball_instance ]
 
+
   def ApplyControls(self, u):
-    control_input.get_mutable_source_value().SetFromVector(u)
+      control_context = self.diagram.GetMutableSubsystemContext(self.control_input, self.context)
+      self.control_input.get_mutable_source_value(control_context).SetFromVector(u)
 
-  def StepEmbeddedSimulation(self, dt):
+  def UpdateTime(self, t):
+      self.context.set_time(t)
+
+  def GetPlantVelocities(self):
+      mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, self.context)
+      robot_and_ball_context = self.mbw.GetMutableSubsystemContext(self.all_plant, mbw_context)
+      return self.all_plant.GetVelocities(robot_and_ball_context)
+
+  def UpdatePlantPositions(self, q):
+      mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, self.context)
+      robot_and_ball_context = self.mbw.GetMutableSubsystemContext(self.all_plant, mbw_context)
+      self.all_plant.SetPositions(robot_and_ball_context, q)
+
+  def UpdatePlantVelocities(self, v):
+      mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, self.context)
+      robot_and_ball_context = self.mbw.GetMutableSubsystemContext(self.all_plant, mbw_context)
+      self.all_plant.SetVelocities(robot_and_ball_context, v)
+
+  def StepEmbeddedSimulation(self):
+      self.simulator.Initialize()
+      self.simulator.StepTo(self.context.get_time() + self.delta_t)
 
 
-  def ConstructEmbeddedSimulation(self, dt):
-
-    self.delta_t = dt
-    self.control_input, self.diagram, self.all_plant, mbw, robot_instance, ball_instance = BuildBlockDiagram(dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
-
-    self.simulator = Simulator(diagram)
-    self.simulator.set_publish_every_time_step(True)
-    self.simulator.set_target_realtime_rate(args.target_realtime_rate)
-
-    # Set the initial conditions, according to the plan.
-  context = simulator.get_mutable_context()
-
-  # Set the robot and ball state to the one at the specified time in the plan.
-  mbw_context = diagram.GetMutableSubsystemContext(mbw, context)
-  robot_and_ball_context = mbw.GetMutableSubsystemContext(all_plant, mbw_context)
-  plan = controller.plan
-  x_robot = plan.GetRobotQVAndVdot(0)[0:controller.nq_robot()+controller.nv_robot()]
-  x_ball = plan.GetBallQVAndVdot(0)[0:controller.nq_ball()+controller.nv_ball()]
-  all_plant.SetPositionsAndVelocities(robot_and_ball_context, robot_instance, x_robot)
-  all_plant.SetPositionsAndVelocities(robot_and_ball_context, ball_instance, x_ball)
-
-  # Step to the time.
-  simulator.Initialize()
-  simulator.StepTo(args.simulation_time)
-
-if __name__ == "__main__":
-  #tracer = trace.Trace(trace=1, count=0)
-  #tracer.run('main()')
-  main()
