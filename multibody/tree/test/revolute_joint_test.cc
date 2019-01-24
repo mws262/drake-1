@@ -18,6 +18,14 @@ const double kEpsilon = std::numeric_limits<double>::epsilon();
 using Eigen::Vector3d;
 using systems::Context;
 
+constexpr double kPositionLowerLimit = -1.0;
+constexpr double kPositionUpperLimit = 1.5;
+constexpr double kVelocityLowerLimit = -1.1;
+constexpr double kVelocityUpperLimit = 1.6;
+constexpr double kAccelerationLowerLimit = -1.2;
+constexpr double kAccelerationUpperLimit = 1.7;
+constexpr double kDamping = 3;
+
 class RevoluteJointTest : public ::testing::Test {
  public:
   // Creates a DoublePendulumModel class with an underlying MultibodyTree model
@@ -28,34 +36,43 @@ class RevoluteJointTest : public ::testing::Test {
     const SpatialInertia<double> M_B;  // Default construction is ok for this.
 
     // Create an empty model.
-    auto model = std::make_unique<MultibodyTree<double>>();
+    auto model = std::make_unique<internal::MultibodyTree<double>>();
 
     // Add some bodies so we can add joints between them:
     body1_ = &model->AddBody<RigidBody>(M_B);
 
     // Add a revolute joint between the world and body1:
-    const double lower_limit = -1.0;
-    const double upper_limit = 1.5;
-    const double damping = 3.0;
     joint1_ = &model->AddJoint<RevoluteJoint>(
-        "Joint1",
-        model->world_body(), {}, *body1_, {},
-        Vector3d::UnitZ(), lower_limit, upper_limit, damping);
+        "Joint1", model->world_body(), {}, *body1_, {}, Vector3d::UnitZ(),
+        kPositionLowerLimit, kPositionUpperLimit, kDamping);
+    mutable_joint1_ = dynamic_cast<RevoluteJoint<double>*>(
+        &model->get_mutable_joint(joint1_->index()));
+    DRAKE_DEMAND(mutable_joint1_);
+    mutable_joint1_->set_velocity_limits(
+        Vector1<double>::Constant(kVelocityLowerLimit),
+        Vector1<double>::Constant(kVelocityUpperLimit));
+    mutable_joint1_->set_acceleration_limits(
+        Vector1<double>::Constant(kAccelerationLowerLimit),
+        Vector1<double>::Constant(kAccelerationUpperLimit));
 
     // We are done adding modeling elements. Transfer tree to system and get
     // a Context.
-    system_ = std::make_unique<MultibodyTreeSystem<double>>(std::move(model));
+    system_ = std::make_unique<internal::MultibodyTreeSystem<double>>(
+        std::move(model));
     context_ = system_->CreateDefaultContext();
   }
 
-  const MultibodyTree<double>& tree() const { return system_->tree(); }
+  const internal::MultibodyTree<double>& tree() const {
+    return internal::GetInternalTree(*system_);
+  }
 
  protected:
-  std::unique_ptr<MultibodyTreeSystem<double>> system_;
+  std::unique_ptr<internal::MultibodyTreeSystem<double>> system_;
   std::unique_ptr<Context<double>> context_;
 
   const RigidBody<double>* body1_{nullptr};
   const RevoluteJoint<double>* joint1_{nullptr};
+  RevoluteJoint<double>* mutable_joint1_{nullptr};
 };
 
 // Verify the expected number of dofs.
@@ -74,10 +91,20 @@ TEST_F(RevoluteJointTest, GetAxis) {
 }
 
 TEST_F(RevoluteJointTest, GetJointLimits) {
-  EXPECT_EQ(joint1_->lower_limits().size(), 1);
-  EXPECT_EQ(joint1_->upper_limits().size(), 1);
-  EXPECT_EQ(joint1_->lower_limits()[0], joint1_->lower_limit());
-  EXPECT_EQ(joint1_->upper_limits()[0], joint1_->upper_limit());
+  EXPECT_EQ(joint1_->position_lower_limits().size(), 1);
+  EXPECT_EQ(joint1_->position_upper_limits().size(), 1);
+  EXPECT_EQ(joint1_->velocity_lower_limits().size(), 1);
+  EXPECT_EQ(joint1_->velocity_upper_limits().size(), 1);
+  EXPECT_EQ(joint1_->acceleration_lower_limits().size(), 1);
+  EXPECT_EQ(joint1_->acceleration_upper_limits().size(), 1);
+
+  EXPECT_EQ(joint1_->position_lower_limit(), kPositionLowerLimit);
+  EXPECT_EQ(joint1_->position_upper_limit(), kPositionUpperLimit);
+  EXPECT_EQ(joint1_->velocity_lower_limit(), kVelocityLowerLimit);
+  EXPECT_EQ(joint1_->velocity_upper_limit(), kVelocityUpperLimit);
+  EXPECT_EQ(joint1_->acceleration_lower_limit(), kAccelerationLowerLimit);
+  EXPECT_EQ(joint1_->acceleration_upper_limit(), kAccelerationUpperLimit);
+  EXPECT_EQ(joint1_->damping(), kDamping);
 }
 
 // Context-dependent value access.
@@ -126,11 +153,57 @@ TEST_F(RevoluteJointTest, Clone) {
   EXPECT_EQ(joint1_clone.frame_on_child().index(),
             joint1_->frame_on_child().index());
   EXPECT_EQ(joint1_clone.revolute_axis(), joint1_->revolute_axis());
-  EXPECT_EQ(joint1_clone.lower_limits(), joint1_->lower_limits());
-  EXPECT_EQ(joint1_clone.upper_limits(), joint1_->upper_limits());
-  EXPECT_EQ(joint1_clone.lower_limit(), joint1_->lower_limit());
-  EXPECT_EQ(joint1_clone.upper_limit(), joint1_->upper_limit());
+  EXPECT_EQ(joint1_clone.position_lower_limits(),
+            joint1_->position_lower_limits());
+  EXPECT_EQ(joint1_clone.position_upper_limits(),
+            joint1_->position_upper_limits());
+  EXPECT_EQ(joint1_clone.velocity_lower_limits(),
+            joint1_->velocity_lower_limits());
+  EXPECT_EQ(joint1_clone.velocity_upper_limits(),
+            joint1_->velocity_upper_limits());
+  EXPECT_EQ(joint1_clone.acceleration_lower_limits(),
+            joint1_->acceleration_lower_limits());
+  EXPECT_EQ(joint1_clone.acceleration_upper_limits(),
+            joint1_->acceleration_upper_limits());
   EXPECT_EQ(joint1_clone.damping(), joint1_->damping());
+}
+
+TEST_F(RevoluteJointTest, SetVelocityAndAccelerationLimits) {
+  const double new_lower = -0.2;
+  const double new_upper = 0.2;
+  // Check for velocity limits.
+  mutable_joint1_->set_velocity_limits(Vector1<double>(new_lower),
+                                       Vector1<double>(new_upper));
+  EXPECT_EQ(joint1_->velocity_lower_limit(), new_lower);
+  EXPECT_EQ(joint1_->velocity_upper_limit(), new_upper);
+  // Does not match num_velocities().
+  EXPECT_THROW(mutable_joint1_->set_velocity_limits(VectorX<double>(1),
+                                                    VectorX<double>()),
+               std::runtime_error);
+  EXPECT_THROW(mutable_joint1_->set_velocity_limits(VectorX<double>(),
+                                                    VectorX<double>(1)),
+               std::runtime_error);
+  // Lower limit is larger than upper limit.
+  EXPECT_THROW(mutable_joint1_->set_velocity_limits(Vector1<double>(2),
+                                                    Vector1<double>(0)),
+               std::runtime_error);
+
+  // Check for acceleration limits.
+  mutable_joint1_->set_acceleration_limits(Vector1<double>(new_lower),
+                                           Vector1<double>(new_upper));
+  EXPECT_EQ(joint1_->acceleration_lower_limit(), new_lower);
+  EXPECT_EQ(joint1_->acceleration_upper_limit(), new_upper);
+  // Does not match num_velocities().
+  EXPECT_THROW(mutable_joint1_->set_acceleration_limits(VectorX<double>(1),
+                                                        VectorX<double>()),
+               std::runtime_error);
+  EXPECT_THROW(mutable_joint1_->set_acceleration_limits(VectorX<double>(),
+                                                        VectorX<double>(1)),
+               std::runtime_error);
+  // Lower limit is larger than upper limit.
+  EXPECT_THROW(mutable_joint1_->set_acceleration_limits(Vector1<double>(2),
+                                                        Vector1<double>(0)),
+               std::runtime_error);
 }
 
 }  // namespace

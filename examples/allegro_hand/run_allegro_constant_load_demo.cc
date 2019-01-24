@@ -77,9 +77,9 @@ void DoMain() {
       joint_hand_root, {}, Isometry3<double>::Identity());
 
   // Add gravity, if needed
-  if (FLAGS_add_gravity)
-    plant.AddForceElement<multibody::UniformGravityFieldElement>(
-        -9.81 * Eigen::Vector3d::UnitZ());
+  if (FLAGS_add_gravity) {
+    plant.AddForceElement<multibody::UniformGravityFieldElement>();
+  }
 
   // Now the model is complete.
   plant.Finalize();
@@ -89,7 +89,7 @@ void DoMain() {
 
   // constant force input
   VectorX<double> constant_load_value = VectorX<double>::Ones(
-      plant.tree().num_actuators()) * FLAGS_constant_load;
+      plant.num_actuators()) * FLAGS_constant_load;
   auto constant_source =
      builder.AddSystem<systems::ConstantVectorSource<double>>(
       constant_load_value);

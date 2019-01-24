@@ -88,9 +88,9 @@ void DoMain() {
                                        Isometry3<double>::Identity());
 
   // Add gravity, if needed
-  if (FLAGS_add_gravity)
-    plant.AddForceElement<multibody::UniformGravityFieldElement>(
-        -9.81 * Eigen::Vector3d::UnitZ());
+  if (FLAGS_add_gravity) {
+    plant.AddForceElement<multibody::UniformGravityFieldElement>();
+  }
 
   // Finished building the plant
   plant.Finalize();
@@ -119,7 +119,7 @@ void DoMain() {
   builder.Connect(hand_controller.get_output_port_control(),
                   plant.get_actuation_input_port());
 
-  // Creat an output port of the continuous state from the plant that only
+  // Create an output port of the continuous state from the plant that only
   // output the status of the hand finger joints related DOFs, and put them in
   // the pre-defined order that is easy for understanding.
   const auto& hand_status_converter =
@@ -141,9 +141,8 @@ void DoMain() {
   hand_command_receiver.set_name("hand_command_receiver");
   auto& hand_status_pub = *builder.AddSystem(
       systems::lcm::LcmPublisherSystem::Make<lcmt_allegro_status>(
-          "ALLEGRO_STATUS", &lcm));
+          "ALLEGRO_STATUS", &lcm, kLcmStatusPeriod /* publish period */));
   hand_status_pub.set_name("hand_status_publisher");
-  hand_status_pub.set_publish_period(kLcmStatusPeriod);
   auto& status_sender =
       *builder.AddSystem<AllegroStatusSender>(kAllegroNumJoints);
   status_sender.set_name("status_sender");
@@ -176,16 +175,15 @@ void DoMain() {
       diagram->GetMutableSubsystemContext(plant, diagram_context.get());
 
   // Initialize the mug pose to be right in the middle between the fingers.
-  std::vector<Eigen::Isometry3d> X_WB_all;
-  plant.tree().CalcAllBodyPosesInWorld(plant_context, &X_WB_all);
-  const Eigen::Vector3d& p_WHand = X_WB_all[hand.index()].translation();
+  const Eigen::Vector3d& p_WHand =
+      plant.EvalBodyPoseInWorld(plant_context, hand).translation();
   Eigen::Isometry3d X_WM;
   Eigen::Vector3d rpy(M_PI / 2, 0, 0);
   X_WM.linear() =
       math::RotationMatrix<double>(math::RollPitchYaw<double>(rpy)).matrix();
   X_WM.translation() = p_WHand + Eigen::Vector3d(0.095, 0.062, 0.095);
   X_WM.makeAffine();
-  plant.tree().SetFreeBodyPoseOrThrow(mug, X_WM, &plant_context);
+  plant.SetFreeBodyPose(&plant_context, mug, X_WM);
 
   lcm.StartReceiveThread();
 

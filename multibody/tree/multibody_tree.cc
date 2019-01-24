@@ -1,5 +1,6 @@
 #include "drake/multibody/tree/multibody_tree.h"
 
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_set>
@@ -306,15 +307,19 @@ void MultibodyTree<T>::CreateModelInstances() {
 }
 
 template <typename T>
-void MultibodyTree<T>::SetDefaultContext(systems::Context<T> *context) const {
-  SetDefaultState(*context, &context->get_mutable_state());
-}
-
-template <typename T>
 void MultibodyTree<T>::SetDefaultState(
     const systems::Context<T>& context, systems::State<T>* state) const {
   for (const auto& mobilizer : owned_mobilizers_) {
     mobilizer->set_zero_state(context, state);
+  }
+}
+
+template <typename T>
+void MultibodyTree<T>::SetRandomState(const systems::Context<T>& context,
+                                      systems::State<T>* state,
+                                      RandomGenerator* generator) const {
+  for (const auto& mobilizer : owned_mobilizers_) {
+    mobilizer->set_random_state(context, state, generator);
   }
 }
 
@@ -350,14 +355,14 @@ VectorX<T> MultibodyTree<T>::GetPositionsAndVelocities(
 template <typename T>
 Eigen::VectorBlock<VectorX<T>>
 MultibodyTree<T>::GetMutablePositionsAndVelocities(
-    systems::Context<T>* context) const {
-  DRAKE_DEMAND(context != nullptr);
-  auto* mbt_context = dynamic_cast<MultibodyTreeContext<T>*>(context);
+    const systems::Context<T>& context, systems::State<T>* state) const {
+  DRAKE_DEMAND(state != nullptr);
+  auto* mbt_context = dynamic_cast<const MultibodyTreeContext<T>*>(&context);
   if (mbt_context == nullptr) {
     throw std::runtime_error(
         "The context provided is not compatible with a multibody model.");
   }
-  return mbt_context->get_mutable_state_vector();
+  return mbt_context->get_mutable_state_vector(state);
 }
 
 template <typename T>
@@ -375,6 +380,16 @@ void MultibodyTree<T>::SetPositionsAndVelocities(
                       instance_state.head(num_positions(model_instance)), &q);
   SetVelocitiesInArray(model_instance,
                        instance_state.tail(num_velocities(model_instance)), &v);
+}
+
+template <typename T>
+math::RigidTransform<T> MultibodyTree<T>::GetFreeBodyPoseOrThrow(
+    const systems::Context<T>& context, const Body<T>& body) const {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  const QuaternionFloatingMobilizer<T>& mobilizer =
+      GetFreeBodyMobilizerOrThrow(body);
+  return math::RigidTransform<T>(mobilizer.get_quaternion(context),
+                                 mobilizer.get_position(context));
 }
 
 template <typename T>
@@ -414,6 +429,24 @@ void MultibodyTree<T>::SetFreeBodySpatialVelocityOrThrow(
       GetFreeBodyMobilizerOrThrow(body);
   mobilizer.set_angular_velocity(context, V_WB.rotational(), state);
   mobilizer.set_translational_velocity(context, V_WB.translational(), state);
+}
+
+template <typename T>
+void MultibodyTree<T>::SetFreeBodyRandomPositionDistributionOrThrow(
+    const Body<T>& body, const Vector3<symbolic::Expression>& position) {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  QuaternionFloatingMobilizer<T>& mobilizer =
+      get_mutable_variant(GetFreeBodyMobilizerOrThrow(body));
+  mobilizer.set_random_position_distribution(position);
+}
+
+template <typename T>
+void MultibodyTree<T>::SetFreeBodyRandomRotationDistributionToUniformOrThrow(
+    const Body<T>& body) {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  QuaternionFloatingMobilizer<T>& mobilizer =
+      get_mutable_variant(GetFreeBodyMobilizerOrThrow(body));
+  mobilizer.set_random_quaternion_distribution_to_uniform();
 }
 
 template <typename T>
@@ -1536,6 +1569,84 @@ MatrixX<double> MultibodyTree<T>::MakeActuatorSelectorMatrix(
   }
 
   return MakeActuatorSelectorMatrix(user_to_actuator_index_map);
+}
+
+template <typename T>
+VectorX<double> MultibodyTree<T>::GetPositionLowerLimits() const {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  Eigen::VectorXd q_lower = Eigen::VectorXd::Constant(
+      num_positions(), -std::numeric_limits<double>::infinity());
+  for (JointIndex i{0}; i < num_joints(); ++i) {
+    const auto& joint = get_joint(i);
+    q_lower.segment(joint.position_start(), joint.num_positions()) =
+        joint.position_lower_limits();
+  }
+  return q_lower;
+}
+
+template <typename T>
+VectorX<double> MultibodyTree<T>::GetPositionUpperLimits() const {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  Eigen::VectorXd q_upper = Eigen::VectorXd::Constant(
+      num_positions(), std::numeric_limits<double>::infinity());
+  for (JointIndex i{0}; i < num_joints(); ++i) {
+    const auto& joint = get_joint(i);
+    q_upper.segment(joint.position_start(), joint.num_positions()) =
+        joint.position_upper_limits();
+  }
+  return q_upper;
+}
+
+template <typename T>
+VectorX<double> MultibodyTree<T>::GetVelocityLowerLimits() const {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  Eigen::VectorXd v_lower = Eigen::VectorXd::Constant(
+      num_velocities(), -std::numeric_limits<double>::infinity());
+  for (JointIndex i{0}; i < num_joints(); ++i) {
+    const auto& joint = get_joint(i);
+    v_lower.segment(joint.velocity_start(), joint.num_velocities()) =
+        joint.velocity_lower_limits();
+  }
+  return v_lower;
+}
+
+template <typename T>
+VectorX<double> MultibodyTree<T>::GetVelocityUpperLimits() const {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  Eigen::VectorXd v_upper = Eigen::VectorXd::Constant(
+      num_velocities(), std::numeric_limits<double>::infinity());
+  for (JointIndex i{0}; i < num_joints(); ++i) {
+    const auto& joint = get_joint(i);
+    v_upper.segment(joint.velocity_start(), joint.num_velocities()) =
+        joint.velocity_upper_limits();
+  }
+  return v_upper;
+}
+
+template <typename T>
+VectorX<double> MultibodyTree<T>::GetAccelerationLowerLimits() const {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  Eigen::VectorXd vd_lower = Eigen::VectorXd::Constant(
+      num_velocities(), -std::numeric_limits<double>::infinity());
+  for (JointIndex i{0}; i < num_joints(); ++i) {
+    const auto& joint = get_joint(i);
+    vd_lower.segment(joint.velocity_start(), joint.num_velocities()) =
+        joint.acceleration_lower_limits();
+  }
+  return vd_lower;
+}
+
+template <typename T>
+VectorX<double> MultibodyTree<T>::GetAccelerationUpperLimits() const {
+  DRAKE_MBT_THROW_IF_NOT_FINALIZED();
+  Eigen::VectorXd vd_upper = Eigen::VectorXd::Constant(
+      num_velocities(), std::numeric_limits<double>::infinity());
+  for (JointIndex i{0}; i < num_joints(); ++i) {
+    const auto& joint = get_joint(i);
+    vd_upper.segment(joint.velocity_start(), joint.num_velocities()) =
+        joint.acceleration_upper_limits();
+  }
+  return vd_upper;
 }
 
 // Explicitly instantiates on the most common scalar types.

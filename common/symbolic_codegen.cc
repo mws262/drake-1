@@ -3,16 +3,23 @@
 #include <sstream>
 #include <stdexcept>
 
+#include <fmt/format.h>
+
 namespace drake {
 namespace symbolic {
 
+using std::ostream;
 using std::ostringstream;
 using std::runtime_error;
 using std::string;
 using std::to_string;
+using std::vector;
 
-CodeGenVisitor::CodeGenVisitor(const IdToIndexMap& id_to_idx_map)
-    : id_to_idx_map_{id_to_idx_map} {}
+CodeGenVisitor::CodeGenVisitor(const vector<Variable>& parameters) {
+  for (vector<Variable>::size_type i = 0; i < parameters.size(); ++i) {
+    id_to_idx_map_.emplace(parameters[i].get_id(), i);
+  }
+}
 
 string CodeGenVisitor::CodeGen(const Expression& e) const {
   return VisitExpression<string>(this, e);
@@ -168,6 +175,129 @@ string CodeGenVisitor::VisitIfThenElse(const Expression&) const {
 
 string CodeGenVisitor::VisitUninterpretedFunction(const Expression&) const {
   throw runtime_error("Codegen does not support uninterpreted functions.");
+}
+
+string CodeGen(const string& function_name, const vector<Variable>& parameters,
+               const Expression& e) {
+  ostringstream oss;
+  // Add header for the main function.
+  oss << "double " << function_name << "(const double* p) {\n";
+  // Codegen the expression.
+  oss << "    return " << CodeGenVisitor{parameters}.CodeGen(e) << ";\n";
+  // Add footer for the main function.
+  oss << "}\n";
+  // <function_name>_meta_t type.
+  oss << "typedef struct {\n"
+         "    /* p: input, vector */\n"
+         "    struct { int size; } p;\n"
+         "} "
+      << function_name << "_meta_t;\n";
+  // <function_name>_meta().
+  oss << function_name << "_meta_t " << function_name << "_meta() { return {{"
+      << parameters.size() << "}}; }\n";
+  return oss.str();
+}
+
+namespace internal {
+void CodeGenDenseData(const string& function_name,
+                      const vector<Variable>& parameters,
+                      const Expression* const data, const int size,
+                      ostream* const os) {
+  // Add header for the main function.
+  (*os) << "void " << function_name << "(const double* p, double* m) {\n";
+  const CodeGenVisitor visitor{parameters};
+  for (int i = 0; i < size; ++i) {
+    (*os) << "    "
+          << "m[" << i << "] = " << visitor.CodeGen(data[i]) << ";\n";
+  }
+  // Add footer for the main function.
+  (*os) << "}\n";
+}
+
+void CodeGenDenseMeta(const string& function_name, const int parameter_size,
+                      const int rows, const int cols, ostream* const os) {
+  // <function_name>_meta_t type.
+  (*os) << "typedef struct {\n"
+           "    /* p: input, vector */\n"
+           "    struct { int size; } p;\n"
+           "    /* m: output, matrix */\n"
+           "    struct { int rows; int cols; } m;\n"
+           "} "
+        << function_name << "_meta_t;\n";
+  // <function_name>_meta().
+  (*os) << function_name << "_meta_t " << function_name << "_meta() { return {{"
+        << parameter_size << "}, {" << rows << ", " << cols << "}}; }\n";
+}
+
+void CodeGenSparseData(const string& function_name,
+                       const vector<Variable>& parameters,
+                       const int outer_index_size, const int non_zeros,
+                       const int* const outer_index_ptr,
+                       const int* const inner_index_ptr,
+                       const Expression* const value_ptr, ostream* const os) {
+  // Print header.
+  (*os) << fmt::format(
+      "void {}(const double* p, int* outer_indices, int* "
+      "inner_indices, double* values) {{\n",
+      function_name);
+
+  for (int i = 0; i < outer_index_size; ++i) {
+    (*os) << fmt::format("    outer_indices[{0}] = {1};\n", i,
+                         outer_index_ptr[i]);
+  }
+  for (int i = 0; i < non_zeros; ++i) {
+    (*os) << fmt::format("    inner_indices[{0}] = {1};\n", i,
+                         inner_index_ptr[i]);
+  }
+  const CodeGenVisitor visitor{parameters};
+  for (int i = 0; i < non_zeros; ++i) {
+    (*os) << fmt::format("    values[{0}] = {1};\n", i,
+                         visitor.CodeGen(value_ptr[i]));
+  }
+  // Print footer.
+  (*os) << "}\n";
+}
+
+void CodeGenSparseMeta(const string& function_name, const int parameter_size,
+                       const int rows, const int cols, const int non_zeros,
+                       const int outer_indices, const int inner_indices,
+                       ostream* const os) {
+  // <function_name>_meta_t type.
+  (*os) << "typedef struct {\n"
+           "    /* p: input, vector */\n"
+           "    struct { int size; } p;\n"
+           "    /* m: output, matrix */\n"
+           "    struct {\n"
+           "        int rows;\n"
+           "        int cols;\n"
+           "        int non_zeros;\n"
+           "        int outer_indices;\n"
+           "        int inner_indices;\n"
+           "    } m;\n"
+           "} "
+        << function_name << "_meta_t;\n";
+  // <function_name>_meta().
+  (*os) << fmt::format(
+      "{0}_meta_t {1}_meta() {{ return {{{{{2}}}, {{{3}, {4}, {5}, {6}, "
+      "{7}}}}}; }}\n",
+      function_name, function_name, parameter_size, rows, cols, non_zeros,
+      outer_indices, inner_indices);
+}
+
+}  // namespace internal
+
+std::string CodeGen(
+    const std::string& function_name, const std::vector<Variable>& parameters,
+    const Eigen::Ref<const Eigen::SparseMatrix<Expression>>& M) {
+  DRAKE_ASSERT(M.isCompressed());
+  ostringstream oss;
+  internal::CodeGenSparseData(function_name, parameters, M.cols() + 1,
+                              M.nonZeros(), M.outerIndexPtr(),
+                              M.innerIndexPtr(), M.valuePtr(), &oss);
+  internal::CodeGenSparseMeta(function_name, parameters.size(), M.rows(),
+                              M.cols(), M.nonZeros(), M.cols() + 1,
+                              M.nonZeros(), &oss);
+  return oss.str();
 }
 
 }  // namespace symbolic

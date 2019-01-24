@@ -81,14 +81,14 @@ class JointSliders(VectorSystem):
         self._slider = []
         self._slider_position_start = []
         context = robot.CreateDefaultContext()
-        state = robot.tree().GetPositionsAndVelocities(context)
+        state = robot.GetPositionsAndVelocities(context)
         self._default_position = state[:robot.num_positions()]
 
         k = 0
         for i in range(0, robot.num_joints()):
-            joint = robot.tree().get_joint(JointIndex(i))
-            low = joint.lower_limits()
-            upp = joint.upper_limits()
+            joint = robot.get_joint(JointIndex(i))
+            low = joint.position_lower_limits()
+            upp = joint.position_upper_limits()
             for j in range(0, joint.num_positions()):
                 self._slider_position_start.append(joint.position_start() + j)
                 self._slider.append(tk.Scale(self.window,
@@ -194,6 +194,8 @@ class SchunkWsgButtons(LeafSystem):
         self._closed_position = closed_position
         self._force_limit = force_limit
 
+        self.window.bind("<space>", self._space_callback)
+
     def open(self):
         """
         Output a command that will open the gripper.
@@ -209,6 +211,12 @@ class SchunkWsgButtons(LeafSystem):
         self._open_state = False
         self._open_button.configure(state=tk.NORMAL)
         self._close_button.configure(state=tk.DISABLED)
+
+    def _space_callback(self, event):
+        if (self._open_state):
+            self.close()
+        else:
+            self.open()
 
     def _DoPublish(self, context, event):
         self.window.update_idletasks()

@@ -24,12 +24,13 @@ namespace multibody {
 class JointTester {
  public:
   JointTester() = delete;
-  static const RevoluteMobilizer<double>* get_mobilizer(
+  static const internal::RevoluteMobilizer<double>* get_mobilizer(
       const RevoluteJoint<double>& joint) {
     return joint.get_mobilizer();
   }
 };
 
+namespace internal {
 namespace {
 
 using Eigen::Vector3d;
@@ -243,7 +244,7 @@ class TreeTopologyTests : public ::testing::Test {
     ConnectBodies(*bodies_[0], *bodies_[4], true);  // mob. 6
 
     // Adds a force element for a uniform gravity field.
-    model_->AddForceElement<UniformGravityFieldElement>(g_);
+    model_->AddForceElement<UniformGravityFieldElement>();
   }
 
   const RigidBody<double>* AddTestBody() {
@@ -401,8 +402,6 @@ class TreeTopologyTests : public ::testing::Test {
   std::vector<const Mobilizer<double>*> mobilizers_;
   // Joints:
   std::vector<const RevoluteJoint<double>*> joints_;
-  // The acceleration of gravity vector.
-  Vector3d g_{0.0, 0.0, -9.81};
 };
 
 // This unit tests verifies that the multibody topology is properly compiled.
@@ -726,5 +725,6 @@ GTEST_TEST(WeldedBodies, CreateListOfWeldedBodies) {
 }
 
 }  // namespace
+}  // namespace internal
 }  // namespace multibody
 }  // namespace drake

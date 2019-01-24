@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_optional.h"
 #include "drake/common/drake_throw.h"
 #include "drake/common/pointer_cast.h"
@@ -540,6 +541,8 @@ class Context : public ContextBase {
   /// mislead users to believe that they can retain an alias of `vec` to mutate
   /// the fixed value during a simulation.  Callers should prefer to use one of
   /// the other overloads instead.
+  ///
+  /// @exclude_from_pydrake_mkdoc{Will be deprecated; not bound in pydrake.}
   FixedInputPortValue& FixInputPort(
       int index, std::unique_ptr<BasicVector<T>> vec) {
     DRAKE_THROW_UNLESS(vec.get() != nullptr);
@@ -612,14 +615,14 @@ class Context : public ContextBase {
   //@}
 
  protected:
-  Context() = default;
+  Context();
 
   /// Copy constructor takes care of base class and `Context<T>` data members.
   /// Derived classes must implement copy constructors that delegate to this
   /// one for use in their DoCloneWithoutPointers() implementations.
   // Default implementation invokes the base class copy constructor and then
   // the local member copy constructors.
-  Context(const Context<T>&) = default;
+  Context(const Context<T>&);
 
   // Structuring these methods as statics permits a DiagramContext to invoke
   // the protected functionality on its children.
@@ -757,6 +760,15 @@ class Context : public ContextBase {
       std::make_unique<Parameters<T>>()};
 };
 
+// Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57728 which
+// should be moved back into the class definition once we no longer need to
+// support GCC versions prior to 6.3.
+template <typename T>
+Context<T>::Context() = default;
+
+template <typename T>
+Context<T>::Context(const Context<T>&) = default;
+
 template <typename T>
 std::ostream& operator<<(std::ostream& os, const Context<T>& context) {
   os << context.to_string();
@@ -765,3 +777,9 @@ std::ostream& operator<<(std::ostream& os, const Context<T>& context) {
 
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    struct ::drake::systems::StepInfo)
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::Context)

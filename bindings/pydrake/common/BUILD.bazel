@@ -415,10 +415,20 @@ drake_py_unittest(
     ],
 )
 
+drake_pybind_library(
+    name = "compatibility_test_util_py",
+    testonly = 1,
+    add_install = False,
+    cc_srcs = ["test/compatibility_test_util_py.cc"],
+    package_info = PACKAGE_INFO,
+    visibility = ["//visibility:private"],
+)
+
 drake_py_unittest(
     name = "compatibility_test",
     deps = [
         ":compatibility_py",
+        ":compatibility_test_util_py",
     ],
 )
 
@@ -441,6 +451,5 @@ drake_py_unittest(
 
 add_lint_tests(
     cpplint_data = ["//bindings/pydrake:.clang-format"],
-    # TODO(jwnimmer-tri) We should enable this eventually.
-    enable_clang_format_lint = False,
+    enable_clang_format_lint = True,
 )

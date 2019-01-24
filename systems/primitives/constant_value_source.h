@@ -1,8 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/framework/value.h"
 
@@ -29,8 +32,9 @@ class ConstantValueSource : public LeafSystem<T> {
   /// @param value The constant value to emit which is copied by this system.
   explicit ConstantValueSource(const AbstractValue& value);
 
-  // TODO(eric.cousineau): Deprecate public access on 12/15/2018.
-  /// @param value The constant value which will be owned by this system.
+  // TODO(jwnimmer-tri) Remove this overload on or about 2018-04-01.
+  DRAKE_DEPRECATED(
+      "Use the ConstantValueSource(const AbstractValue&) constructor instead")
   explicit ConstantValueSource(std::unique_ptr<AbstractValue> value);
 
   /// Scalar-converting copy constructor. See @ref system_scalar_conversion.
@@ -44,5 +48,33 @@ class ConstantValueSource : public LeafSystem<T> {
   const std::unique_ptr<AbstractValue> source_value_;
 };
 
+template <typename T>
+ConstantValueSource<T>::ConstantValueSource(const AbstractValue& value)
+    : LeafSystem<T>(SystemTypeTag<systems::ConstantValueSource>{}),
+      source_value_(value.Clone()) {
+  // Use the "advanced" method to provide explicit non-member functors here
+  // since we already have AbstractValues.
+  this->DeclareAbstractOutputPort(
+      [this]() {
+        return source_value_->Clone();
+      },
+      [this](const Context<T>&, AbstractValue* output) {
+        output->SetFrom(*source_value_);
+      });
+}
+
+template <typename T>
+ConstantValueSource<T>::ConstantValueSource(
+    std::unique_ptr<AbstractValue> value)
+    : ConstantValueSource<T>(*value) {}
+
+template <typename T>
+template <typename U>
+ConstantValueSource<T>::ConstantValueSource(const ConstantValueSource<U>& other)
+    : ConstantValueSource<T>(*other.source_value_) {}
+
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::ConstantValueSource)
