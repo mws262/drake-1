@@ -196,25 +196,24 @@ class BoxController(LeafSystem):
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_status.mat"))
 
     if self.robot_type == 'box':
-      print 'WARNING! WARNING! WARNING! Box accelerations are not correct!'
       self.plan.ReadBoxRobotQVAndVdot(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/timings.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_positions.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_quats.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_linear_vel.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_angular_vel.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_accelerations.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_alphas.mat"))
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_linear_accel.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_angular_accel.mat"))
 
       # Read in the plans for the point of contact.
       self.plan.ReadContactPoint(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/timings.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_positions.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_velocities.mat"))
 
       # Read in the plans for the ball kinematics.
       self.plan.ReadBallQVAndVdot(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_timings.mat"),
+        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/timings.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_positions.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_quats.mat"),
         FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_velocities.mat"),
