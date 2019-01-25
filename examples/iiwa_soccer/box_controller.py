@@ -26,7 +26,7 @@ class BoxController(LeafSystem):
     self.mbw = mbw
 
     # Set the controller type.
-    self.controller_type = 'NoSlip'#'NoFrictionalForcesApplied'
+    self.controller_type = 'BlackBoxDynamics'#'NoFrictionalForcesApplied'
 
     if robot_type == 'box':
       self.command_output_size = self.robot_plant.num_velocities()
@@ -561,6 +561,7 @@ class BoxController(LeafSystem):
     # Use resolved-motion rate control to determine the robot velocity that
     # would be necessary to realize the desired end-effector velocity.
     v_robot_des, residuals, rank, singular_values = np.linalg.lstsq(J_WAc, linear_v_des)
+    dvdot = np.reshape(v_robot_des - v_robot, (-1, 1))
 
     # Set vdot_robot_des using purely error feedback.
     if self.nq_robot() != self.nv_robot():
@@ -568,10 +569,10 @@ class BoxController(LeafSystem):
       # difference in configuration to a difference in velocity coordinates.
       # TODO: Explain why this is allowable.
       self.robot_plant.SetPositions(self.robot_context, q_robot)
-      dv = self.robot_plant.MapQDotToVelocity(self.robot_context, q_robot_des - q_robot)
-      vdot = np.diag(self.robot_gv_kp).dot(dv) + np.diag(self.robot_gv_kd).dot(v_robot_des - v_robot)
+      dv = np.reshape(self.robot_plant.MapQDotToVelocity(self.robot_context, q_robot_des - q_robot), (-1, 1))
+      vdot = np.diag(np.reshape(self.robot_gv_kp, (-1))).dot(dv) + np.diag(np.reshape(self.robot_gv_kd, (-1))).dot(dvdot)
     else:
-      vdot = np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_kd).dot(v_robot_des - v_robot)
+      vdot = np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_kd).dot(np.reshape(v_robot_des - v_robot), (-1, 1))
 
     # Get the generalized inertia matrix.
     M = robot_tree.CalcMassMatrixViaInverseDynamics(self.robot_context)
@@ -580,8 +581,8 @@ class BoxController(LeafSystem):
     link_wrenches = MultibodyForces(robot_tree)
 
     # Compute the external forces.
-    fext = -robot_tree.CalcInverseDynamics(
-        self.robot_context, np.zeros([self.nv_robot()]), link_wrenches)
+    fext = np.reshape(-robot_tree.CalcInverseDynamics(
+        self.robot_context, np.zeros([self.nv_robot()]), link_wrenches), (-1, 1))
 
     # Compute inverse dynamics.
     return M.dot(vdot) - fext
@@ -801,8 +802,6 @@ class BoxController(LeafSystem):
     # Get the actuation forces and the contact forces.
     f_act = z[0:nu]
     f_contact = z[nu:nprimal]
-
-    print 'Frictional forces: ' + str(f_contact[nc:])
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
