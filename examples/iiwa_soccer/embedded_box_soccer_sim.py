@@ -3,10 +3,9 @@
 import trace
 import argparse
 import numpy as np
-from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
+from pydrake.all import (DiagramBuilder, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
-UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
-Multiplexer, LcmPublisherSystem, MobilizerIndex, ConstantVectorSource,
+UniformGravityFieldElement, Simulator, MobilizerIndex, ConstantVectorSource,
 Isometry3, Quaternion, Parser)
 
 robot_model_name = "box_model"
@@ -85,15 +84,11 @@ class EmbeddedSim:
     robot_instance = all_plant.GetModelInstanceByName(robot_model_name)
     ball_instance = all_plant.GetModelInstanceByName(ball_model_name)
 
-    # Construct the necessary demultiplexers.
+    # Get necessary dimensions.
     nq_ball = all_plant.num_positions(ball_instance)
     nq_robot = all_plant.num_positions(robot_instance)
     nv_ball = all_plant.num_velocities(ball_instance)
     nv_robot = all_plant.num_velocities(robot_instance)
-    robot_state_demuxer = builder.AddSystem(Demultiplexer(
-      nq_robot + nv_robot, 1))
-    ball_state_demuxer = builder.AddSystem(Demultiplexer(
-      nq_ball + nv_ball, 1))
 
     # Build the controller.
     control_input = builder.AddSystem(ConstantVectorSource(np.zeros([nv_robot])))

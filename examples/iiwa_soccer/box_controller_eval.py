@@ -127,13 +127,12 @@ class BoxControllerEvaluator:
 
         # Approximate the acceleration, and get the ball acceleration out.
         vdot_approx = (vnew - v) / dt
-        print vdot_approx
         vdot_approx_ball = all_plant.GetVelocitiesFromArray(self.controller.ball_instance, vdot_approx)
 
         # Compare against the desired acceleration for the ball at this time.
         vdot_des_ball = self.controller.plan.GetBallQVAndVdot(t)[-6:]
-        #print 'Vdot: ' + str(vdot_approx_ball)
-        #print 'Vdot (des): ' + str(vdot_des_ball)
+        print 'Vdot: ' + str(vdot_approx_ball)
+        print 'Vdot (des): ' + str(vdot_des_ball)
         return np.linalg.norm(vdot_des_ball - vdot_approx_ball)
 
 

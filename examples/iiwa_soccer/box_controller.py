@@ -31,7 +31,7 @@ class BoxController(LeafSystem):
     self.embedded_sim = EmbeddedSim(dt, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
 
     # Set the controller type.
-    self.controller_type = 'BlackboxDynamics'
+    self.controller_type = 'NoSlip'#'BlackboxDynamics'
 
     if robot_type == 'box':
       self.command_output_size = self.robot_plant.num_velocities()
@@ -762,7 +762,7 @@ class BoxController(LeafSystem):
     A[0:nc*3, :] = Z.dot(iM.dot(D))
     A[nc*3:, nu:nu+nc] = np.eye(nc)    # Constraint normal forces to be non-negative.
     b = np.zeros([nc*4, 1])
-    b[0:nc*3] = -Z.dot(iM.dot(fext)) - Zdot_v
+    b[0:nc*3] = -Z.dot(iM.dot(fext)) - np.reshape(Zdot_v, (-1, 1))
 
     # Solve the QP.
     prog = mathematicalprogram.MathematicalProgram()
@@ -1251,6 +1251,3 @@ class BoxController(LeafSystem):
       # Get the current robot configuration.
       q_robot = get_q_robot(context)
       derivatives.get_mutable_vector().SetFromVector(q_robot_des - q_robot)
-
-
-#  def DoPublish(context, publish_events):
