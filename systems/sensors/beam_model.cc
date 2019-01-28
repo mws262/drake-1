@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "drake/common/default_scalars.h"
+#include "drake/common/random.h"
 
 namespace drake {
 namespace systems {
@@ -37,7 +38,7 @@ BeamModel<T>::BeamModel(int num_depth_readings, double max_range)
   // one.   Since probability_hit() is defined implicitly, this becomes the
   // inequality constraint:
   //   1 - probability_short() - probability_miss() - probability_uniform() ≥ 0.
-  typename SystemConstraint<T>::CalcCallback
+  ContextConstraintCalc<T>
       calc_event_probabilities_constraint =
           [](const Context<T>& context, VectorX<T>* value) {
             const auto* params = dynamic_cast<const BeamModelParams<T>*>(
@@ -47,9 +48,10 @@ BeamModel<T>::BeamModel(int num_depth_readings, double max_range)
                           params->probability_miss() -
                           params->probability_uniform();
           };
-  this->AddConstraint(std::make_unique<SystemConstraint<T>>(
-      calc_event_probabilities_constraint, 1, SystemConstraintType::kInequality,
-      "event probabilities sum to one"));
+  this->DeclareInequalityConstraint(
+      calc_event_probabilities_constraint,
+      SystemConstraintBounds(Vector1d(0), nullopt),
+      "event probabilities sum to one");
 }
 
 template <typename T>

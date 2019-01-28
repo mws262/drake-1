@@ -7,6 +7,7 @@
 
 #include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/systems/framework/basic_vector.h"
@@ -38,9 +39,15 @@ namespace internal {
 ///
 /// They are already available to link against in the containing library.
 template <typename T>
-class MultibodyTreeContext: public systems::LeafContext<T> {
+class MultibodyTreeContext final : public systems::LeafContext<T> {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MultibodyTreeContext)
+  /// @name Does not allow copy, move, or assignment.
+  //@{
+  // Copy constructor is private for use in implementing Clone().
+  MultibodyTreeContext(MultibodyTreeContext&&) = delete;
+  MultibodyTreeContext& operator=(const MultibodyTreeContext&) = delete;
+  MultibodyTreeContext& operator=(MultibodyTreeContext&&) = delete;
+  //@}
 
   /// Instantiates a %MultibodyTreeContext for a MultibodyTree with a given
   /// `topology`. The stored state is continuous.
@@ -58,6 +65,11 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
       systems::LeafContext<T>(),
       topology_(topology),
       is_state_discrete_(discrete_state) {
+  }
+
+  std::unique_ptr<systems::ContextBase> DoCloneWithoutPointers() const final {
+    return std::unique_ptr<systems::ContextBase>(
+        new MultibodyTreeContext<T>(*this));
   }
 
   /// Returns the size of the generalized positions vector.
@@ -81,7 +93,7 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
   Eigen::VectorBlock<const VectorX<T>> get_state_vector() const {
     DRAKE_ASSERT(this->get_num_discrete_state_groups() <= 1);
     const systems::BasicVector<T>& state_vector =
-        (is_state_discrete()) ? this->get_discrete_state(0) :
+        is_state_discrete() ? this->get_discrete_state(0) :
         dynamic_cast<const systems::BasicVector<T>&>(
             this->get_continuous_state().get_vector());
     return state_vector.get_value();
@@ -90,11 +102,23 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
   /// Returns a mutable reference to the state vector stored in `this` context
   /// as an `Eigen::VectorBlock<VectorX<T>>`.
   Eigen::VectorBlock<VectorX<T>> get_mutable_state_vector() {
+    return get_mutable_state_vector(&this->get_mutable_state());
+  }
+
+  /// Returns a mutable reference to the state vector stored in `state` which
+  /// must be the state associated with `this` context, as an
+  /// `Eigen::VectorBlock<VectorX<T>>`.
+  /// @pre `state` must be a systems::State<T> created by the same System
+  /// that created this Context.
+  Eigen::VectorBlock<VectorX<T>> get_mutable_state_vector(
+      systems::State<T>* state) const {
     DRAKE_ASSERT(this->get_num_discrete_state_groups() <= 1);
+    DRAKE_ASSERT(is_state_discrete() ==
+                 (this->get_num_discrete_state_groups() == 1));
     systems::BasicVector<T>& state_vector =
-        (is_state_discrete()) ? this->get_mutable_discrete_state(0) :
+        is_state_discrete() ? state->get_mutable_discrete_state(0) :
         dynamic_cast<systems::BasicVector<T>&>(
-            this->get_mutable_continuous_state().get_mutable_vector());
+            state->get_mutable_continuous_state().get_mutable_vector());
     return state_vector.get_mutable_value();
   }
 
@@ -189,6 +213,8 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
   }
 
  private:
+  MultibodyTreeContext(const MultibodyTreeContext& source) = default;
+
   const MultibodyTreeTopology topology_;
 
   // If `true`, this context stores a discrete state. If `false` the state is
@@ -198,8 +224,12 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
 
 }  // namespace internal
 
-/// WARNING: This alias will be deprecated on or around 2018/12/20.
-using internal::MultibodyTreeContext;
+/// WARNING: This will be removed on or around 2019/03/01.
+template <typename T>
+using MultibodyTreeContext
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+    = internal::MultibodyTreeContext<T>;
 
 }  // namespace multibody
 }  // namespace drake

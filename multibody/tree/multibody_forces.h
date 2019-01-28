@@ -6,6 +6,7 @@
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/math/spatial_force.h"
 #include "drake/multibody/tree/multibody_tree_forward_decl.h"
+#include "drake/multibody/tree/multibody_tree_system.h"
 
 namespace drake {
 namespace multibody {
@@ -28,11 +29,20 @@ class MultibodyForces {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(MultibodyForces)
 
+  // TODO(amcastro-tri): replace with MultibodyPlant once dependency becomes
+  // logical.
+  template <typename U>
+  using MultibodyPlantSurrogate = internal::MultibodyTreeSystem<U>;
+
   /// Constructs a force object to store a set of forces to be applied to
-  /// `model`. Forces are initialized to zero, meaning no forces are applied to
-  /// `model`. `model` must have been already finalized with
-  /// MultibodyTree::Finalize() or this constructor will abort.
-  explicit MultibodyForces(const MultibodyTree<T>& model);
+  /// the multibody model for `plant`. Forces are initialized to zero, meaning
+  /// no forces are applied.
+  /// `plant` must have been already finalized with
+  /// MultibodyPlant::Finalize() or this constructor will abort.
+  explicit MultibodyForces(const MultibodyPlantSurrogate<T>& plant);
+
+  /// (Advanced) Tree overload.
+  explicit MultibodyForces(const internal::MultibodyTree<T>& model);
 
   /// Sets `this` to store zero forces (no applied forces).
   MultibodyForces<T>& SetZero();
@@ -51,26 +61,26 @@ class MultibodyForces {
     return static_cast<int>(tau_.size());
   }
 
-  /// Returns a constant reference to the vector of generalized forces stored by
-  /// `this` forces object.
+  /// (Advanced) Returns a constant reference to the vector of generalized
+  /// forces stored by `this` forces object.
   const VectorX<T>& generalized_forces() const {
     return tau_;
   }
 
-  /// Mutable version of generalized_forces().
+  /// (Advanced) Mutable version of generalized_forces().
   VectorX<T>& mutable_generalized_forces() {
     return tau_;
   }
 
-  /// Returns a constant reference to the vector of spatial body forces
-  /// `F_BBo_W` on each body B in the model, at the body's frame origin `Bo`,
-  /// expressed in the world frame W.
+  /// (Advanced) Returns a constant reference to the vector of spatial body
+  /// forces `F_BBo_W` on each body B in the model, at the body's frame
+  /// origin `Bo`, expressed in the world frame W.
   /// @note Entries are ordered by BodyNodeIndex.
   const std::vector<SpatialForce<T>>& body_forces() const {
     return F_B_W_;
   }
 
-  /// Mutable version of body_forces().
+  /// (Advanced) Mutable version of body_forces().
   std::vector<SpatialForce<T>>& mutable_body_forces() {
     return F_B_W_;
   }
@@ -79,10 +89,13 @@ class MultibodyForces {
   void AddInForces(const MultibodyForces<T>& addend);
 
   /// Utility that checks that the forces stored by `this` object have the
-  /// proper sizes to represent the set of forces for the given `model`.
+  /// proper sizes to represent the set of forces for the given `plant`.
   /// @returns true if `this` forces object has the proper sizes for the given
-  /// `model`.
-  bool CheckHasRightSizeForModel(const MultibodyTree<T>& model) const;
+  /// `plant`.
+  bool CheckHasRightSizeForModel(const MultibodyPlantSurrogate<T>& plant) const;
+
+  /// (Advanced) Tree overload.
+  bool CheckHasRightSizeForModel(const internal::MultibodyTree<T>& model) const;
 
  private:
   // Vector holding, for each body in the MultibodyTree, the externally applied

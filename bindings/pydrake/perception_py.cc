@@ -36,8 +36,7 @@ void init_pc_flags(py::module m) {
     using Class = Fields;
     constexpr auto& cls_doc = doc.Fields;
     py::class_<Class>(m, "Fields", cls_doc.doc)
-        .def(py::init<BaseFieldT>(), py::arg("base_fields"),
-            cls_doc.ctor.doc_1args_base_fields)
+        .def(py::init<BaseFieldT>(), py::arg("base_fields"), cls_doc.ctor.doc)
         .def("base_fields", &Class::base_fields, cls_doc.base_fields.doc)
         .def("has_base_fields", &Class::has_base_fields,
             cls_doc.has_base_fields.doc)
@@ -55,6 +54,7 @@ void init_perception(py::module m) {
 
   using systems::LeafSystem;
   using systems::sensors::CameraInfo;
+  using systems::sensors::PixelType;
 
   py::module::import("pydrake.systems.framework");
   py::module::import("pydrake.systems.sensors");
@@ -122,8 +122,10 @@ void init_perception(py::module m) {
     constexpr auto& cls_doc = doc.DepthImageToPointCloud;
     py::class_<Class, LeafSystem<double>>(
         m, "DepthImageToPointCloud", cls_doc.doc)
-        .def(py::init<const CameraInfo&>(), py::arg("camera_info"),
-            cls_doc.ctor.doc_1args)
+        .def(py::init<const CameraInfo&, PixelType, float>(),
+            py::arg("camera_info"),
+            py::arg("pixel_type") = PixelType::kDepth32F,
+            py::arg("scale") = 1.0, cls_doc.ctor.doc)
         .def("depth_image_input_port", &Class::depth_image_input_port,
             py_reference_internal, cls_doc.depth_image_input_port.doc)
         .def("point_cloud_output_port", &Class::point_cloud_output_port,

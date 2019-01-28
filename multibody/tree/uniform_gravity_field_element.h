@@ -12,7 +12,7 @@ namespace multibody {
 
 /// This ForceElement allows modeling the effect of a uniform gravity field as
 /// felt by bodies on the surface of the Earth.
-/// This gravity fields acts on all bodies in the MultibodyTree model.
+/// This gravity field acts on all bodies in the MultibodyTree model.
 ///
 /// @tparam T The scalar type. Must be a valid Eigen scalar.
 ///
@@ -27,6 +27,16 @@ template <typename T>
 class UniformGravityFieldElement : public ForceElement<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(UniformGravityFieldElement)
+
+  // TODO(sherm1) Switch to the NIST standard 9.80665 value but be sure that's
+  // used consistently throughout the code, SDFs, etc.
+  /// The strength used by our class's default constructor (i.e., on the
+  /// earth's surface).  This is an unsigned (positive) value in m/s².
+  static constexpr double kDefaultStrength = 9.81;
+
+  /// Constructs a uniform gravity field element with a default strength (on
+  /// the earth's surface) and direction (-z).
+  UniformGravityFieldElement();
 
   /// Constructs a uniform gravity field element with a strength given by the
   /// acceleration of gravity vector `g_W`, expressed in the world frame W.
@@ -69,31 +79,31 @@ class UniformGravityFieldElement : public ForceElement<T> {
   /// will have zero potential energy when its the height of its center of mass
   /// is at the world's origin.
   T CalcPotentialEnergy(
-      const MultibodyTreeContext<T>& context,
-      const PositionKinematicsCache<T>& pc) const final;
+      const internal::MultibodyTreeContext<T>& context,
+      const internal::PositionKinematicsCache<T>& pc) const final;
 
   T CalcConservativePower(
-      const MultibodyTreeContext<T>& context,
-      const PositionKinematicsCache<T>& pc,
-      const VelocityKinematicsCache<T>& vc) const final;
+      const internal::MultibodyTreeContext<T>& context,
+      const internal::PositionKinematicsCache<T>& pc,
+      const internal::VelocityKinematicsCache<T>& vc) const final;
 
   T CalcNonConservativePower(
-      const MultibodyTreeContext<T>& context,
-      const PositionKinematicsCache<T>& pc,
-      const VelocityKinematicsCache<T>& vc) const final;
+      const internal::MultibodyTreeContext<T>& context,
+      const internal::PositionKinematicsCache<T>& pc,
+      const internal::VelocityKinematicsCache<T>& vc) const final;
 
  protected:
   void DoCalcAndAddForceContribution(
-      const MultibodyTreeContext<T>& context,
-      const PositionKinematicsCache<T>& pc,
-      const VelocityKinematicsCache<T>& vc,
+      const internal::MultibodyTreeContext<T>& context,
+      const internal::PositionKinematicsCache<T>& pc,
+      const internal::VelocityKinematicsCache<T>& vc,
       MultibodyForces<T>* forces) const final;
 
   std::unique_ptr<ForceElement<double>> DoCloneToScalar(
-      const MultibodyTree<double>& tree_clone) const override;
+      const internal::MultibodyTree<double>& tree_clone) const override;
 
   std::unique_ptr<ForceElement<AutoDiffXd>> DoCloneToScalar(
-      const MultibodyTree<AutoDiffXd>& tree_clone) const override;
+      const internal::MultibodyTree<AutoDiffXd>& tree_clone) const override;
 
  private:
   Vector3<double> g_W_;

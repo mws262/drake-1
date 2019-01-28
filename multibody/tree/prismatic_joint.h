@@ -54,11 +54,11 @@ class PrismaticJoint final : public Joint<T> {
   ///   rotation, the measures of `axis` in either frame F or M
   ///   are exactly the same, that is, `axis_F = axis_M`.
   ///   This vector can have any length, only the direction is used.
-  /// @param[in] lower_limit
-  ///   Lower limit, in meters, for the translation coordinate
+  /// @param[in] pos_lower_limit
+  ///   Lower position limit, in meters, for the translation coordinate
   ///   (see get_translation()).
-  /// @param[in] upper_limit
-  ///   Upper limit, in meters, for the translation coordinate
+  /// @param[in] pos_upper_limit
+  ///   Upper position limit, in meters, for the translation coordinate
   ///   (see get_translation()).
   /// @param[in] damping
   ///   Viscous damping coefficient, in N⋅s/m, used to model losses within the
@@ -68,25 +68,29 @@ class PrismaticJoint final : public Joint<T> {
   /// @throws std::exception if the L2 norm of `axis` is less than the square
   /// root of machine epsilon.
   /// @throws std::exception if damping is negative.
-  /// @throws std::exception if lower_limit > upper_limit.
+  /// @throws std::exception if pos_lower_limit > pos_upper_limit.
   PrismaticJoint(
-      const std::string& name,
-      const Frame<T>& frame_on_parent, const Frame<T>& frame_on_child,
-      const Vector3<double>& axis,
-      double lower_limit = -std::numeric_limits<double>::infinity(),
-      double upper_limit = std::numeric_limits<double>::infinity(),
-      double damping = 0) :
-      Joint<T>(name, frame_on_parent, frame_on_child,
-               VectorX<double>::Constant(1, lower_limit),
-               VectorX<double>::Constant(1, upper_limit)) {
+      const std::string& name, const Frame<T>& frame_on_parent,
+      const Frame<T>& frame_on_child, const Vector3<double>& axis,
+      double pos_lower_limit = -std::numeric_limits<double>::infinity(),
+      double pos_upper_limit = std::numeric_limits<double>::infinity(),
+      double damping = 0)
+      : Joint<T>(name, frame_on_parent, frame_on_child,
+                 VectorX<double>::Constant(1, pos_lower_limit),
+                 VectorX<double>::Constant(1, pos_upper_limit),
+                 VectorX<double>::Constant(
+                     1, -std::numeric_limits<double>::infinity()),
+                 VectorX<double>::Constant(
+                     1, std::numeric_limits<double>::infinity()),
+                 VectorX<double>::Constant(
+                     1, -std::numeric_limits<double>::infinity()),
+                 VectorX<double>::Constant(
+                     1, std::numeric_limits<double>::infinity())) {
     const double kEpsilon = std::sqrt(std::numeric_limits<double>::epsilon());
     DRAKE_THROW_UNLESS(!axis.isZero(kEpsilon));
     DRAKE_THROW_UNLESS(damping >= 0);
-    DRAKE_THROW_UNLESS(lower_limit <= upper_limit);
     axis_ = axis.normalized();
     damping_ = damping;
-    lower_limit_ = lower_limit;
-    upper_limit_ = upper_limit;
   }
 
   /// Returns the axis of translation for `this` joint as a unit vector.
@@ -100,11 +104,37 @@ class PrismaticJoint final : public Joint<T> {
   /// Returns `this` joint's damping constant in N⋅s/m.
   double damping() const { return damping_; }
 
-  /// Returns the lower limit for `this` joint in meters.
-  double lower_limit() const { return lower_limit_; }
+  /// Returns the position lower limit for `this` joint in meters.
+  double position_lower_limit() const {
+    return this->position_lower_limits()[0];
+  }
 
-  /// Returns the upper limit for `this` joint in meters.
-  double upper_limit() const { return upper_limit_; }
+  /// Returns the position upper limit for `this` joint in meters.
+  double position_upper_limit() const {
+    return this->position_upper_limits()[0];
+  }
+
+  /// Returns the velocity lower limit for `this` joint in meters per second.
+  double velocity_lower_limit() const {
+    return this->velocity_lower_limits()[0];
+  }
+
+  /// Returns the velocity upper limit for `this` joint in meters per second.
+  double velocity_upper_limit() const {
+    return this->velocity_upper_limits()[0];
+  }
+
+  /// Returns the acceleration lower limit for `this` joint in meters per second
+  /// squared.
+  double acceleration_lower_limit() const {
+    return this->acceleration_lower_limits()[0];
+  }
+
+  /// Returns the acceleration upper limit for `this` joint in meters per second
+  /// squared.
+  double acceleration_upper_limit() const {
+    return this->acceleration_upper_limits()[0];
+  }
 
   /// @name Context-dependent value access
   ///
@@ -237,16 +267,16 @@ class PrismaticJoint final : public Joint<T> {
   MakeImplementationBlueprint() const final {
     auto blue_print = std::make_unique<typename Joint<T>::BluePrint>();
     blue_print->mobilizers_.push_back(
-        std::make_unique<PrismaticMobilizer<T>>(
+        std::make_unique<internal::PrismaticMobilizer<T>>(
             this->frame_on_parent(), this->frame_on_child(), axis_));
     return std::move(blue_print);
   }
 
   std::unique_ptr<Joint<double>> DoCloneToScalar(
-      const MultibodyTree<double>& tree_clone) const final;
+      const internal::MultibodyTree<double>& tree_clone) const final;
 
   std::unique_ptr<Joint<AutoDiffXd>> DoCloneToScalar(
-      const MultibodyTree<AutoDiffXd>& tree_clone) const final;
+      const internal::MultibodyTree<AutoDiffXd>& tree_clone) const final;
 
   // Make PrismaticJoint templated on every other scalar type a friend of
   // PrismaticJoint<T> so that CloneToScalar<ToAnyOtherScalar>() can access
@@ -259,12 +289,21 @@ class PrismaticJoint final : public Joint<T> {
   // Returns the mobilizer implementing this joint.
   // The internal implementation of this joint could change in a future version.
   // However its public API should remain intact.
-  const PrismaticMobilizer<T>* get_mobilizer() const {
+  const internal::PrismaticMobilizer<T>* get_mobilizer() const {
     // This implementation should only have one mobilizer.
     DRAKE_DEMAND(this->get_implementation().num_mobilizers() == 1);
-    const PrismaticMobilizer<T>* mobilizer =
-        dynamic_cast<const PrismaticMobilizer<T>*>(
+    const internal::PrismaticMobilizer<T>* mobilizer =
+        dynamic_cast<const internal::PrismaticMobilizer<T>*>(
             this->get_implementation().mobilizers_[0]);
+    DRAKE_DEMAND(mobilizer != nullptr);
+    return mobilizer;
+  }
+
+  internal::PrismaticMobilizer<T>* get_mutable_mobilizer() {
+    // This implementation should only have one mobilizer.
+    DRAKE_DEMAND(this->get_implementation().num_mobilizers() == 1);
+    auto* mobilizer = dynamic_cast<internal::PrismaticMobilizer<T>*>(
+        this->get_implementation().mobilizers_[0]);
     DRAKE_DEMAND(mobilizer != nullptr);
     return mobilizer;
   }
@@ -272,7 +311,7 @@ class PrismaticJoint final : public Joint<T> {
   // Helper method to make a clone templated on ToScalar.
   template <typename ToScalar>
   std::unique_ptr<Joint<ToScalar>> TemplatedDoCloneToScalar(
-      const MultibodyTree<ToScalar>& tree_clone) const;
+      const internal::MultibodyTree<ToScalar>& tree_clone) const;
 
   // This is the joint's axis expressed in either M or F since axis_M = axis_F.
   // It is a unit vector.
@@ -280,11 +319,6 @@ class PrismaticJoint final : public Joint<T> {
 
   /// This joint's damping constant in N⋅s/m.
   double damping_{0};
-
-  // The lower and upper joint limits in radians.
-  // lower_limit_ <= upper_limit_ always (enforced at construction).
-  double lower_limit_{-std::numeric_limits<double>::infinity()};
-  double upper_limit_{std::numeric_limits<double>::infinity()};
 };
 
 }  // namespace multibody

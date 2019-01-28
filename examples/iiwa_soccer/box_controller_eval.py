@@ -131,8 +131,8 @@ class BoxControllerEvaluator:
 
         # Compare against the desired acceleration for the ball at this time.
         vdot_des_ball = self.controller.plan.GetBallQVAndVdot(t)[-6:]
-        #print 'Vdot: ' + str(vdot_approx_ball)
-        #print 'Vdot (des): ' + str(vdot_des_ball)
+        print 'Vdot: ' + str(vdot_approx_ball)
+        print 'Vdot (des): ' + str(vdot_des_ball)
         return np.linalg.norm(vdot_des_ball - vdot_approx_ball)
 
 
@@ -279,6 +279,12 @@ class BoxControllerEvaluator:
             # Verify that the robot is contacting the ball.
             if (not self.controller.IsRobotContactingBall(contacts)):
                 print 'Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.'
+                t += dt
+                continue
+
+            # Verify that the ball is contacting the ground.
+            if (not self.controller.IsBallContactingGround(contacts)):
+                print 'Expected the ball to be contacting the ground at time ' + str(t) + ' but it is not.'
                 t += dt
                 continue
 
