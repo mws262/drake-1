@@ -6,6 +6,8 @@
 #include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
+#include "drake/common/random.h"
 #include "drake/multibody/math/spatial_acceleration.h"
 #include "drake/multibody/math/spatial_force.h"
 #include "drake/multibody/math/spatial_velocity.h"
@@ -20,9 +22,10 @@ namespace multibody {
 
 // Forward declarations.
 template<typename T> class Body;
+
 namespace internal {
+
 template<typename T> class BodyNode;
-}
 
 /// %Mobilizer is a fundamental object within Drake's multibody engine used to
 /// specify the allowed motions between two Frame objects within a
@@ -311,36 +314,62 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// @name Methods that define a %Mobilizer
   /// @{
 
-  /// Sets the `state` to what will be considered to be the _zero_ configuration
-  /// for `this` mobilizer. For most mobilizers the _zero_ configuration
-  /// corresponds to the value of generalized positions at which the inboard
-  /// frame F and the outboard frame coincide or, in other words, when
-  /// `X_FM = Id` is the identity pose. In the general case however, the zero
-  /// configuration will correspond to a value of the generalized positions for
-  /// which `X_FM = X_FM_ref` where `X_FM_ref` may generally be different from
-  /// the identity transformation.
+  /// Sets the `state` to what will be considered to be the _zero_ state
+  /// (position and velocity) for `this` mobilizer. For most mobilizers the
+  /// _zero_ position corresponds to the value of generalized positions at
+  /// which the inboard frame F and the outboard frame coincide or, in other
+  /// words, when `X_FM = Id` is the identity pose. In the general case
+  /// however, the zero position will correspond to a value of the
+  /// generalized positions for which `X_FM = X_FM_ref` where `X_FM_ref` may
+  /// generally be different from the identity transformation.
   /// In other words, `X_FM_ref = CalcAcrossMobilizerTransform(ref_context)`
   /// where `ref_context` is a Context storing a State set to the zero
   /// configuration with set_zero_state().
   /// In addition, all generalized velocities are set to zero in the _zero_
-  /// configuration.
+  /// state.
   ///
-  /// Most often the _zero_ configuration will correspond to setting
+  /// Most often the _zero_ position will correspond to setting
   /// the vector of generalized positions related to this mobilizer to zero.
   /// However, in the general case, setting all generalized coordinates to zero
-  /// does not correspond to the _zero_ configuration and it might even not
+  /// does not correspond to the _zero_ position and it might even not
   /// represent a mathematicaly valid one. Consider for instance a quaternion
-  /// mobilizer, for which its _zero_ configuration corresponds to the
-  /// quaternion [1, 0, 0, 0].
+  /// mobilizer, for which its _zero_ position corresponds to the quaternion
+  /// [1, 0, 0, 0].
+  ///
+  /// Note that the zero state may fall outside of the limits for any joints
+  /// associated with this mobilizer.
+  /// @see set_default_state().
   virtual void set_zero_state(const systems::Context<T>& context,
                               systems::State<T>* state) const = 0;
 
-  /// Sets the state stored in `context` to a _zero configuration_ as defined by
-  /// set_zero_state().
-  /// See set_zero_state() for details.
+  DRAKE_DEPRECATED("Call set_zero_state() directly instead.  This method will "
+                   "be deleted after 3/1/19.")
   void set_zero_configuration(systems::Context<T>* context) const {
     set_zero_state(*context, &context->get_mutable_state());
   }
+
+  /// Sets the `state` to the _default_ state (position and velocity) for
+  /// `this` mobilizer.  For example, the zero state for our standard IIWA
+  /// model has the arm pointing directly up; this is the correct definition of
+  /// the zero state (it is where our joint angles measure zero).  But we also
+  /// support a default state (perhaps a more comfortable initial configuration
+  /// of the IIWA), which need not be the zero state, that describes a state of
+  /// the Mobilizer to be used in e.g. MultibodyPlant::SetDefaultContext().
+  virtual void set_default_state(const systems::Context<T>& context,
+                                 systems::State<T>* state) const = 0;
+
+  /// Sets the `state` to a (potentially) random position and velocity, by
+  /// evaluating any random distributions that were declared (via e.g.
+  /// MobilizerImpl::set_random_position_distribution() and/or
+  /// MobilizerImpl::set_random_velocity_distribution(), or calling
+  /// set_zero_state() if none have been declared. Note that the intended
+  /// caller of this method is `MultibodyTree::SetRandomState()` which treats
+  /// the independent samples returned from this sample as an initial guess,
+  /// but may change the value in order to "project" it onto a constraint
+  /// manifold.
+  virtual void set_random_state(const systems::Context<T>& context,
+                                systems::State<T>* state,
+                                RandomGenerator* generator) const = 0;
 
   /// Computes the across-mobilizer transform `X_FM(q)` between the inboard
   /// frame F and the outboard frame M as a function of the vector of
@@ -641,6 +670,15 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   const Frame<T>& outboard_frame_;
   MobilizerTopology topology_;
 };
+
+}  // namespace internal
+
+/// WARNING: This will be removed on or around 2019/03/01.
+template <typename T>
+using Mobilizer
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+    = internal::Mobilizer<T>;
 
 }  // namespace multibody
 }  // namespace drake

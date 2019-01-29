@@ -3,8 +3,10 @@
 #include <limits>
 #include <memory>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/mobilizer_impl.h"
@@ -14,6 +16,7 @@
 
 namespace drake {
 namespace multibody {
+namespace internal {
 
 /// This Mobilizer allows two frames to rotate relatively to one another around
 /// an axis that is constant when measured in either this mobilizer's inboard or
@@ -106,10 +109,6 @@ class RevoluteMobilizer final : public MobilizerImpl<T, 1, 1> {
   const RevoluteMobilizer<T>& set_angular_rate(
       systems::Context<T> *context, const T& theta_dot) const;
 
-  /// Sets `state` to store a zero angle and angular rate.
-  void set_zero_state(const systems::Context<T>& context,
-                      systems::State<T>* state) const override;
-
   /// Computes the across-mobilizer transform `X_FM(q)` between the inboard
   /// frame F and the outboard frame M as a function of the rotation angle
   /// about this mobilizer's axis (@see revolute_axis().)
@@ -199,5 +198,17 @@ class RevoluteMobilizer final : public MobilizerImpl<T, 1, 1> {
   Vector3<double> axis_F_;
 };
 
+}  // namespace internal
+
+/// WARNING: This will be removed on or around 2019/03/01.
+template <typename T>
+using RevoluteMobilizer
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+    = internal::RevoluteMobilizer<T>;
+
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::internal::RevoluteMobilizer)

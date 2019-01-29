@@ -6,9 +6,9 @@
 #include "drake/automotive/maliput/api/lane_data.h"
 #include "drake/automotive/maliput/api/road_geometry.h"
 #include "drake/automotive/maliput/api/segment.h"
+#include "drake/bindings/pydrake/common/wrap_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
-#include "drake/bindings/pydrake/util/wrap_pybind.h"
 #include "drake/math/roll_pitch_yaw.h"
 
 namespace drake {
@@ -26,7 +26,7 @@ PYBIND11_MODULE(api, m) {
 
   // TODO(m-chaturvedi) Add doc when typedefs are parsed (#9599)
   py::class_<RoadGeometryId>(m, "RoadGeometryId")
-      .def(py::init<std::string>(), doc.RoadGeometry.ctor.doc_0args)
+      .def(py::init<std::string>(), doc.RoadGeometry.ctor.doc)
       .def("string", &RoadGeometryId::string, py_reference_internal);
 
   py::class_<GeoPosition>(m, "GeoPosition", doc.GeoPositionT.doc)

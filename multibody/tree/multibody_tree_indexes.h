@@ -1,9 +1,20 @@
 #pragma once
 
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/type_safe_index.h"
 
 namespace drake {
 namespace multibody {
+
+namespace internal {
+
+/// Type used to identify mobilizers by index in a multibody tree system.
+using MobilizerIndex = TypeSafeIndex<class MobilizerTag>;
+
+/// Type used to identify tree nodes by index within a multibody tree system.
+using BodyNodeIndex = TypeSafeIndex<class BodyNodeTag>;
+
+}  // namespace internal
 
 // N.B. To simplify checking binding coverage, please ensure these symbols
 // are defined in `multibody_tree_py.cc` in the same order.
@@ -14,11 +25,15 @@ using FrameIndex = TypeSafeIndex<class FrameTag>;
 /// Type used to identify bodies by index in a multibody tree system.
 using BodyIndex = TypeSafeIndex<class BodyTag>;
 
-/// Type used to identify mobilizers by index in a multibody tree system.
-using MobilizerIndex = TypeSafeIndex<class MobilizerTag>;
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::MobilizerIndex MobilizerIndex;
 
-/// Type used to identify tree nodes by index within a multibody tree system.
-using BodyNodeIndex = TypeSafeIndex<class BodyNodeTag>;
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::BodyNodeIndex BodyNodeIndex;
 
 /// Type used to identify force elements by index within a multibody tree
 /// system.

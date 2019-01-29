@@ -7,13 +7,14 @@ namespace systems {
 stochastic system in Drake and writing algorithms that explicitly
 leverage the stochastic modeling framework.
 
-A system in Drake can be viewed as having the state-space dynamics
+A discrete-time system in Drake can be viewed as having the state-space 
+dynamics
 
-  x[n+1] = f(p; n, x[n], u[n], w[n]),
+  x_{n+1} = f(p; n, x_n, u_n, w_n),
 
-  y[n] = g(p; n, x[n], u[n], w[n]),
+  y_n = g(p; n, x_n, u_n, w_n),
 
-where n is the time index, x is the state, y is the output, u is the
+where n is the step index, x is the state, y is the output, u is the
 input, and p are the (constant) parameters.  This form also calls out
 w explicitly as a random "disturbance" input.  These random inputs are
 implemented and evaluated using exactly the same methods as the
@@ -58,7 +59,7 @@ random parameters, System classes may override the methods
 System<T>::SetRandomState() and System<T>::SetRandomParameters().
 Algorithms written for systems may call System<T>::SetRandomContext()
 (which calls both of these).  These methods must be deterministic
-functions of their input arguments -- a (mutable) systems::RandomGenerator is
+functions of their input arguments -- a (mutable) drake::RandomGenerator is
 passed in and must be the only source of "randomness". Their implementations
 are expected to draw samples from random distributions satisfying the C++
 Standard Library <a href=
@@ -74,7 +75,7 @@ a different number of objects generated in the environment for each random
 simulation.  APIs to support this functionality use a
 systems::analysis::SimulatorFactory method which constructs the random
 System and its simulation parameters as a deterministic function
-of the systems::RandomGenerator.
+of the drake::RandomGenerator.
 
 @see systems::analysis::MonteCarloSimulation
 @ingroup systems

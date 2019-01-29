@@ -42,7 +42,7 @@ class FrameTests : public ::testing::Test {
     SpatialInertia<double> M_Bo_B;
 
     // Create an empty model.
-    auto model = std::make_unique<MultibodyTree<double>>();
+    auto model = std::make_unique<internal::MultibodyTree<double>>();
 
     bodyB_ = &model->AddBody<RigidBody>(M_Bo_B);
     frameB_ = &bodyB_->body_frame();
@@ -84,7 +84,8 @@ class FrameTests : public ::testing::Test {
 
     // We are done adding modeling elements. Transfer tree to system and get
     // a Context.
-    system_ = std::make_unique<MultibodyTreeSystem<double>>(std::move(model));
+    system_ = std::make_unique<
+        internal::MultibodyTreeSystem<double>>(std::move(model));
     context_ = system_->CreateDefaultContext();
 
     // An arbitrary pose of an arbitrary frame G in an arbitrary frame F.
@@ -100,10 +101,12 @@ class FrameTests : public ::testing::Test {
     X_QG_ = X_FG_;
   }
 
-  const MultibodyTree<double>& tree() const { return system_->tree(); }
+  const internal::MultibodyTree<double>& tree() const {
+    return internal::GetInternalTree(*system_);
+  }
 
  protected:
-  std::unique_ptr<MultibodyTreeSystem<double>> system_;
+  std::unique_ptr<internal::MultibodyTreeSystem<double>> system_;
   std::unique_ptr<Context<double>> context_;
   // Bodies:
   const RigidBody<double>* bodyB_;
@@ -207,6 +210,19 @@ TEST_F(FrameTests, ModelInstanceOverride) {
   EXPECT_EQ(frameR_->model_instance(), default_model_instance());
   EXPECT_EQ(frameS_->model_instance(), extra_instance_);
   EXPECT_EQ(frameSChild_->model_instance(), extra_instance_);
+}
+
+// Verifies that `HasFrameNamed` has model instances correctly mapped for named
+// frames.
+TEST_F(FrameTests, HasFrameNamed) {
+  for (FrameIndex i{0}; i < tree().num_frames(); ++i) {
+    auto& frame = tree().get_frame(i);
+    if (!frame.name().empty()) {
+      EXPECT_TRUE(
+          tree().HasFrameNamed(frame.name(), frame.model_instance()))
+          << frame.name();
+    }
+  }
 }
 
 }  // namespace

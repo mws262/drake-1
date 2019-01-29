@@ -7,11 +7,11 @@
 #include "pybind11/stl.h"
 
 #include "drake/bindings/pydrake/autodiff_types_pybind.h"
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
+#include "drake/bindings/pydrake/common/drake_optional_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/symbolic_types_pybind.h"
-#include "drake/bindings/pydrake/util/deprecation_pybind.h"
-#include "drake/bindings/pydrake/util/drake_optional_pybind.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solver_type_converter.h"
 
@@ -71,25 +71,24 @@ void SetSolverOptionBySolverType(MathematicalProgram* self,
  * @param name Name of the Cost / Constraint class.
  */
 template <typename C>
-auto RegisterBinding(py::handle* pscope,
-    py::class_<MathematicalProgram>* pprog_cls, const string& name) {
-  auto& scope = *pscope;
-  auto& prog_cls = *pprog_cls;
+auto RegisterBinding(py::handle* scope, const string& name) {
+  constexpr auto& cls_doc = pydrake_doc.drake.solvers.Binding;
   typedef Binding<C> B;
   string pyname = "Binding_" + name;
-  // TODO(m-chaturvedi) Add Pybind11 documentation.
-  auto binding_cls = py::class_<B>(scope, pyname.c_str())
-                         .def("evaluator", &B::evaluator)
-                         .def("constraint", &B::evaluator)
-                         .def("variables", &B::variables);
-  // Deprecate `constraint`.
+  py::class_<B> binding_cls(*scope, pyname.c_str());
+  binding_cls  // BR
+      .def("evaluator", &B::evaluator, cls_doc.evaluator.doc)
+      .def("variables", &B::variables, cls_doc.variables.doc);
+  if (!std::is_same<C, EvaluatorBase>::value) {
+    // This is required for implicit argument conversion. See below for
+    // `EvaluatorBase`'s generic constructor for attempting downcasting.
+    // TODO(eric.cousineau): See if there is a more elegant mechanism for this.
+    py::implicitly_convertible<B, Binding<EvaluatorBase>>();
+  }
+  // Add deprecated `constraint`.
+  binding_cls.def("constraint", &B::evaluator, cls_doc.constraint.doc);
   DeprecateAttribute(binding_cls, "constraint",
       "`constraint` is deprecated; please use `evaluator` instead.");
-  // Register overloads for MathematicalProgram class
-  // TODO(m-chaturvedi) Add Pybind11 documentation.
-  prog_cls.def("EvalBindingAtSolution",
-      static_cast<Eigen::VectorXd (MathematicalProgram::*)(const B&) const>(
-          &MathematicalProgram::EvalBindingAtSolution));
   return binding_cls;
 }
 
@@ -217,32 +216,32 @@ PYBIND11_MODULE(mathematicalprogram, m) {
 
   py::class_<MathematicalProgram> prog_cls(
       m, "MathematicalProgram", doc.MathematicalProgram.doc);
-  prog_cls.def(py::init<>(), doc.MathematicalProgram.ctor.doc_0args)
+  prog_cls.def(py::init<>(), doc.MathematicalProgram.ctor.doc)
       .def("NewContinuousVariables",
           // NOLINTNEXTLINE(whitespace/parens)
           static_cast<VectorXDecisionVariable (MathematicalProgram::*)(
               int, const std::string&)>(
               &MathematicalProgram::NewContinuousVariables),
           py::arg("rows"), py::arg("name") = "x",
-          doc.MathematicalProgram.NewContinuousVariables.doc)
+          doc.MathematicalProgram.NewContinuousVariables.doc_2args)
       .def("NewContinuousVariables",
           // NOLINTNEXTLINE(whitespace/parens)
           static_cast<MatrixXDecisionVariable (MathematicalProgram::*)(
               int, int, const std::string&)>(
               &MathematicalProgram::NewContinuousVariables),
           py::arg("rows"), py::arg("cols"), py::arg("name") = "x",
-          doc.MathematicalProgram.NewContinuousVariables.doc_2)
+          doc.MathematicalProgram.NewContinuousVariables.doc_3args)
       .def("NewBinaryVariables",
           // NOLINTNEXTLINE(whitespace/parens)
           static_cast<VectorXDecisionVariable (MathematicalProgram::*)(int,
               const std::string&)>(&MathematicalProgram::NewBinaryVariables),
           py::arg("rows"), py::arg("name") = "b",
-          doc.MathematicalProgram.NewBinaryVariables.doc)
+          doc.MathematicalProgram.NewBinaryVariables.doc_2args)
       .def("NewBinaryVariables",
           py::overload_cast<int, int, const string&>(
               &MathematicalProgram::NewBinaryVariables<Dynamic, Dynamic>),
           py::arg("rows"), py::arg("cols"), py::arg("name") = "b",
-          doc.MathematicalProgram.NewBinaryVariables.doc_2)
+          doc.MathematicalProgram.NewBinaryVariables.doc_3args)
       .def("NewSymmetricContinuousVariables",
           // `py::overload_cast` and `overload_cast_explict` struggle with
           // overloads that compete with templated methods.
@@ -271,31 +270,32 @@ PYBIND11_MODULE(mathematicalprogram, m) {
           static_cast<VectorXIndeterminate (MathematicalProgram::*)(int,
               const std::string&)>(&MathematicalProgram::NewIndeterminates),
           py::arg("rows"), py::arg("name") = "x",
-          doc.MathematicalProgram.NewIndeterminates.doc)
+          doc.MathematicalProgram.NewIndeterminates.doc_2args)
       .def("NewIndeterminates",
           // NOLINTNEXTLINE(whitespace/parens)
           static_cast<MatrixXIndeterminate (MathematicalProgram::*)(int, int,
               const std::string&)>(&MathematicalProgram::NewIndeterminates),
           py::arg("rows"), py::arg("cols"), py::arg("name") = "X",
-          doc.MathematicalProgram.NewIndeterminates.doc_2)
+          doc.MathematicalProgram.NewIndeterminates.doc_3args)
       .def("AddBoundingBoxConstraint",
           static_cast<Binding<BoundingBoxConstraint> (MathematicalProgram::*)(
               const Eigen::Ref<const Eigen::VectorXd>&,
               const Eigen::Ref<const Eigen::VectorXd>&,
               const Eigen::Ref<const VectorXDecisionVariable>&)>(
               &MathematicalProgram::AddBoundingBoxConstraint),
-          doc.MathematicalProgram.AddBoundingBoxConstraint.doc)
+          doc.MathematicalProgram.AddBoundingBoxConstraint.doc_3args_lb_ub_vars)
       .def("AddBoundingBoxConstraint",
           static_cast<Binding<BoundingBoxConstraint> (MathematicalProgram::*)(
               double, double, const symbolic::Variable&)>(
               &MathematicalProgram::AddBoundingBoxConstraint),
-          doc.MathematicalProgram.AddBoundingBoxConstraint.doc_3)
+          doc.MathematicalProgram.AddBoundingBoxConstraint.doc_3args_lb_ub_var)
       .def("AddBoundingBoxConstraint",
           [](MathematicalProgram* self, double lb, double ub,
               const Eigen::Ref<const MatrixX<symbolic::Variable>>& vars) {
             return self->AddBoundingBoxConstraint(lb, ub, vars);
           },
-          doc.MathematicalProgram.AddBoundingBoxConstraint.doc_4)
+          doc.MathematicalProgram.AddBoundingBoxConstraint
+              .doc_3args_double_double_constEigenMatrixBase)
       .def("AddConstraint",
           [](MathematicalProgram* self, py::function func,
               const Eigen::VectorXd& lb, const Eigen::VectorXd& ub,
@@ -306,18 +306,18 @@ PYBIND11_MODULE(mathematicalprogram, m) {
                     vars.size(), func, lb, ub, description),
                 vars);
           },
-          py::arg("func"), py::arg("vars"), py::arg("lb"), py::arg("ub"),
+          py::arg("func"), py::arg("lb"), py::arg("ub"), py::arg("vars"),
           py::arg("description") = "",
-          doc.MathematicalProgram.AddConstraint.doc_3)
+          "Adds a constraint using a Python function.")
       .def("AddConstraint",
           static_cast<Binding<Constraint> (MathematicalProgram::*)(
               const Expression&, double, double)>(
               &MathematicalProgram::AddConstraint),
-          doc.MathematicalProgram.AddConstraint.doc_2)
+          doc.MathematicalProgram.AddConstraint.doc_3args_e_lb_ub)
       .def("AddConstraint",
           static_cast<Binding<Constraint> (MathematicalProgram::*)(
               const Formula&)>(&MathematicalProgram::AddConstraint),
-          doc.MathematicalProgram.AddConstraint.doc_5)
+          doc.MathematicalProgram.AddConstraint.doc_1args_f)
       .def("AddLinearConstraint",
           static_cast<Binding<LinearConstraint> (MathematicalProgram::*)(
               const Eigen::Ref<const Eigen::MatrixXd>&,
@@ -325,33 +325,33 @@ PYBIND11_MODULE(mathematicalprogram, m) {
               const Eigen::Ref<const Eigen::VectorXd>&,
               const Eigen::Ref<const VectorXDecisionVariable>&)>(
               &MathematicalProgram::AddLinearConstraint),
-          doc.MathematicalProgram.AddLinearConstraint.doc)
+          doc.MathematicalProgram.AddLinearConstraint.doc_4args_A_lb_ub_vars)
       .def("AddLinearConstraint",
           static_cast<Binding<LinearConstraint> (MathematicalProgram::*)(
               const Expression&, double, double)>(
               &MathematicalProgram::AddLinearConstraint),
-          doc.MathematicalProgram.AddLinearConstraint.doc_5)
+          doc.MathematicalProgram.AddLinearConstraint.doc_3args_e_lb_ub)
       .def("AddLinearConstraint",
           static_cast<Binding<LinearConstraint> (MathematicalProgram::*)(
               const Formula&)>(&MathematicalProgram::AddLinearConstraint),
-          doc.MathematicalProgram.AddLinearConstraint.doc_7)
+          doc.MathematicalProgram.AddLinearConstraint.doc_1args_f)
       .def("AddLinearEqualityConstraint",
           static_cast<Binding<LinearEqualityConstraint> (
               MathematicalProgram::*)(const Eigen::Ref<const Eigen::MatrixXd>&,
               const Eigen::Ref<const Eigen::VectorXd>&,
               const Eigen::Ref<const VectorXDecisionVariable>&)>(
               &MathematicalProgram::AddLinearEqualityConstraint),
-          doc.MathematicalProgram.AddLinearEqualityConstraint.doc_7)
+          doc.MathematicalProgram.AddLinearEqualityConstraint.doc_3args)
       .def("AddLinearEqualityConstraint",
           static_cast<Binding<LinearEqualityConstraint> (
               MathematicalProgram::*)(const Expression&, double)>(
               &MathematicalProgram::AddLinearEqualityConstraint),
-          doc.MathematicalProgram.AddLinearEqualityConstraint.doc)
+          doc.MathematicalProgram.AddLinearEqualityConstraint.doc_2args)
       .def("AddLinearEqualityConstraint",
           static_cast<Binding<LinearEqualityConstraint> (
               MathematicalProgram::*)(const Formula&)>(
               &MathematicalProgram::AddLinearEqualityConstraint),
-          doc.MathematicalProgram.AddLinearEqualityConstraint.doc_2)
+          doc.MathematicalProgram.AddLinearEqualityConstraint.doc_1args)
       .def("AddLorentzConeConstraint",
           static_cast<Binding<LorentzConeConstraint> (MathematicalProgram::*)(
               const Eigen::Ref<const VectorX<drake::symbolic::Expression>>&)>(
@@ -362,7 +362,8 @@ PYBIND11_MODULE(mathematicalprogram, m) {
               const Eigen::Ref<const MatrixXDecisionVariable>& vars) {
             return self->AddPositiveSemidefiniteConstraint(vars);
           },
-          doc.MathematicalProgram.AddPositiveSemidefiniteConstraint.doc_1args)
+          doc.MathematicalProgram.AddPositiveSemidefiniteConstraint
+              .doc_1args_symmetric_matrix_var)
       .def("AddLinearComplementarityConstraint",
           static_cast<Binding<LinearComplementarityConstraint> (
               MathematicalProgram::*)(const Eigen::Ref<const Eigen::MatrixXd>&,
@@ -375,7 +376,8 @@ PYBIND11_MODULE(mathematicalprogram, m) {
               const Eigen::Ref<const MatrixX<Expression>>& e) {
             return self->AddPositiveSemidefiniteConstraint(e);
           },
-          doc.MathematicalProgram.AddPositiveSemidefiniteConstraint.doc_1args)
+          doc.MathematicalProgram.AddPositiveSemidefiniteConstraint
+              .doc_1args_constEigenMatrixBase)
       .def("AddCost",
           [](MathematicalProgram* self, py::function func,
               const Eigen::Ref<const VectorXDecisionVariable>& vars,
@@ -385,26 +387,30 @@ PYBIND11_MODULE(mathematicalprogram, m) {
                 vars);
           },
           py::arg("func"), py::arg("vars"), py::arg("description") = "",
-          doc.MathematicalProgram.AddCost.doc)
+          // N.B. There is no corresponding C++ method, so the docstring here
+          // is a literal, not a reference to documentation_pybind.h
+          "Adds a cost function")
       .def("AddCost",
           static_cast<Binding<Cost> (MathematicalProgram::*)(
               const Expression&)>(&MathematicalProgram::AddCost),
-          doc.MathematicalProgram.AddCost.doc)
+          // N.B. There is no corresponding C++ method, so the docstring here
+          // is a literal, not a reference to documentation_pybind.h
+          "Adds a cost expression")
       .def("AddLinearCost",
           static_cast<Binding<LinearCost> (MathematicalProgram::*)(
               const Expression&)>(&MathematicalProgram::AddLinearCost),
-          doc.MathematicalProgram.AddLinearCost.doc)
+          doc.MathematicalProgram.AddLinearCost.doc_1args)
       .def("AddQuadraticCost",
           static_cast<Binding<QuadraticCost> (MathematicalProgram::*)(
               const Eigen::Ref<const Eigen::MatrixXd>&,
               const Eigen::Ref<const Eigen::VectorXd>&,
               const Eigen::Ref<const VectorXDecisionVariable>&)>(
               &MathematicalProgram::AddQuadraticCost),
-          doc.MathematicalProgram.AddQuadraticCost.doc)
+          doc.MathematicalProgram.AddQuadraticCost.doc_3args)
       .def("AddQuadraticCost",
           static_cast<Binding<QuadraticCost> (MathematicalProgram::*)(
               const Expression&)>(&MathematicalProgram::AddQuadraticCost),
-          doc.MathematicalProgram.AddQuadraticCost.doc)
+          doc.MathematicalProgram.AddQuadraticCost.doc_1args)
       .def("AddQuadraticErrorCost",
           overload_cast_explicit<Binding<QuadraticCost>,
               const Eigen::Ref<const Eigen::MatrixXd>&,
@@ -465,6 +471,13 @@ PYBIND11_MODULE(mathematicalprogram, m) {
           doc.MathematicalProgram.linear_costs.doc)
       .def("quadratic_costs", &MathematicalProgram::quadratic_costs,
           doc.MathematicalProgram.quadratic_costs.doc)
+      .def("GetAllCosts", &MathematicalProgram::GetAllCosts,
+          doc.MathematicalProgram.GetAllCosts.doc)
+      .def("GetLinearConstraints",
+          &MathematicalProgram::GetAllLinearConstraints,
+          doc.MathematicalProgram.GetAllLinearConstraints.doc)
+      .def("GetAllConstraints", &MathematicalProgram::GetAllConstraints,
+          doc.MathematicalProgram.GetAllConstraints.doc)
       .def("FindDecisionVariableIndex",
           &MathematicalProgram::FindDecisionVariableIndex,
           doc.MathematicalProgram.FindDecisionVariableIndex.doc)
@@ -476,19 +489,19 @@ PYBIND11_MODULE(mathematicalprogram, m) {
           [](const MathematicalProgram& prog, const Variable& var) {
             return prog.GetSolution(var);
           },
-          doc.MathematicalProgram.GetSolution.doc)
+          doc.MathematicalProgram.GetSolution.doc_1args_var)
       .def("GetSolution",
           [](const MathematicalProgram& prog,
               const VectorXDecisionVariable& var) {
             return prog.GetSolution(var);
           },
-          doc.MathematicalProgram.GetSolution.doc)
+          doc.MathematicalProgram.GetSolution.doc_1args_constEigenMatrixBase)
       .def("GetSolution",
           [](const MathematicalProgram& prog,
               const MatrixXDecisionVariable& var) {
             return prog.GetSolution(var);
           },
-          doc.MathematicalProgram.GetSolution.doc)
+          doc.MathematicalProgram.GetSolution.doc_1args_constEigenMatrixBase)
       .def("SubstituteSolution",
           [](const MathematicalProgram& prog, const symbolic::Expression& e) {
             return prog.SubstituteSolution(e);
@@ -499,38 +512,61 @@ PYBIND11_MODULE(mathematicalprogram, m) {
             return prog.SubstituteSolution(p);
           },
           doc.MathematicalProgram.SubstituteSolution.doc_1args_p)
+      .def("EvalBinding",
+          [](const MathematicalProgram& prog,
+              const Binding<EvaluatorBase>& binding,
+              const VectorX<double>& prog_var_vals) {
+            return prog.EvalBinding(binding, prog_var_vals);
+          },
+          py::arg("binding"), py::arg("prog_var_vals"),
+          doc.MathematicalProgram.EvalBinding.doc)
+      .def("EvalBindings",
+          [](const MathematicalProgram& prog,
+              const std::vector<Binding<EvaluatorBase>>& binding,
+              const VectorX<double>& prog_var_vals) {
+            return prog.EvalBindings(binding, prog_var_vals);
+          },
+          py::arg("bindings"), py::arg("prog_var_vals"),
+          doc.MathematicalProgram.EvalBindings.doc)
+      .def("EvalBindingAtSolution",
+          &MathematicalProgram::EvalBindingAtSolution<EvaluatorBase>,
+          py::arg("binding"), doc.MathematicalProgram.EvalBindingAtSolution.doc)
       .def("GetInitialGuess",
           [](MathematicalProgram& prog,
               const symbolic::Variable& decision_variable) {
             return prog.GetInitialGuess(decision_variable);
           },
-          doc.MathematicalProgram.GetInitialGuess.doc_1args)
+          doc.MathematicalProgram.GetInitialGuess.doc_1args_decision_variable)
       .def("GetInitialGuess",
           [](MathematicalProgram& prog,
               const VectorXDecisionVariable& decision_variables) {
             return prog.GetInitialGuess(decision_variables);
           },
-          doc.MathematicalProgram.GetInitialGuess.doc_0args)
+          doc.MathematicalProgram.GetInitialGuess
+              .doc_1args_constEigenMatrixBase)
       .def("GetInitialGuess",
           [](MathematicalProgram& prog,
               const MatrixXDecisionVariable& decision_variables) {
             return prog.GetInitialGuess(decision_variables);
           },
-          doc.MathematicalProgram.GetInitialGuess.doc_0args)
+          doc.MathematicalProgram.GetInitialGuess
+              .doc_1args_constEigenMatrixBase)
       .def("SetInitialGuess",
           [](MathematicalProgram& prog,
               const symbolic::Variable& decision_variable,
               double variable_guess_value) {
             prog.SetInitialGuess(decision_variable, variable_guess_value);
           },
-          doc.MathematicalProgram.SetInitialGuess.doc_2args)
+          doc.MathematicalProgram.SetInitialGuess
+              .doc_2args_decision_variable_variable_guess_value)
       .def("SetInitialGuess",
           [](MathematicalProgram& prog,
               const MatrixXDecisionVariable& decision_variable_mat,
               const Eigen::MatrixXd& x0) {
             prog.SetInitialGuess(decision_variable_mat, x0);
           },
-          doc.MathematicalProgram.SetInitialGuess.doc_0args)
+          doc.MathematicalProgram.SetInitialGuess
+              .doc_2args_constEigenMatrixBase_constEigenMatrixBase)
       .def("SetInitialGuessForAllVariables",
           [](MathematicalProgram& prog, const Eigen::VectorXd& x0) {
             prog.SetInitialGuessForAllVariables(x0);
@@ -539,9 +575,9 @@ PYBIND11_MODULE(mathematicalprogram, m) {
       .def("SetSolverOption", &SetSolverOptionBySolverType<double>,
           doc.MathematicalProgram.SetSolverOption.doc)
       .def("SetSolverOption", &SetSolverOptionBySolverType<int>,
-          doc.MathematicalProgram.SetSolverOption.doc_2)
+          doc.MathematicalProgram.SetSolverOption.doc)
       .def("SetSolverOption", &SetSolverOptionBySolverType<string>,
-          doc.MathematicalProgram.SetSolverOption.doc_3)
+          doc.MathematicalProgram.SetSolverOption.doc)
       // TODO(m-chaturvedi) Add Pybind11 documentation.
       .def("GetSolverOptions",
           [](MathematicalProgram& prog, SolverType solver_type) {
@@ -580,6 +616,15 @@ PYBIND11_MODULE(mathematicalprogram, m) {
       .def(
           "num_vars", &EvaluatorBase::num_vars, doc.EvaluatorBase.num_vars.doc);
 
+  RegisterBinding<EvaluatorBase>(&m, "EvaluatorBase")
+      .def(py::init([](py::object binding) {
+        // Define a type-erased downcast to mirror the implicit
+        // "downcast-ability" of Binding<> types.
+        return std::make_unique<Binding<EvaluatorBase>>(
+            binding.attr("evaluator")().cast<std::shared_ptr<EvaluatorBase>>(),
+            binding.attr("variables")().cast<VectorXDecisionVariable>());
+      }));
+
   py::class_<Constraint, EvaluatorBase, std::shared_ptr<Constraint>>(
       m, "Constraint", doc.Constraint.doc)
       .def("num_constraints", &Constraint::num_constraints,
@@ -587,7 +632,23 @@ PYBIND11_MODULE(mathematicalprogram, m) {
       .def("lower_bound", &Constraint::lower_bound,
           doc.Constraint.lower_bound.doc)
       .def("upper_bound", &Constraint::upper_bound,
-          doc.Constraint.upper_bound.doc);
+          doc.Constraint.upper_bound.doc)
+      .def("CheckSatisfied",
+          [](Constraint& self, const Eigen::Ref<const Eigen::VectorXd>& x,
+              double tol) { return self.CheckSatisfied(x, tol); },
+          py::arg("x"), py::arg("tol") = 1E-6,
+          doc.Constraint.CheckSatisfied.doc)
+      .def("CheckSatisfied",
+          [](Constraint& self, const Eigen::Ref<const AutoDiffVecXd>& x,
+              double tol) { return self.CheckSatisfied(x, tol); },
+          py::arg("x"), py::arg("tol") = 1E-6,
+          doc.Constraint.CheckSatisfied.doc)
+      .def("CheckSatisfied",
+          [](Constraint& self,
+              const Eigen::Ref<const VectorX<symbolic::Variable>>& x) {
+            return self.CheckSatisfied(x);
+          },
+          py::arg("x"), doc.Constraint.CheckSatisfied.doc);
 
   py::class_<LinearConstraint, Constraint, std::shared_ptr<LinearConstraint>>(
       m, "LinearConstraint", doc.LinearConstraint.doc)
@@ -644,21 +705,19 @@ PYBIND11_MODULE(mathematicalprogram, m) {
       "LinearComplementarityConstraint",
       doc.LinearComplementarityConstraint.doc);
 
-  RegisterBinding<Constraint>(&m, &prog_cls, "Constraint");
-  RegisterBinding<LinearConstraint>(&m, &prog_cls, "LinearConstraint");
-  RegisterBinding<LorentzConeConstraint>(
-      &m, &prog_cls, "LorentzConeConstraint");
-  RegisterBinding<LinearEqualityConstraint>(
-      &m, &prog_cls, "LinearEqualityConstraint");
-  RegisterBinding<BoundingBoxConstraint>(
-      &m, &prog_cls, "BoundingBoxConstraint");
+  RegisterBinding<Constraint>(&m, "Constraint");
+  RegisterBinding<LinearConstraint>(&m, "LinearConstraint");
+  RegisterBinding<LorentzConeConstraint>(&m, "LorentzConeConstraint");
+  RegisterBinding<LinearEqualityConstraint>(&m, "LinearEqualityConstraint");
+  RegisterBinding<BoundingBoxConstraint>(&m, "BoundingBoxConstraint");
   RegisterBinding<PositiveSemidefiniteConstraint>(
-      &m, &prog_cls, "PositiveSemidefiniteConstraint");
+      &m, "PositiveSemidefiniteConstraint");
   RegisterBinding<LinearComplementarityConstraint>(
-      &m, &prog_cls, "LinearComplementarityConstraint");
+      &m, "LinearComplementarityConstraint");
 
   // Mirror procedure for costs
-  py::class_<Cost, std::shared_ptr<Cost>> cost(m, "Cost", doc.Cost.doc);
+  py::class_<Cost, EvaluatorBase, std::shared_ptr<Cost>> cost(
+      m, "Cost", doc.Cost.doc);
 
   py::class_<LinearCost, Cost, std::shared_ptr<LinearCost>>(
       m, "LinearCost", doc.LinearCost.doc)
@@ -683,16 +742,15 @@ PYBIND11_MODULE(mathematicalprogram, m) {
           py::arg("new_Q"), py::arg("new_b"), py::arg("new_c") = 0,
           doc.QuadraticCost.UpdateCoefficients.doc);
 
-  RegisterBinding<Cost>(&m, &prog_cls, "Cost");
-  RegisterBinding<LinearCost>(&m, &prog_cls, "LinearCost");
-  RegisterBinding<QuadraticCost>(&m, &prog_cls, "QuadraticCost");
+  RegisterBinding<Cost>(&m, "Cost");
+  RegisterBinding<LinearCost>(&m, "LinearCost");
+  RegisterBinding<QuadraticCost>(&m, "QuadraticCost");
 
   py::class_<VisualizationCallback, EvaluatorBase,
       std::shared_ptr<VisualizationCallback>>(
       m, "VisualizationCallback", doc.VisualizationCallback.doc);
 
-  RegisterBinding<VisualizationCallback>(
-      &m, &prog_cls, "VisualizationCallback");
+  RegisterBinding<VisualizationCallback>(&m, "VisualizationCallback");
 }  // NOLINT(readability/fn_size)
 
 }  // namespace pydrake

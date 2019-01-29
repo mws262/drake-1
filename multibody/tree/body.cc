@@ -2,7 +2,6 @@
 
 #include <memory>
 
-#include "drake/common/autodiff.h"
 #include "drake/multibody/tree/multibody_tree.h"
 
 namespace drake {
@@ -11,7 +10,7 @@ namespace multibody {
 template <typename T>
 template <typename ToScalar>
 std::unique_ptr<Frame<ToScalar>> BodyFrame<T>::TemplatedDoCloneToScalar(
-    const MultibodyTree<ToScalar>& tree_clone) const {
+    const internal::MultibodyTree<ToScalar>& tree_clone) const {
   const Body<ToScalar>& body_clone =
       tree_clone.get_body(this->body().index());
   // BodyFrame's constructor cannot be called from std::make_unique since it is
@@ -22,19 +21,18 @@ std::unique_ptr<Frame<ToScalar>> BodyFrame<T>::TemplatedDoCloneToScalar(
 
 template <typename T>
 std::unique_ptr<Frame<double>> BodyFrame<T>::DoCloneToScalar(
-    const MultibodyTree<double>& tree_clone) const {
+    const internal::MultibodyTree<double>& tree_clone) const {
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
 template <typename T>
 std::unique_ptr<Frame<AutoDiffXd>> BodyFrame<T>::DoCloneToScalar(
-    const MultibodyTree<AutoDiffXd>& tree_clone) const {
+    const internal::MultibodyTree<AutoDiffXd>& tree_clone) const {
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
-// Explicitly instantiates on the most common scalar types.
-template class BodyFrame<double>;
-template class BodyFrame<AutoDiffXd>;
-
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class drake::multibody::BodyFrame)

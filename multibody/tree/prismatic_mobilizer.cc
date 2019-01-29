@@ -8,6 +8,7 @@
 
 namespace drake {
 namespace multibody {
+namespace internal {
 
 template <typename T>
 const T& PrismaticMobilizer<T>::get_translation(
@@ -49,13 +50,6 @@ const PrismaticMobilizer<T>& PrismaticMobilizer<T>::set_translation_rate(
   DRAKE_ASSERT(v.size() == kNv);
   v[0] = translation_dot;
   return *this;
-}
-
-template <typename T>
-void PrismaticMobilizer<T>::set_zero_state(const systems::Context<T>& context,
-                                          systems::State<T>* state) const {
-  // The default Mobilizer state of zero positions and velocities is used.
-  this->set_default_zero_state(context, state);
 }
 
 template <typename T>
@@ -154,9 +148,9 @@ std::unique_ptr<Mobilizer<AutoDiffXd>> PrismaticMobilizer<T>::DoCloneToScalar(
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
-// Explicitly instantiates on the most common scalar types.
-template class PrismaticMobilizer<double>;
-template class PrismaticMobilizer<AutoDiffXd>;
-
+}  // namespace internal
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::internal::PrismaticMobilizer)

@@ -19,6 +19,10 @@ load(
     "drake_py_test",
     "drake_py_unittest",
 )
+load(
+    "@drake//tools/skylark:alias.bzl",
+    "drake_py_library_aliases",
+)
 
 package(default_visibility = [
     "//bindings/pydrake:__subpackages__",
@@ -37,18 +41,6 @@ drake_py_library(
     ],
 )
 
-# TODO(eric.cousineau): Move this into `multibody`.
-drake_pybind_library(
-    name = "ik_py",
-    cc_deps = ["//bindings/pydrake:documentation_pybind"],
-    cc_srcs = ["ik_py.cc"],
-    package_info = PACKAGE_INFO,
-    py_deps = [
-        "//bindings/pydrake/multibody:rigid_body_tree_py",
-    ],
-    py_srcs = ["_ik_extra.py"],
-)
-
 # TODO(eric.cousineau): Rename `mathematicalprogram` to
 # `mathematical_program` when `pydrake` is renamed to `drake`.
 drake_pybind_library(
@@ -57,8 +49,8 @@ drake_pybind_library(
         "//bindings/pydrake:autodiff_types_pybind",
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake:symbolic_types_pybind",
-        "//bindings/pydrake/util:deprecation_pybind",
-        "//bindings/pydrake/util:drake_optional_pybind",
+        "//bindings/pydrake/common:deprecation_pybind",
+        "//bindings/pydrake/common:drake_optional_pybind",
     ],
     cc_srcs = ["mathematicalprogram_py.cc"],
     package_info = PACKAGE_INFO,
@@ -100,16 +92,24 @@ drake_pybind_library(
     py_deps = [":mathematicalprogram_py"],
 )
 
+PY_LIBRARIES_ATTIC_ALIASES = [
+    ":ik_py",
+]
+
+drake_py_library_aliases(
+    actual_subdir = "bindings/pydrake/attic/solvers",
+    relative_labels = PY_LIBRARIES_ATTIC_ALIASES,
+)
+
 PY_LIBRARIES_WITH_INSTALL = [
     ":gurobi_py",
-    ":ik_py",
     ":ipopt_py",
     ":mathematicalprogram_py",
     ":mosek_py",
     ":osqp_py",
 ]
 
-PY_LIBRARIES = [
+PY_LIBRARIES = PY_LIBRARIES_ATTIC_ALIASES + [
     ":module_py",
 ]
 
@@ -175,14 +175,21 @@ drake_py_test(
     allow_import_unittest = True,
     data = ["//examples/pr2:models"],
     tags = ["snopt"],
-    deps = [":ik_py"],
+    deps = [
+        ":ik_py",
+        "//bindings/pydrake/multibody:parsers_py",
+        "//bindings/pydrake/multibody:rigid_body_tree_py",
+    ],
 )
 
 drake_py_unittest(
     name = "rbt_ik_test",
     data = ["//examples/pendulum:models"],
     tags = ["snopt"],
-    deps = [":ik_py"],
+    deps = [
+        ":ik_py",
+        "//bindings/pydrake/multibody:rigid_body_tree_py",
+    ],
 )
 
 add_lint_tests(

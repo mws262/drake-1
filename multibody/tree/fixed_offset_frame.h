@@ -3,7 +3,7 @@
 #include <memory>
 #include <string>
 
-#include "drake/common/autodiff.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/multibody_tree_forward_decl.h"
@@ -101,18 +101,18 @@ class FixedOffsetFrame final : public Frame<T> {
 
   /// @pre The parent frame to this frame already has a clone in `tree_clone`.
   std::unique_ptr<Frame<double>> DoCloneToScalar(
-      const MultibodyTree<double>& tree_clone) const override;
+      const internal::MultibodyTree<double>& tree_clone) const override;
 
   /// @pre The parent frame to this frame already has a clone in `tree_clone`.
   std::unique_ptr<Frame<AutoDiffXd>> DoCloneToScalar(
-      const MultibodyTree<AutoDiffXd>& tree_clone) const override;
+      const internal::MultibodyTree<AutoDiffXd>& tree_clone) const override;
   /// @}
 
  private:
   // Helper method to make a clone templated on ToScalar.
   template <typename ToScalar>
   std::unique_ptr<Frame<ToScalar>> TemplatedDoCloneToScalar(
-      const MultibodyTree<ToScalar>& tree_clone) const;
+      const internal::MultibodyTree<ToScalar>& tree_clone) const;
 
   // The frame to which this frame is attached.
   const Frame<T>& parent_frame_;
@@ -124,3 +124,6 @@ class FixedOffsetFrame final : public Frame<T> {
 
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class drake::multibody::FixedOffsetFrame)

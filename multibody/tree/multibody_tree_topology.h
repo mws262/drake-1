@@ -30,11 +30,13 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/drake_throw.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 
 namespace drake {
 namespace multibody {
+namespace internal {
 
 /// Data structure to store the topological information associated with a Body.
 struct BodyTopology {
@@ -1031,6 +1033,43 @@ class MultibodyTreeTopology {
   int num_states_{0};
   int num_actuated_dofs_{0};
 };
+
+}  // namespace internal
+
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::BodyTopology BodyTopology;
+
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::FrameTopology FrameTopology;
+
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::MobilizerTopology MobilizerTopology;
+
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::ForceElementTopology ForceElementTopology;
+
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::JointActuatorTopology JointActuatorTopology;
+
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::BodyNodeTopology BodyNodeTopology;
+
+/// WARNING: This will be removed on or around 2019/03/01.
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+typedef internal::MultibodyTreeTopology MultibodyTreeTopology;
 
 }  // namespace multibody
 }  // namespace drake

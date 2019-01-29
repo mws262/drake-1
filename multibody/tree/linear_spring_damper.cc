@@ -4,7 +4,6 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/autodiff.h"
 #include "drake/multibody/tree/body.h"
 #include "drake/multibody/tree/multibody_tree.h"
 
@@ -30,9 +29,9 @@ LinearSpringDamper<T>::LinearSpringDamper(
 
 template <typename T>
 void LinearSpringDamper<T>::DoCalcAndAddForceContribution(
-    const MultibodyTreeContext<T>&,
-    const PositionKinematicsCache<T>& pc,
-    const VelocityKinematicsCache<T>& vc,
+    const internal::MultibodyTreeContext<T>&,
+    const internal::PositionKinematicsCache<T>& pc,
+    const internal::VelocityKinematicsCache<T>& vc,
     MultibodyForces<T>* forces) const {
   using std::sqrt;
 
@@ -78,8 +77,8 @@ void LinearSpringDamper<T>::DoCalcAndAddForceContribution(
 
 template <typename T>
 T LinearSpringDamper<T>::CalcPotentialEnergy(
-    const MultibodyTreeContext<T>&,
-    const PositionKinematicsCache<T>& pc) const {
+    const internal::MultibodyTreeContext<T>&,
+    const internal::PositionKinematicsCache<T>& pc) const {
   const Isometry3<T>& X_WA = pc.get_X_WB(bodyA().node_index());
   const Isometry3<T>& X_WB = pc.get_X_WB(bodyB().node_index());
 
@@ -97,9 +96,9 @@ T LinearSpringDamper<T>::CalcPotentialEnergy(
 
 template <typename T>
 T LinearSpringDamper<T>::CalcConservativePower(
-    const MultibodyTreeContext<T>&,
-    const PositionKinematicsCache<T>& pc,
-    const VelocityKinematicsCache<T>& vc) const {
+    const internal::MultibodyTreeContext<T>&,
+    const internal::PositionKinematicsCache<T>& pc,
+    const internal::VelocityKinematicsCache<T>& vc) const {
   // Since the potential energy is:
   //  V = 1/2⋅k⋅(ℓ-ℓ₀)²
   // The conservative power is defined as:
@@ -129,9 +128,9 @@ T LinearSpringDamper<T>::CalcConservativePower(
 
 template <typename T>
 T LinearSpringDamper<T>::CalcNonConservativePower(
-    const MultibodyTreeContext<T>&,
-    const PositionKinematicsCache<T>& pc,
-    const VelocityKinematicsCache<T>& vc) const {
+    const internal::MultibodyTreeContext<T>&,
+    const internal::PositionKinematicsCache<T>& pc,
+    const internal::VelocityKinematicsCache<T>& vc) const {
   // The rate at which the length of the spring changes.
   const T length_dot = CalcLengthTimeDerivative(pc, vc);
   // Energy is dissipated at rate Pnc = -d⋅(dℓ/dt)²:
@@ -142,7 +141,7 @@ template <typename T>
 template <typename ToScalar>
 std::unique_ptr<ForceElement<ToScalar>>
 LinearSpringDamper<T>::TemplatedDoCloneToScalar(
-    const MultibodyTree<ToScalar>& tree_clone) const {
+    const internal::MultibodyTree<ToScalar>& tree_clone) const {
   const Body<ToScalar>& bodyA_clone =
       tree_clone.get_body(bodyA().index());
   const Body<ToScalar>& bodyB_clone =
@@ -159,14 +158,14 @@ LinearSpringDamper<T>::TemplatedDoCloneToScalar(
 template <typename T>
 std::unique_ptr<ForceElement<double>>
 LinearSpringDamper<T>::DoCloneToScalar(
-    const MultibodyTree<double>& tree_clone) const {
+    const internal::MultibodyTree<double>& tree_clone) const {
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
 template <typename T>
 std::unique_ptr<ForceElement<AutoDiffXd>>
 LinearSpringDamper<T>::DoCloneToScalar(
-    const MultibodyTree<AutoDiffXd>& tree_clone) const {
+    const internal::MultibodyTree<AutoDiffXd>& tree_clone) const {
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
@@ -186,8 +185,8 @@ T LinearSpringDamper<T>::SafeSoftNorm(const Vector3<T> &x) const {
 
 template <typename T>
 T LinearSpringDamper<T>::CalcLengthTimeDerivative(
-    const PositionKinematicsCache<T>& pc,
-    const VelocityKinematicsCache<T>& vc) const {
+    const internal::PositionKinematicsCache<T>& pc,
+    const internal::VelocityKinematicsCache<T>& vc) const {
   const Isometry3<T>& X_WA = pc.get_X_WB(bodyA().node_index());
   const Isometry3<T>& X_WB = pc.get_X_WB(bodyB().node_index());
 
@@ -221,9 +220,8 @@ T LinearSpringDamper<T>::CalcLengthTimeDerivative(
   return length_dot;
 }
 
-// Explicitly instantiates on the most common scalar types.
-template class LinearSpringDamper<double>;
-template class LinearSpringDamper<AutoDiffXd>;
-
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::LinearSpringDamper)

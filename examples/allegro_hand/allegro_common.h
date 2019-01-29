@@ -23,9 +23,9 @@ void SetPositionControlledGains(Eigen::VectorXd* Kp, Eigen::VectorXd* Ki,
 /// plant's full x (`xₛ = Sx⋅x`) and promote the controller's ordered yₛ into
 /// the full plant's input actuation (`u = Su⋅uₛ`).
 /// The matrices are used to initialize the PID controller for the hand.
-/// @see MultibodyTree::MakeStateSelectorMatrix(),
-/// MultibodyTree::MakeActuatorSelectorMatrix() for detailed definitions for the
-/// selector matrices.
+/// @see MultibodyPlant::MakeStateSelectorMatrix(),
+/// MultibodyPlant::MakeActuatorSelectorMatrix() for detailed definitions for
+/// the selector matrices.
 /// @see systems::controllers::PidController for documentation on how these
 /// selector matrices are used in the PID controller.
 /// @param Sx the matrix to match the output state of the plant into the state
@@ -82,7 +82,7 @@ class AllegroHandMotionState {
   Eigen::Array<bool, Eigen::Dynamic, 1> is_joint_stuck_;
   Eigen::Array<bool, Eigen::Dynamic, 1> is_finger_stuck_;
 
-  /// The velocity threhold under which the joint is considered not moving.
+  /// The velocity threshold under which the joint is considered not moving.
   static const double velocity_thresh_;
 };
 

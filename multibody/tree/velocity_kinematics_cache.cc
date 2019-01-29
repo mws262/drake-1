@@ -1,13 +1,4 @@
 #include "drake/multibody/tree/velocity_kinematics_cache.h"
 
-#include "drake/common/autodiff.h"
-
-namespace drake {
-namespace multibody {
-
-// Explicitly instantiates on the most common scalar types.
-template class VelocityKinematicsCache<double>;
-template class VelocityKinematicsCache<AutoDiffXd>;
-
-}  // namespace multibody
-}  // namespace drake
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::internal::VelocityKinematicsCache)

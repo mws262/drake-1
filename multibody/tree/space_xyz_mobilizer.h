@@ -2,8 +2,10 @@
 
 #include <memory>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/mobilizer_impl.h"
@@ -13,6 +15,7 @@
 
 namespace drake {
 namespace multibody {
+namespace internal {
 
 /// This mobilizer models a gimbal joint between an inboard frame F and an
 /// outboard frame M that allows frame M to rotate freely with respect to F (
@@ -32,7 +35,7 @@ namespace multibody {
 /// where `Rx(θ)`, `Ry(θ)` and `Rz(θ)` correspond to the elemental rotations in
 /// amount of θ about the x, y and z axes respectively.
 /// Zero θ₁, θ₂, θ₃ angles define the "zero configuration" which corresponds
-/// to frames F and M being coincident, see set_zero_configuration().
+/// to frames F and M being coincident, see set_zero_state().
 /// Angles θ₁, θ₂, θ₃ are defined to be positive according to the
 /// right-hand-rule with the thumb aligned in the direction of their respective
 /// axes.
@@ -179,11 +182,6 @@ class SpaceXYZMobilizer final : public MobilizerImpl<T, 3, 3> {
       const systems::Context<T>& context, const Vector3<T>& w_FM,
       systems::State<T>* state) const;
 
-  /// Sets `state` to store zero space x-y-z angles θ₁, θ₂, θ₃ and zero across
-  /// mobilizer angular velocity `w_FM`.
-  void set_zero_state(const systems::Context<T>& context,
-                      systems::State<T>* state) const override;
-
   /// Computes the across-mobilizer transform `X_FM(q)` between the inboard
   /// frame F and the outboard frame M as a function of the space x-y-z angles
   /// θ₁, θ₂, θ₃ stored in `context`.
@@ -289,5 +287,17 @@ class SpaceXYZMobilizer final : public MobilizerImpl<T, 3, 3> {
       const MultibodyTree<ToScalar>& tree_clone) const;
 };
 
+}  // namespace internal
+
+/// WARNING: This will be removed on or around 2019/03/01.
+template <typename T>
+using SpaceXYZMobilizer
+DRAKE_DEPRECATED(
+    "This public alias is deprecated, and will be removed around 2019/03/01.")
+    = internal::SpaceXYZMobilizer<T>;
+
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::internal::SpaceXYZMobilizer)

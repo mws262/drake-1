@@ -3,7 +3,6 @@
 #include <exception>
 #include <memory>
 
-#include "drake/common/autodiff.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/body.h"
 #include "drake/multibody/tree/multibody_tree.h"
@@ -28,7 +27,7 @@ FixedOffsetFrame<T>::FixedOffsetFrame(
 template <typename T>
 template <typename ToScalar>
 std::unique_ptr<Frame<ToScalar>> FixedOffsetFrame<T>::TemplatedDoCloneToScalar(
-    const MultibodyTree<ToScalar>& tree_clone) const {
+    const internal::MultibodyTree<ToScalar>& tree_clone) const {
   const Frame<ToScalar>& parent_frame_clone =
       tree_clone.get_variant(parent_frame_);
   return std::make_unique<FixedOffsetFrame<ToScalar>>(
@@ -37,19 +36,18 @@ std::unique_ptr<Frame<ToScalar>> FixedOffsetFrame<T>::TemplatedDoCloneToScalar(
 
 template <typename T>
 std::unique_ptr<Frame<double>> FixedOffsetFrame<T>::DoCloneToScalar(
-    const MultibodyTree<double>& tree_clone) const {
+    const internal::MultibodyTree<double>& tree_clone) const {
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
 template <typename T>
 std::unique_ptr<Frame<AutoDiffXd>> FixedOffsetFrame<T>::DoCloneToScalar(
-    const MultibodyTree<AutoDiffXd>& tree_clone) const {
+    const internal::MultibodyTree<AutoDiffXd>& tree_clone) const {
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
-// Explicitly instantiates on the most common scalar types.
-template class FixedOffsetFrame<double>;
-template class FixedOffsetFrame<AutoDiffXd>;
-
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class drake::multibody::FixedOffsetFrame)

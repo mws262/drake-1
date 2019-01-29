@@ -5,33 +5,47 @@
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/symbolic_test_util.h"
 #include "drake/solvers/mathematical_program.h"
+#include "drake/solvers/solve.h"
 
 using drake::symbolic::test::ExprEqual;
 
 namespace drake {
 namespace solvers {
-GTEST_TEST(ScaledDiagonallyDominantMatrixTest, AddConstraint) {
-  MathematicalProgram prog;
-  auto X = prog.NewSymmetricContinuousVariables<4>();
+bool is_zero(const symbolic::Variable& v) { return v.is_dummy(); }
 
-  auto M = prog.AddScaledDiagonallyDominantMatrixConstraint(
-      X.cast<symbolic::Expression>());
-  for (int i = 0; i < 4; ++i) {
-    for (int j = 0; j < 4; ++j) {
+template <typename T>
+void CheckOffDiagonalTerms(int nx) {
+  MathematicalProgram prog;
+  auto X = prog.NewSymmetricContinuousVariables(nx);
+
+  auto M = prog.AddScaledDiagonallyDominantMatrixConstraint(X.cast<T>());
+  for (int i = 0; i < nx; ++i) {
+    for (int j = 0; j < nx; ++j) {
+      // M[i][j] should be a zero matrix if i >= j.
       if (i >= j) {
         for (int m = 0; m < 2; ++m) {
           for (int n = 0; n < 2; ++n) {
-            EXPECT_EQ(M[i][j](m, n), 0);
+            EXPECT_TRUE(is_zero(M[i][j](m, n)));
           }
         }
       } else {
-        EXPECT_PRED2(ExprEqual, M[i][j](0, 1).Expand(),
+        EXPECT_PRED2(ExprEqual, symbolic::Expression(M[i][j](0, 1)),
                      symbolic::Expression(X(i, j)));
+        EXPECT_PRED2(ExprEqual, symbolic::Expression(M[i][j](1, 0)),
+                     symbolic::Expression(X(j, i)));
       }
     }
   }
 }
 
+GTEST_TEST(ScaledDiagonallyDominantMatrixTest, AddConstraint) {
+  CheckOffDiagonalTerms<symbolic::Expression>(2);
+  CheckOffDiagonalTerms<symbolic::Variable>(2);
+  CheckOffDiagonalTerms<symbolic::Expression>(4);
+  CheckOffDiagonalTerms<symbolic::Variable>(4);
+}
+
+template <typename T>
 void CheckSDDMatrix(const Eigen::Ref<const Eigen::MatrixXd>& X_val,
                     bool is_sdd) {
   // Test if a sdd matrix satisfies the constraint.
@@ -39,43 +53,50 @@ void CheckSDDMatrix(const Eigen::Ref<const Eigen::MatrixXd>& X_val,
   DRAKE_DEMAND(X_val.cols() == nx);
   MathematicalProgram prog;
   auto X = prog.NewSymmetricContinuousVariables(nx);
-  auto M = prog.AddScaledDiagonallyDominantMatrixConstraint(
-      X.cast<symbolic::Expression>());
+  auto M = prog.AddScaledDiagonallyDominantMatrixConstraint(X.cast<T>());
 
   for (int i = 0; i < nx; ++i) {
     prog.AddBoundingBoxConstraint(X_val.col(i), X_val.col(i), X.col(i));
   }
 
-  const auto result = prog.Solve();
+  const auto result = Solve(prog);
   if (is_sdd) {
-    EXPECT_EQ(result, SolutionResult::kSolutionFound);
+    EXPECT_EQ(result.get_solution_result(), SolutionResult::kSolutionFound);
     // Since X = ∑ᵢⱼ Mⁱʲ according to the definition of scaled diagonally
     // dominant matrix, we evaluate the summation of M, and compare that with X.
     std::vector<std::vector<Eigen::MatrixXd>> M_val(nx);
     symbolic::Environment env;
     for (int i = 0; i < prog.num_vars(); ++i) {
       env.insert(prog.decision_variable(i),
-                 prog.GetSolution(prog.decision_variable(i)));
+                 prog.GetSolution(prog.decision_variable(i), result));
     }
     Eigen::MatrixXd M_sum(nx, nx);
     M_sum.setZero();
+    const double tol = 1E-6;
     for (int i = 0; i < nx; ++i) {
       M_val[i].resize(nx);
-      for (int j = 0; j < nx; ++j) {
+      for (int j = i + 1; j < nx; ++j) {
         M_val[i][j].resize(nx, nx);
         M_val[i][j].setZero();
-        M_val[i][j](i, i) = M[i][j](0, 0).Evaluate(env);
-        M_val[i][j](i, j) = M[i][j](0, 1).Evaluate(env);
+        M_val[i][j](i, i) = symbolic::Expression(M[i][j](0, 0)).Evaluate(env);
+        M_val[i][j](i, j) = symbolic::Expression(M[i][j](0, 1)).Evaluate(env);
         M_val[i][j](j, i) = M_val[i][j](i, j);
-        M_val[i][j](j, j) = M[i][j](1, 1).Evaluate(env);
+        M_val[i][j](j, j) = symbolic::Expression(M[i][j](1, 1)).Evaluate(env);
         M_sum += M_val[i][j];
+        // (M[i][j](0, 0); M[i][j](1, 1); M[i][j](0, 1)) should be in the
+        // rotated Lorentz cone.
+        EXPECT_GE(M_val[i][j](i, i), -tol);
+        EXPECT_GE(M_val[i][j](j, j), -tol);
+        EXPECT_GE(M_val[i][j](i, i) * M_val[i][j](j, j),
+                  std::pow(M_val[i][j](i, j), 2) - tol);
       }
     }
-    const double tol = 1E-6;
     EXPECT_TRUE(CompareMatrices(M_sum, X_val, tol));
   } else {
-    EXPECT_TRUE(result == SolutionResult::kInfeasibleConstraints ||
-                result == SolutionResult::kInfeasible_Or_Unbounded);
+    EXPECT_TRUE(result.get_solution_result() ==
+                    SolutionResult::kInfeasibleConstraints ||
+                result.get_solution_result() ==
+                    SolutionResult::kInfeasible_Or_Unbounded);
   }
 }
 
@@ -99,8 +120,9 @@ bool IsMatrixSDD(const Eigen::Ref<Eigen::MatrixXd>& X) {
   prog.AddPositiveDiagonallyDominantMatrixConstraint(A);
   prog.AddBoundingBoxConstraint(1, std::numeric_limits<double>::infinity(), d);
 
-  const auto result = prog.Solve();
-  return result == solvers::SolutionResult::kSolutionFound;
+  const auto result = Solve(prog);
+  return result.get_solution_result() ==
+         solvers::SolutionResult::kSolutionFound;
 }
 
 GTEST_TEST(ScaledDiagonallyDominantMatrixTest, TestSDDMatrix) {
@@ -112,15 +134,18 @@ GTEST_TEST(ScaledDiagonallyDominantMatrixTest, TestSDDMatrix) {
            0.3, 0.5, 3, 2,
            -0.45, 1, 2, 4;
   // clang-format on
-  CheckSDDMatrix(dd_X, true);
+  CheckSDDMatrix<symbolic::Expression>(dd_X, true);
+  CheckSDDMatrix<symbolic::Variable>(dd_X, true);
 
   Eigen::Matrix4d D = Eigen::Vector4d(1, 2, 3, 4).asDiagonal();
   Eigen::Matrix4d sdd_X = D * dd_X * D;
-  CheckSDDMatrix(sdd_X, true);
+  CheckSDDMatrix<symbolic::Expression>(sdd_X, true);
+  CheckSDDMatrix<symbolic::Variable>(sdd_X, true);
 
   D = Eigen::Vector4d(0.2, -1, -0.5, 1.2).asDiagonal();
   sdd_X = D * dd_X * D;
-  CheckSDDMatrix(sdd_X, true);
+  CheckSDDMatrix<symbolic::Expression>(sdd_X, true);
+  CheckSDDMatrix<symbolic::Variable>(sdd_X, true);
 
   // not_dd_X is not diagonally dominant (dd), but is scaled diagonally
   // dominant.
@@ -128,7 +153,8 @@ GTEST_TEST(ScaledDiagonallyDominantMatrixTest, TestSDDMatrix) {
   not_dd_X << 1, -0.2, 0.3, -0.55, -0.2, 2, 0.5, 1, 0.3, 0.5, 3, 2, -0.55, 1, 2,
       4;
   DRAKE_DEMAND(IsMatrixSDD(not_dd_X));
-  CheckSDDMatrix(not_dd_X, true);
+  CheckSDDMatrix<symbolic::Expression>(not_dd_X, true);
+  CheckSDDMatrix<symbolic::Variable>(not_dd_X, true);
 }
 
 GTEST_TEST(ScaledDiagonallyDominantMatrixTest, TestNotSDDMatrix) {
@@ -141,15 +167,18 @@ GTEST_TEST(ScaledDiagonallyDominantMatrixTest, TestNotSDDMatrix) {
                -1.55, 1, 2, 4;
   // clang-format on
   DRAKE_DEMAND(!IsMatrixSDD(not_sdd_X));
-  CheckSDDMatrix(not_sdd_X, false);
+  CheckSDDMatrix<symbolic::Expression>(not_sdd_X, false);
+  CheckSDDMatrix<symbolic::Variable>(not_sdd_X, false);
 
   Eigen::Matrix4d D = Eigen::Vector4d(1, 2, 3, 4).asDiagonal();
   not_sdd_X = D * not_sdd_X * D;
-  CheckSDDMatrix(not_sdd_X, false);
+  CheckSDDMatrix<symbolic::Expression>(not_sdd_X, false);
+  CheckSDDMatrix<symbolic::Variable>(not_sdd_X, false);
 
   D = Eigen::Vector4d(0.2, -1, -0.5, 1.2).asDiagonal();
   not_sdd_X = D * not_sdd_X * D;
-  CheckSDDMatrix(not_sdd_X, false);
+  CheckSDDMatrix<symbolic::Expression>(not_sdd_X, false);
+  CheckSDDMatrix<symbolic::Variable>(not_sdd_X, false);
 }
 
 GTEST_TEST(SdsosTest, SdsosPolynomial) {
@@ -182,8 +211,8 @@ GTEST_TEST(SdsosTest, SdsosPolynomial) {
   }
   prog.AddLinearEqualityConstraint(p == p_expected);
 
-  const SolutionResult result = prog.Solve();
-  EXPECT_EQ(result, SolutionResult::kSolutionFound);
+  const MathematicalProgramResult result = Solve(prog);
+  EXPECT_EQ(result.get_solution_result(), SolutionResult::kSolutionFound);
 }
 
 GTEST_TEST(SdsosTest, NotSdsosPolynomial) {
@@ -203,9 +232,10 @@ GTEST_TEST(SdsosTest, NotSdsosPolynomial) {
 
   prog.AddLinearEqualityConstraint(p == non_sdsos_poly);
 
-  const SolutionResult result = prog.Solve();
-  EXPECT_TRUE(result == SolutionResult::kInfeasibleConstraints ||
-              result == SolutionResult::kInfeasible_Or_Unbounded);
+  const MathematicalProgramResult result = Solve(prog);
+  EXPECT_TRUE(
+      result.get_solution_result() == SolutionResult::kInfeasibleConstraints ||
+      result.get_solution_result() == SolutionResult::kInfeasible_Or_Unbounded);
 }
 }  // namespace solvers
 }  // namespace drake

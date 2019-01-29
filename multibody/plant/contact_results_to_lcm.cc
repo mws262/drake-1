@@ -2,7 +2,6 @@
 
 #include <memory>
 
-#include "drake/common/default_scalars.h"
 #include "drake/lcmt_contact_results_for_viz.hpp"
 #include "drake/systems/framework/value.h"
 
@@ -18,12 +17,11 @@ ContactResultsToLcmSystem<T>::ContactResultsToLcmSystem(
     : systems::LeafSystem<T>() {
   DRAKE_DEMAND(plant.is_finalized());
   const int body_count = plant.num_bodies();
-  const MultibodyTree<T>& model = plant.tree();
 
   body_names_.reserve(body_count);
   using std::to_string;
   for (BodyIndex i{0}; i < body_count; ++i) {
-    const Body<T>& body = model.get_body(i);
+    const Body<T>& body = plant.get_body(i);
     body_names_.push_back(body.name() + "(" + to_string(body.model_instance()) +
                           ")");
   }
@@ -106,13 +104,12 @@ systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
 
   auto contact_results_publisher = builder->AddSystem(
       systems::lcm::LcmPublisherSystem::Make<lcmt_contact_results_for_viz>(
-          "CONTACT_RESULTS", lcm));
+          "CONTACT_RESULTS", lcm, 1.0 / 60 /* publish period */));
   contact_results_publisher->set_name("contact_results_publisher");
 
   builder->Connect(contact_results_port, contact_to_lcm->get_input_port(0));
   builder->Connect(contact_to_lcm->get_output_port(0),
                    contact_results_publisher->get_input_port());
-  contact_results_publisher->set_publish_period(1 / 60.0);
 
   return contact_results_publisher;
 }
@@ -120,6 +117,5 @@ systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
 }  // namespace multibody
 }  // namespace drake
 
-// This should be kept in sync with the scalars that MultibodyPlant supports.
 DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
     class drake::multibody::ContactResultsToLcmSystem)

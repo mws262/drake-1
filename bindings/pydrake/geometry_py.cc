@@ -2,10 +2,10 @@
 #include "pybind11/operators.h"
 #include "pybind11/pybind11.h"
 
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/systems/systems_pybind.h"
-#include "drake/bindings/pydrake/util/deprecation_pybind.h"
 #include "drake/geometry/geometry_ids.h"
 #include "drake/geometry/geometry_visualization.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
@@ -34,7 +34,7 @@ void BindIdentifier(py::module m, const std::string& name) {
                 .format(cls_handle));
         return Class{};
       }),
-          cls_doc.ctor.doc_0args)
+          cls_doc.ctor.doc)
       .def("get_value", &Class::get_value, cls_doc.get_value.doc)
       .def("is_valid", &Class::is_valid, cls_doc.is_valid.doc)
       .def(py::self == py::self)
@@ -60,7 +60,7 @@ PYBIND11_MODULE(geometry, m) {
           py::arg("geometry_id"), doc.SceneGraphInspector.GetFrameId.doc);
 
   py::class_<SceneGraph<T>, LeafSystem<T>>(m, "SceneGraph", doc.SceneGraph.doc)
-      .def(py::init<>(), doc.SceneGraph.ctor.doc_4)
+      .def(py::init<>(), doc.SceneGraph.ctor.doc)
       .def("get_source_pose_port", &SceneGraph<T>::get_source_pose_port,
           py_reference_internal, doc.SceneGraph.get_source_pose_port.doc)
       .def("get_pose_bundle_output_port",
@@ -109,7 +109,7 @@ PYBIND11_MODULE(geometry, m) {
 
   // SignedDistancePair
   py::class_<SignedDistancePair<T>>(m, "SignedDistancePair")
-      .def(py::init<>(), doc.SignedDistancePair.ctor.doc_0args)
+      .def(py::init<>(), doc.SignedDistancePair.ctor.doc)
       .def_readwrite(
           "id_A", &SignedDistancePair<T>::id_A, doc.SignedDistancePair.id_A.doc)
       .def_readwrite(
@@ -123,7 +123,7 @@ PYBIND11_MODULE(geometry, m) {
 
   // PenetrationAsPointPair
   py::class_<PenetrationAsPointPair<T>>(m, "PenetrationAsPointPair")
-      .def(py::init<>(), doc.PenetrationAsPointPair.ctor.doc_0args)
+      .def(py::init<>(), doc.PenetrationAsPointPair.ctor.doc)
       .def_readwrite("id_A", &PenetrationAsPointPair<T>::id_A,
           doc.PenetrationAsPointPair.id_A.doc)
       .def_readwrite("id_B", &PenetrationAsPointPair<T>::id_B,

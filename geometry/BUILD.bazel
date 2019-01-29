@@ -27,7 +27,6 @@ drake_cc_package_library(
         ":identifier",
         ":internal_frame",
         ":internal_geometry",
-        ":materials",
         ":proximity_engine",
         ":scene_graph",
         ":scene_graph_inspector",
@@ -48,11 +47,13 @@ drake_cc_library(
         ":geometry_ids",
         ":geometry_index",
         ":shape_specification",
+        ":utilities",
         "//common",
         "//common:default_scalars",
         "//geometry/query_results:penetration_as_point_pair",
         "//geometry/query_results:signed_distance_pair",
         "//geometry/query_results:signed_distance_to_point",
+        "//math",
         "@fcl",
         "@tinyobjloader",
     ],
@@ -116,22 +117,11 @@ drake_cc_library(
     deps = [
         ":geometry_ids",
         ":geometry_roles",
-        ":materials",
         ":shape_specification",
         ":utilities",
         "//common:copyable_unique_ptr",
         "//common:essential",
     ],
-)
-
-drake_cc_library(
-    # NOTE: The material library and file name don't appear to match. This
-    # library will eventually contain multiple types of materials (e.g.,
-    # contact, rendering, depth, etc.)
-    name = "materials",
-    srcs = ["visual_material.cc"],
-    hdrs = ["visual_material.h"],
-    deps = ["//common"],
 )
 
 drake_cc_library(
@@ -244,7 +234,6 @@ drake_cc_library(
         ":geometry_index",
         ":geometry_roles",
         ":internal_frame",
-        ":materials",
         ":shape_specification",
         "//common:copyable_unique_ptr",
         "//common:essential",
@@ -285,7 +274,7 @@ drake_cc_googletest(
         ":shape_specification",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
-        "//math:geometric_transform",
+        "//math",
     ],
 )
 
@@ -327,6 +316,7 @@ drake_cc_googletest(
     deps = [
         ":geometry_ids",
         ":geometry_set",
+        "//geometry/test_utilities:geometry_set_tester",
     ],
 )
 
@@ -371,6 +361,14 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "scene_graph_inspector_test",
+    deps = [
+        ":geometry_frame",
+        ":scene_graph_inspector",
+    ],
+)
+
+drake_cc_googletest(
     name = "shape_specification_test",
     deps = [
         ":shape_specification",
@@ -380,13 +378,9 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "utilities_test",
-    deps = ["utilities"],
-)
-
-drake_cc_googletest(
-    name = "visual_material_test",
     deps = [
-        ":materials",
+        "utilities",
+        "//common/test_utilities",
     ],
 )
 

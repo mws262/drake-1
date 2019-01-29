@@ -4,11 +4,11 @@
 
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
-#include "drake/common/constants.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_assertion_error.h"
 #include "drake/common/drake_path.h"
 #include "drake/common/find_resource.h"
+#include "drake/common/random.h"
 #include "drake/common/temp_directory.h"
 #include "drake/common/text_logging.h"
 
@@ -38,6 +38,18 @@ PYBIND11_MODULE(_module_py, m) {
           doc.RandomDistribution.kGaussian.doc)
       .value("kExponential", drake::RandomDistribution::kExponential,
           doc.RandomDistribution.kExponential.doc);
+
+  // Adds a binding for drake::RandomGenerator.
+  py::class_<RandomGenerator> random_generator_cls(
+      m, "RandomGenerator", doc.RandomGenerator.doc);
+  random_generator_cls
+      .def(py::init<>(),
+          "Default constructor. Seeds the engine with the default_seed.")
+      .def(py::init<RandomGenerator::result_type>(),
+          "Constructs the engine and initializes the state with a given "
+          "value.")
+      .def("__call__", [](RandomGenerator& self) { return self(); },
+          "Generates a pseudo-random value.");
 
   // Turn DRAKE_ASSERT and DRAKE_DEMAND exceptions into native SystemExit.
   // Admittedly, it's unusual for a python library like pydrake to raise

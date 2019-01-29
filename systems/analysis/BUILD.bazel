@@ -113,6 +113,7 @@ drake_cc_library(
         "//math:autodiff",
         "//math:gradient",
         "//solvers:mathematical_program",
+        "//solvers:solve",
         "//systems/framework",
     ],
 )
@@ -261,6 +262,16 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "simulator_denorm_test",
+    # Valgrind doesn't support the floating point register
+    # instructions that this test uses.
+    tags = ["no_memcheck"],
+    deps = [
+        ":simulator",
+    ],
+)
+
+drake_cc_googletest(
     name = "explicit_euler_integrator_test",
     timeout = "moderate",
     deps = [
@@ -318,10 +329,9 @@ drake_cc_googletest(
     timeout = "moderate",
     deps = [
         ":runge_kutta3_integrator",
-        "//attic/multibody/parsers",
-        "//attic/multibody/rigid_body_plant",
         "//common/test_utilities:eigen_matrix_compare",
         "//math:geometric_transform",
+        "//multibody/plant",
         "//systems/analysis/test_utilities",
     ],
 )
@@ -332,8 +342,7 @@ drake_cc_googletest(
     deps = [
         ":explicit_euler_integrator",
         ":semi_explicit_euler_integrator",
-        "//attic/multibody/joints",
-        "//attic/multibody/rigid_body_plant",
+        "//multibody/plant",
         "//systems/analysis/test_utilities",
     ],
 )

@@ -3,7 +3,6 @@
 #include <memory>
 #include <stdexcept>
 
-#include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/eigen_types.h"
 #include "drake/math/roll_pitch_yaw.h"
 #include "drake/math/rotation_matrix.h"
@@ -11,6 +10,7 @@
 
 namespace drake {
 namespace multibody {
+namespace internal {
 
 template <typename T>
 Vector3<T> SpaceXYZMobilizer<T>::get_angles(
@@ -67,12 +67,6 @@ const SpaceXYZMobilizer<T>& SpaceXYZMobilizer<T>::set_angular_velocity(
   DRAKE_ASSERT(v.size() == kNv);
   v = w_FM;
   return *this;
-}
-
-template <typename T>
-void SpaceXYZMobilizer<T>::set_zero_state(const systems::Context<T>& context,
-                                          systems::State<T>* state) const {
-  this->set_default_zero_state(context, state);
 }
 
 template <typename T>
@@ -364,9 +358,9 @@ SpaceXYZMobilizer<T>::DoCloneToScalar(
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
-// Explicitly instantiates on the most common scalar types.
-template class SpaceXYZMobilizer<double>;
-template class SpaceXYZMobilizer<AutoDiffXd>;
-
+}  // namespace internal
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::internal::SpaceXYZMobilizer)

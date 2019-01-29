@@ -3,11 +3,11 @@
 #include <memory>
 #include <stdexcept>
 
-#include "drake/common/autodiff.h"
 #include "drake/multibody/tree/multibody_tree.h"
 
 namespace drake {
 namespace multibody {
+namespace internal {
 
 template <typename T>
 const T& RevoluteMobilizer<T>::get_angle(
@@ -49,12 +49,6 @@ const RevoluteMobilizer<T>& RevoluteMobilizer<T>::set_angular_rate(
   DRAKE_ASSERT(v.size() == kNv);
   v[0] = theta_dot;
   return *this;
-}
-
-template <typename T>
-void RevoluteMobilizer<T>::set_zero_state(const systems::Context<T>& context,
-                                          systems::State<T>* state) const {
-  this->set_default_zero_state(context, state);
 }
 
 template <typename T>
@@ -155,9 +149,9 @@ std::unique_ptr<Mobilizer<AutoDiffXd>> RevoluteMobilizer<T>::DoCloneToScalar(
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
-// Explicitly instantiates on the most common scalar types.
-template class RevoluteMobilizer<double>;
-template class RevoluteMobilizer<AutoDiffXd>;
-
+}  // namespace internal
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::internal::RevoluteMobilizer)

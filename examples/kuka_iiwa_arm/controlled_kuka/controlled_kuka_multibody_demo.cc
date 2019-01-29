@@ -31,7 +31,6 @@ using drake::geometry::SceneGraph;
 using drake::lcm::DrakeLcm;
 using drake::multibody::Body;
 using drake::multibody::MultibodyPlant;
-using drake::multibody::MultibodyTree;
 using drake::multibody::Parser;
 using drake::multibody::UniformGravityFieldElement;
 
@@ -59,8 +58,7 @@ int DoMain() {
                         kuka_plant.GetFrameByName("base"));
 
   // Add gravity to the model.
-  kuka_plant.AddForceElement<UniformGravityFieldElement>(
-      -9.81 * Vector3<double>::UnitZ());
+  kuka_plant.AddForceElement<UniformGravityFieldElement>();
 
   // Now the model is complete.
   kuka_plant.Finalize();
