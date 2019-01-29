@@ -238,6 +238,18 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
     FinalizePlantOnly();
   }
 
+  struct SpatialForceOutput {
+    SpatialForceOutput(const Vector3<T>& p_W, const SpatialForce<T>& F_p_W) :
+      p_W_(p_W), F_p_W_(F_p_W) { }
+
+    /// Point of application of the spatial force, where the point represents
+    /// a vector expressed in the world frame.
+    Vector3<T> p_W_;
+
+    /// Spatial force applied at point p and expressed in the world frame.
+    SpatialForce<T> F_p_W_;
+  };
+
   /// Returns the number of Frame objects in this model.
   /// Frames include body frames associated with each of the bodies,
   /// including the _world_ body. This means the minimum number of frames is
@@ -2550,6 +2562,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // continuous system as well.
   const systems::OutputPort<T>& get_contact_results_output_port() const;
 
+  /// Returns a constant reference to the port that outputs all spatial forces
+  /// (including fictitious ones).
+  const systems::OutputPort<T>& get_spatial_forces_output_port() const;
+
   /// Returns a constant reference to the *world* body.
   const RigidBody<T>& world_body() const {
     return internal_tree().world_body();
@@ -2970,6 +2986,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       const Eigen::Ref<const VectorX<T>>& generalized_velocity,
       systems::VectorBase<T>* qdot) const override;
 
+  void CalcSpatialForcesOutput(
+      const systems::Context<T>& context,
+      std::vector<SpatialForceOutput>* spatial_forces_output) const;
+
   // Helper method to register geometry for a given body, either visual or
   // collision. The registration includes:
   // 1. Register a frame for this body if not already done so. The body gets
@@ -3286,6 +3306,9 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
 
   // Index for the output port of ContactResults.
   systems::OutputPortIndex contact_results_port_;
+
+  // Index for the output port of spatial forces.
+  systems::OutputPortIndex spatial_forces_output_port_;
 
   // A vector containing the index for the generalized contact forces port for
   // each model instance. This vector is indexed by ModelInstanceIndex. An
