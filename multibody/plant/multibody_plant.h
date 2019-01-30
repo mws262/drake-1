@@ -18,6 +18,7 @@
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/coulomb_friction.h"
 #include "drake/multibody/plant/implicit_stribeck_solver.h"
+#include "drake/multibody/plant/spatial_force_output.h"
 #include "drake/multibody/tree/force_element.h"
 #include "drake/multibody/tree/multibody_tree.h"
 #include "drake/multibody/tree/multibody_tree_system.h"
@@ -237,18 +238,6 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
     // internals (and not the MultibodyTree).
     FinalizePlantOnly();
   }
-
-  struct SpatialForceOutput {
-    SpatialForceOutput(const Vector3<T>& p_W, const SpatialForce<T>& F_p_W) :
-      p_W_(p_W), F_p_W_(F_p_W) { }
-
-    /// Point of application of the spatial force, where the point represents
-    /// a vector expressed in the world frame.
-    Vector3<T> p_W_;
-
-    /// Spatial force applied at point p and expressed in the world frame.
-    SpatialForce<T> F_p_W_;
-  };
 
   /// Returns the number of Frame objects in this model.
   /// Frames include body frames associated with each of the bodies,
@@ -2988,7 +2977,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
 
   void CalcSpatialForcesOutput(
       const systems::Context<T>& context,
-      std::vector<SpatialForceOutput>* spatial_forces_output) const;
+      std::vector<SpatialForceOutput<T>>* spatial_forces_output) const;
 
   // Helper method to register geometry for a given body, either visual or
   // collision. The registration includes:

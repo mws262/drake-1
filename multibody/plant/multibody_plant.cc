@@ -912,7 +912,7 @@ MultibodyPlant<T>::CalcCombinedFrictionCoefficients(
 template <typename T>
 void MultibodyPlant<T>::CalcSpatialForcesOutput(
     const systems::Context<T>& context,
-    std::vector<SpatialForceOutput>* spatial_forces_output) const {
+    std::vector<SpatialForceOutput<T>>* spatial_forces_output) const {
   std::vector<SpatialAcceleration<T>> A_WB(num_bodies());
   std::vector<SpatialForce<T>> F_BMo_W(num_bodies());
 
@@ -1645,7 +1645,7 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
 
   // Spatial forces output port.
   spatial_forces_output_port_ = this->DeclareAbstractOutputPort("spatial_forces",
-      std::vector<SpatialForceOutput>(),
+      std::vector<SpatialForceOutput<T>>(),
       &MultibodyPlant<T>::CalcSpatialForcesOutput).get_index();                              
 }
 

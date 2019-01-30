@@ -28,7 +28,7 @@ class SpatialForceVisualizer(object):
 
         self._sub = lcmUtils.addSubscriber(
             'SPATIAL_FORCES',
-            messageClass=lcmdrakemsg.lcmt_spatial_forces,
+            messageClass=lcmdrakemsg.lcmt_spatial_forces_for_viz,
             callback=self.handle_message)
         print self._name + " subscriber added."
 
