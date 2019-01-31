@@ -964,7 +964,7 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
 
   // Construct the spatial force output.
   spatial_forces_output->clear();
-  for (BodyIndex body_index; body_index < num_bodies(); ++body_index) {
+  for (BodyIndex body_index(0); body_index < num_bodies(); ++body_index) {
     const Body<T>& body = get_body(body_index);
     int body_node_index = body.node_index();
     const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
@@ -1727,6 +1727,13 @@ const systems::OutputPort<T>&
 MultibodyPlant<T>::get_continuous_state_output_port() const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
   return this->get_output_port(continuous_state_output_port_);
+}
+
+template <typename T>
+const systems::OutputPort<T>&
+MultibodyPlant<T>::get_spatial_forces_output_port() const {
+    DRAKE_MBP_THROW_IF_NOT_FINALIZED();
+    return this->get_output_port(spatial_forces_output_port_);
 }
 
 template <typename T>

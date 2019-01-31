@@ -56,13 +56,22 @@ class SpatialForceVisualizer(object):
         # message handler.
         self._sub.setSpeedLimit(30)
 
+        # Removes the folder completely.
+        om.removeFromObjectModel(om.findObjectByName(self._folder_name))
+
+        # Recreates folder.
+        folder = om.getOrCreateContainer(self._folder_name)
+
+        # Set the scaling constant.
+        scalar = 1
+
         # Get the number of arrows.
         d = DebugData()
-        for spatial_force in msg.spatial_forces:
+        for spatial_force in msg.forces:
             # Get the force and torque and point of application.
-            force = spatial_force.force()
-            torque = spatial_force.torque()
-            p_W = spatial_force.p_W()
+            force = np.array([spatial_force.force_W[0], spatial_force.force_W[1], spatial_force.force_W[2]])
+            torque = np.array([spatial_force.torque_W[0], spatial_force.torque_W[1], spatial_force.torque_W[2]])
+            p_W = np.array([spatial_force.p_W[0], spatial_force.p_W[1], spatial_force.p_W[2]])
 
             # Create an arrow starting from p_W and pointing to p_W +
             # force * scalar.
@@ -76,7 +85,7 @@ class SpatialForceVisualizer(object):
 
         # Draw the data.
         vis.showPolyData(
-            d.getPolyData(), str(key), parent=folder, color=[0, 1, 0])
+            d.getPolyData(), 'Force', parent=folder, color=[0, 1, 0])
 
 
 @scoped_singleton_func
