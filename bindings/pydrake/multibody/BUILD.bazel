@@ -55,6 +55,8 @@ drake_pybind_library(
         "//bindings/pydrake/common:eigen_geometry_pybind",
         "//bindings/pydrake/common:type_safe_index_pybind",
         "//bindings/pydrake/systems:systems_pybind",
+        "//multibody/plant:spatial_forces_to_lcm",
+        "//lcm:lcm",
     ],
     cc_srcs = ["multibody_tree_py.cc"],
     package_info = PACKAGE_INFO,
