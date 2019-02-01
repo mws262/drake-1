@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/autodiff.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_deprecated.h"
 #include "drake/common/drake_optional.h"
@@ -1118,6 +1118,19 @@ class MultibodyTree {
     for (auto& body : owned_bodies_) {
       if (body->model_instance() == model_instance) {
         indices.emplace_back(body->index());
+      }
+    }
+    return indices;
+  }
+
+  /// Returns a list of joint indices associated with `model_instance`.
+  std::vector<JointIndex> GetJointIndices(ModelInstanceIndex model_instance)
+  const {
+    DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
+    std::vector<JointIndex> indices;
+    for (auto& joint : owned_joints_) {
+      if (joint->model_instance() == model_instance) {
+        indices.emplace_back(joint->index());
       }
     }
     return indices;
@@ -2649,3 +2662,6 @@ class MultibodyTree {
 
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::multibody::internal::MultibodyTree)

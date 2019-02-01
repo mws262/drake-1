@@ -236,6 +236,18 @@ GTEST_TEST(MultibodyPlant, SimpleModelCreation) {
   EXPECT_EQ(pin_joint.model_instance(), pendulum_model_instance);
   EXPECT_THROW(plant->GetJointByName(kInvalidName), std::logic_error);
 
+  // Get joint indices by model instance
+  const std::vector<JointIndex> acrobot_joint_indices =
+      plant->GetJointIndices(default_model_instance());
+  EXPECT_EQ(acrobot_joint_indices.size(), 2);
+  EXPECT_EQ(acrobot_joint_indices[0], shoulder_joint.index());
+  EXPECT_EQ(acrobot_joint_indices[1], elbow_joint.index());
+
+  const std::vector<JointIndex> pendulum_joint_indices =
+      plant->GetJointIndices(pendulum_model_instance);
+  EXPECT_EQ(pendulum_joint_indices.size(), 2);  // pin joint + weld joint.
+  EXPECT_EQ(pendulum_joint_indices[0], pin_joint.index());
+
   // Templatized version to obtain retrieve a particular known type of joint.
   const RevoluteJoint<double>& shoulder =
       plant->GetJointByName<RevoluteJoint>(parameters.shoulder_joint_name());
@@ -656,6 +668,26 @@ TEST_F(AcrobotPlantTests, VisualGeometryRegistration) {
       plant_->GetBodyFrameIdIfExists(world_index());
   EXPECT_EQ(undefined_id, nullopt);
 #endif
+}
+
+TEST_F(AcrobotPlantTests, SetDefaulState) {
+  EXPECT_EQ(shoulder_->get_angle(*context_), 0.0);
+  EXPECT_EQ(elbow_->get_angle(*context_), 0.0);
+
+  // Set the default joint angles for the acrobot.
+  shoulder_->set_default_angle(0.05);
+  elbow_->set_default_angle(1.2);
+
+  // New contexts should get the default angles.
+  auto test_context = plant_->CreateDefaultContext();
+  EXPECT_EQ(shoulder_->get_angle(*test_context), 0.05);
+  EXPECT_EQ(elbow_->get_angle(*test_context), 1.2);
+
+  shoulder_->set_default_angle(4.2);
+
+  // Calling SetDefaultContext directly works, too.
+  plant_->SetDefaultContext(context_.get());
+  EXPECT_EQ(shoulder_->get_angle(*context_), 4.2);
 }
 
 TEST_F(AcrobotPlantTests, SetRandomState) {

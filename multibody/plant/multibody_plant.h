@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_deprecated.h"
 #include "drake/common/drake_optional.h"
 #include "drake/common/nice_type_name.h"
@@ -17,6 +18,7 @@
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/coulomb_friction.h"
 #include "drake/multibody/plant/implicit_stribeck_solver.h"
+#include "drake/multibody/plant/spatial_force_output.h"
 #include "drake/multibody/tree/force_element.h"
 #include "drake/multibody/tree/multibody_tree.h"
 #include "drake/multibody/tree/multibody_tree_system.h"
@@ -1068,6 +1070,12 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   std::vector<BodyIndex> GetBodyIndices(ModelInstanceIndex model_instance)
   const {
     return internal_tree().GetBodyIndices(model_instance);
+  }
+
+  /// Returns a list of joint indices associated with `model_instance`.
+  std::vector<JointIndex> GetJointIndices(ModelInstanceIndex model_instance)
+  const {
+    return internal_tree().GetJointIndices(model_instance);
   }
 
   /// Returns a constant reference to a frame that is identified by the
@@ -2560,6 +2568,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // continuous system as well.
   const systems::OutputPort<T>& get_contact_results_output_port() const;
 
+  /// Returns a constant reference to the port that outputs all spatial forces
+  /// (including fictitious ones).
+  const systems::OutputPort<T>& get_spatial_forces_output_port() const;
+
   /// Returns a constant reference to the *world* body.
   const RigidBody<T>& world_body() const {
     return internal_tree().world_body();
@@ -2980,6 +2992,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       const Eigen::Ref<const VectorX<T>>& generalized_velocity,
       systems::VectorBase<T>* qdot) const override;
 
+  void CalcSpatialForcesOutput(
+      const systems::Context<T>& context,
+      std::vector<SpatialForceOutput<T>>* spatial_forces_output) const;
+
   // Helper method to register geometry for a given body, either visual or
   // collision. The registration includes:
   // 1. Register a frame for this body if not already done so. The body gets
@@ -3307,6 +3323,9 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // Index for the output port of ContactResults.
   systems::OutputPortIndex contact_results_port_;
 
+  // Index for the output port of spatial forces.
+  systems::OutputPortIndex spatial_forces_output_port_;
+
   // A vector containing the index for the generalized contact forces port for
   // each model instance. This vector is indexed by ModelInstanceIndex. An
   // invalid value indicates that the model instance has no generalized
@@ -3454,6 +3473,14 @@ struct AddMultibodyPlantSceneGraphResult final {
   geometry::SceneGraph<T>* scene_graph_ptr{};
 };
 
+#ifndef DRAKE_DOXYGEN_CXX
+// Forward-declare specializations, prior to DRAKE_DECLARE... below.
+template <>
+std::vector<geometry::PenetrationAsPointPair<double>>
+MultibodyPlant<double>::CalcPointPairPenetrations(
+    const systems::Context<double>&) const;
+#endif
+
 }  // namespace multibody
 }  // namespace drake
 
@@ -3468,3 +3495,8 @@ struct Traits<drake::multibody::MultibodyPlant> :
 }  // namespace scalar_conversion
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class drake::multibody::MultibodyPlant)
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    struct drake::multibody::AddMultibodyPlantSceneGraphResult)

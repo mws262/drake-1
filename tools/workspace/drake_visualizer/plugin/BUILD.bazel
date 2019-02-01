@@ -11,6 +11,7 @@ py_library(
     name = "plugin",
     srcs = [
         "show_contact.py",
+        "show_forces.py",
         "show_frame.py",
         "show_image.py",
         "show_time.py",

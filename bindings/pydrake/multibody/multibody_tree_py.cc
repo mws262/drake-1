@@ -2,14 +2,15 @@
 #include "pybind11/eval.h"
 #include "pybind11/pybind11.h"
 
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
+#include "drake/bindings/pydrake/common/drake_optional_pybind.h"
+#include "drake/bindings/pydrake/common/eigen_geometry_pybind.h"
+#include "drake/bindings/pydrake/common/type_safe_index_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/systems/systems_pybind.h"
-#include "drake/bindings/pydrake/util/deprecation_pybind.h"
-#include "drake/bindings/pydrake/util/drake_optional_pybind.h"
-#include "drake/bindings/pydrake/util/eigen_geometry_pybind.h"
-#include "drake/bindings/pydrake/util/type_safe_index_pybind.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
+#include "drake/lcm/drake_lcm_interface.h"
 #include "drake/multibody/math/spatial_acceleration.h"
 #include "drake/multibody/math/spatial_force.h"
 #include "drake/multibody/math/spatial_vector.h"
@@ -18,11 +19,13 @@
 #include "drake/multibody/plant/contact_info.h"
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/plant/spatial_forces_to_lcm.h"
 #include "drake/multibody/tree/multibody_forces.h"
 #include "drake/multibody/tree/multibody_tree.h"
 #include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/revolute_joint.h"
 #include "drake/multibody/tree/weld_joint.h"
+#include "drake/systems/lcm/lcm_publisher_system.h"
 
 namespace drake {
 namespace pydrake {
@@ -1079,6 +1082,21 @@ void init_multibody_plant(py::module m) {
       },
       py::arg("builder"), py::arg("plant") = nullptr,
       py::arg("scene_graph") = nullptr, doc.AddMultibodyPlantSceneGraph.doc);
+
+
+  m.def("ConnectSpatialForcesToDrakeVisualizer",
+      [](systems::DiagramBuilder<T>* builder,
+      const MultibodyPlant<T>& plant,
+      const systems::OutputPort<T>& spatial_forces_port,
+      lcm::DrakeLcmInterface* lcm) {
+        //systems::lcm::LcmPublisherSystem* publisher = 
+        return    ConnectSpatialForcesToDrakeVisualizer(
+                builder, plant, spatial_forces_port, lcm);
+      },
+      py::arg("builder"), py::arg("plant"), py::arg("spatial_forces_port"),
+      py::arg("lcm"));
+      //doc.ConnectSpatialForcesToDrakeVisualizer.doc);
+
 }  // NOLINT(readability/fn_size)
 
 void init_parsing_deprecated(py::module m) {

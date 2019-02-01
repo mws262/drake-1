@@ -5,7 +5,6 @@
 #include <memory>
 #include <vector>
 
-#include "drake/common/default_scalars.h"
 #include "drake/common/drake_throw.h"
 #include "drake/geometry/frame_kinematics_vector.h"
 #include "drake/geometry/geometry_frame.h"
@@ -910,6 +909,70 @@ MultibodyPlant<T>::CalcCombinedFrictionCoefficients(
   return combined_frictions;
 }
 
+template <typename T>
+void MultibodyPlant<T>::CalcSpatialForcesOutput(
+    const systems::Context<T>& context,
+    std::vector<SpatialForceOutput<T>>* spatial_forces_output) const {
+  std::vector<SpatialAcceleration<T>> A_WB(num_bodies());
+  std::vector<SpatialForce<T>> F_BMo_W(num_bodies());
+
+  const auto& pc = EvalPositionKinematics(context);
+  const auto& vc = EvalVelocityKinematics(context);
+  const int nv = num_velocities();
+  VectorX<T> tau(nv);
+  VectorX<T> vdot = VectorX<T>::Zero(nv);
+
+  // Allocate workspace. We might want to cache these to avoid allocations.
+  // Mass matrix.
+  MatrixX<T> M(nv, nv);
+  // Forces.
+  MultibodyForces<T> forces(internal_tree());
+  // Bodies' accelerations, ordered by BodyNodeIndex.
+  std::vector<SpatialAcceleration<T>> A_WB_array(internal_tree().num_bodies());
+  // Compute forces applied through force elements. This effectively resets
+  // the forces to zero and adds in contributions due to force elements.
+  internal_tree().CalcForceElementsContribution(context, pc, vc, &forces);
+
+  // If there is any input actuation, add it to the multibody forces.
+  AddJointActuationForces(context, &forces);
+
+  internal_tree().CalcMassMatrixViaInverseDynamics(context, &M);
+
+  // WARNING: to reduce memory foot-print, we use the input applied arrays also
+  // as output arrays. This means that both the array of applied body forces and
+  // the array of applied generalized forces get overwritten on output. This is
+  // not important in this case since we don't need their values anymore.
+  // Please see the documentation for CalcInverseDynamics() for details.
+
+  // With vdot = 0, this computes:
+  //   tau = C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W.
+  std::vector<SpatialForce<T>>& F_BBo_W_array = forces.mutable_body_forces();
+
+  // Compute contact forces on each body by penalty method.
+  if (num_collision_geometries() > 0) {
+    std::vector<PenetrationAsPointPair<T>> point_pairs =
+        CalcPointPairPenetrations(context);
+    CalcAndAddContactForcesByPenaltyMethod(
+        context, pc, vc, point_pairs, &F_BBo_W_array);
+  }
+
+
+  internal_tree().CalcInverseDynamics(
+      context, pc, vc, vdot,
+      forces.body_forces(), forces.generalized_forces(),
+      &A_WB, &F_BMo_W, &tau);
+
+  // Construct the spatial force output.
+  spatial_forces_output->clear();
+  for (BodyIndex body_index(0); body_index < num_bodies(); ++body_index) {
+    const Body<T>& body = get_body(body_index);
+    int body_node_index = body.node_index();
+    const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
+    const Vector3<T>& com_location = X_WP.translation(); 
+    spatial_forces_output->emplace_back(com_location, F_BMo_W[body_node_index]);
+  }
+}
+
 template<typename T>
 void MultibodyPlant<T>::CalcContactResultsOutput(
     const systems::Context<T>&,
@@ -1625,6 +1688,11 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
                                   "contact_results", ContactResults<T>(),
                                   &MultibodyPlant<T>::CalcContactResultsOutput)
                               .get_index();
+
+  // Spatial forces output port.
+  spatial_forces_output_port_ = this->DeclareAbstractOutputPort("spatial_forces",
+      std::vector<SpatialForceOutput<T>>(),
+      &MultibodyPlant<T>::CalcSpatialForcesOutput).get_index();                              
 }
 
 template <typename T>
@@ -1724,6 +1792,13 @@ const systems::OutputPort<T>&
 MultibodyPlant<T>::get_continuous_state_output_port() const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
   return this->get_output_port(continuous_state_output_port_);
+}
+
+template <typename T>
+const systems::OutputPort<T>&
+MultibodyPlant<T>::get_spatial_forces_output_port() const {
+    DRAKE_MBP_THROW_IF_NOT_FINALIZED();
+    return this->get_output_port(spatial_forces_output_port_);
 }
 
 template <typename T>

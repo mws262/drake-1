@@ -21,6 +21,7 @@ drake_cc_package_library(
         ":coulomb_friction",
         ":implicit_stribeck_solver",
         ":multibody_plant_core",
+        ":spatial_force_output",
     ],
 )
 
@@ -47,6 +48,7 @@ drake_cc_library(
         ":contact_results",
         ":coulomb_friction",
         ":implicit_stribeck_solver",
+        ":spatial_force_output",
         "//common:default_scalars",
         "//geometry:geometry_ids",
         "//geometry:geometry_visualization",
@@ -109,6 +111,43 @@ drake_cc_library(
         "//systems/framework:diagram_builder",
         "//systems/lcm:lcm_pubsub_system",
     ],
+)
+
+drake_cc_library(
+    name = "spatial_forces_to_lcm",
+    srcs = [
+        "spatial_forces_to_lcm.cc",
+    ],
+    hdrs = [
+        "spatial_forces_to_lcm.h",
+    ],
+    tags = [
+        # Don't add this library into the ":multibody_plant" package library.
+        # Use of MBP doesn't imply use of contact visualization so this
+        # dependency should be invoked explicitly.
+        "exclude_from_package",
+    ],
+    deps = [
+        ":spatial_force_output",
+        ":plant",
+        "//lcmtypes:spatial_forces_for_viz",
+        "//systems/framework:diagram_builder",
+        "//systems/lcm:lcm_pubsub_system",
+    ],
+)
+
+drake_cc_library(
+    name = "spatial_force_output",
+    srcs = [
+        "spatial_force_output.cc",
+    ],
+    hdrs = [
+        "spatial_force_output.h",
+    ],
+    deps = [
+        "//common:default_scalars",
+        "//multibody/tree",
+    ]
 )
 
 drake_cc_library(
