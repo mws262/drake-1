@@ -65,28 +65,37 @@ class SpatialForceVisualizer(object):
         # Set the scaling constant.
         scalar = 1
 
-        # Get the number of arrows.
+        # Output the force arrows first in red.
         d = DebugData()
         for spatial_force in msg.forces:
-            # Get the force and torque and point of application.
-            force = np.array([spatial_force.force_W[0], spatial_force.force_W[1], spatial_force.force_W[2]])
-            torque = np.array([spatial_force.torque_W[0], spatial_force.torque_W[1], spatial_force.torque_W[2]])
+            # Get the force and arrow origination point.
+            force_W = np.array([spatial_force.force_W[0], spatial_force.force_W[1], spatial_force.force_W[2]])
             p_W = np.array([spatial_force.p_W[0], spatial_force.p_W[1], spatial_force.p_W[2]])
 
             # Create an arrow starting from p_W and pointing to p_W +
-            # force * scalar.
-            d.addArrow(start=p_W, end=p_W + force * scalar,
-                tubeRadius=0.005, headRadius=0.01)
-
-            # Create an arrow starting from p_W and pointing to p_W +
-            # torque * scalar. 
-            d.addArrow(start=p_W, end=p_W + torque * scalar,
+            # force_W * scalar.
+            d.addArrow(start=p_W, end=p_W + force_W * scalar,
                 tubeRadius=0.005, headRadius=0.01)
 
         # Draw the data.
         vis.showPolyData(
-            d.getPolyData(), 'Force', parent=folder, color=[0, 1, 0])
+            d.getPolyData(), 'Force', parent=folder, color=[1, 0, 0])
 
+        d = DebugData()
+        # Output the torque arrows in blue.
+        for spatial_force in msg.forces:
+            # Get the torque and arrow origination point.
+            torque_W = np.array([spatial_force.torque_W[0], spatial_force.torque_W[1], spatial_force.torque_W[2]])
+            p_W = np.array([spatial_force.p_W[0], spatial_force.p_W[1], spatial_force.p_W[2]])
+
+            # Create an arrow starting from p_W and pointing to p_W +
+            # torque_W * scalar. 
+            d.addArrow(start=p_W, end=p_W + torque_W * scalar,
+                tubeRadius=0.005, headRadius=0.01)
+
+        # Draw the data.
+        vis.showPolyData(
+            d.getPolyData(), 'Torque', parent=folder, color=[0, 0, 1])
 
 @scoped_singleton_func
 def init_visualizer():

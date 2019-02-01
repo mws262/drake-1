@@ -1087,15 +1087,14 @@ void init_multibody_plant(py::module m) {
   m.def("ConnectSpatialForcesToDrakeVisualizer",
       [](systems::DiagramBuilder<T>* builder,
       const MultibodyPlant<T>& plant,
-      const systems::OutputPort<T>& spatial_forces_port,
       lcm::DrakeLcmInterface* lcm) {
-        //systems::lcm::LcmPublisherSystem* publisher = 
-        return    ConnectSpatialForcesToDrakeVisualizer(
-                builder, plant, spatial_forces_port, lcm);
+        return ConnectSpatialForcesToDrakeVisualizer(
+                builder, plant, lcm);
       },
-      py::arg("builder"), py::arg("plant"), py::arg("spatial_forces_port"),
-      py::arg("lcm"));
-      //doc.ConnectSpatialForcesToDrakeVisualizer.doc);
+      // Keep alive, ownership: `return` keeps `builder` alive.
+      py::keep_alive<0, 1>(), py::keep_alive<0, 2>(), py_reference,
+      // TODO(eric.cousineau): Figure out why this is necessary (#9398).
+      py::arg("builder"), py::arg("plant"), py::arg("lcm") = nullptr);
 
 }  // NOLINT(readability/fn_size)
 
