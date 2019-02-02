@@ -19,6 +19,7 @@
 #include "drake/multibody/plant/contact_info.h"
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/plant/contact_results_to_lcm.h"
 #include "drake/multibody/plant/spatial_forces_to_lcm.h"
 #include "drake/multibody/tree/multibody_forces.h"
 #include "drake/multibody/tree/multibody_tree.h"
@@ -1063,6 +1064,18 @@ void init_multibody_plant(py::module m) {
         .def("contact_info", &Class::contact_info, py::arg("i"));
     pysystems::AddValueInstantiation<Class>(m);
   }
+
+  m.def("ConnectContactResultsToDrakeVisualizer",
+      [](systems::DiagramBuilder<T>* builder,
+      const MultibodyPlant<T>& plant,
+      lcm::DrakeLcmInterface* lcm) {
+        return ConnectContactResultsToDrakeVisualizer(
+                builder, plant, lcm);
+      },
+      // Keep alive, ownership: `return` keeps `builder` alive.
+      py::keep_alive<0, 1>(), py::keep_alive<0, 2>(), py_reference,
+      // TODO(eric.cousineau): Figure out why this is necessary (#9398).
+      py::arg("builder"), py::arg("plant"), py::arg("lcm") = nullptr);
 
   m.def("AddMultibodyPlantSceneGraph",
       [](systems::DiagramBuilder<T>* builder,

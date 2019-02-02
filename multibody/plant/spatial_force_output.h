@@ -20,8 +20,11 @@ struct SpatialForceOutput {
     const Vector3<T>& point_W, const SpatialForce<T>& Force_p_W) :
       p_W(point_W), F_p_W(Force_p_W) { }
 
-  /// Point of application of the spatial force, where the point represents
-  /// a vector expressed in the world frame.
+  /// Point of origination of the arrow for visualizing the force vector, where
+  /// the point represents a vector expressed in the world frame. This point
+  /// should generally be coincident with the center-of-mass of a body. If this
+  /// point is not coincident with the CoM, the moment will not properly
+  /// represent the point about which the body will accelerate rotationally.
   Vector3<T> p_W;
 
   /// Spatial force applied at point p and expressed in the world frame.

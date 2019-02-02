@@ -7,7 +7,8 @@ from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
 Multiplexer, LcmPublisherSystem, MobilizerIndex, ConstantVectorSource,
-Isometry3, Quaternion, Parser, ConnectSpatialForcesToDrakeVisualizer)
+Isometry3, Quaternion, Parser, ConnectSpatialForcesToDrakeVisualizer,
+ConnectContactResultsToDrakeVisualizer)
 from box_controller import BoxController
 
 robot_model_name = "box_model"
@@ -70,6 +71,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   # Connect Drake Visualizer
   ConnectDrakeVisualizer(builder=mbw_builder, scene_graph=scene_graph)
   ConnectSpatialForcesToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
+  ConnectContactResultsToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
 
   # Export useful ports.
   robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))

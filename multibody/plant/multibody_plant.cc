@@ -966,6 +966,8 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
   spatial_forces_output->clear();
   for (BodyIndex body_index(0); body_index < num_bodies(); ++body_index) {
     const Body<T>& body = get_body(body_index);
+    if (IsAnchored(body))
+      continue;
     int body_node_index = body.node_index();
     const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
     const Vector3<T>& com_location = X_WP.translation(); 
