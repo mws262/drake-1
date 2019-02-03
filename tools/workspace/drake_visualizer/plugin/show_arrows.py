@@ -72,7 +72,9 @@ class GenericArrowVisualizer(object):
             origin_W = np.array([arrow.origin_W[0],
                                  arrow.origin_W[1],
                                  arrow.origin_W[2]])
-            color = np.arrow[arrow.color[0], arrow.color[1], arrow.color[2]]
+            color_rgb = np.arrow([arrow.color[0],
+                                  arrow.color[1],
+                                  arrow.color[2]]
 
             # Create an arrow starting from p_W and pointing to p_W + force_W.
             d.addArrow(start=origin_W, end=target_W,

@@ -8,7 +8,7 @@ struct lcmt_generic_arrow_for_viz {
   double fatness_scaling;
 
   // Arrow color (RGB), each component in [0,1].
-  double color[3];
+  double color_rgb[3];
 
   // Origin point in the world frame.
   double origin_W[3];

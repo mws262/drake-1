@@ -39,6 +39,17 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "generic_arrows_for_viz_output",
+    srcs = ["generic_arrows_for_viz_output.cc"],
+    hdrs = ["generic_arrows_for_viz_output.h"],
+    deps = [
+        "//lcmtypes:generic_arrow_for_viz",
+        "//lcmtypes:generic_arrows_for_viz",
+        "//systems/framework",
+    ]
+)
+
+drake_cc_library(
     name = "translator",
     srcs = [
         "lcm_and_vector_base_translator.cc",
