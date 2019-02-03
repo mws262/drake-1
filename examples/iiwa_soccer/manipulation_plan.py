@@ -4,16 +4,20 @@ import math
 class ManipulationPlan:
 
   def __init__(self):
-    # First seven variables of the vector correspond to robot configuration
-    # the next seven variables of the vector correspond to joint velocity. The
-    # sole scalar value corresponds to the designated time.
+    # First nq variables of the vector correspond to generalized robot
+    # configuration, the next nv variables of the vector correspond to
+    # generalized robot velocity, the last nv variables of the vector correspond
+    # to the time derivative of generalized robot velocity. The sole scalar
+    # value corresponds to the designated time.
     self.q_v_vdot_robot = [(0.0, np.array([]))]
 
-    # First three variables: com position next four variables: quaternion
-    # orientation (qw qx qy qz) next three variables: translational velocity
-    # (expressed in the world frame) next three variables: angular velocity
-    # (expressed in the world frame). The sole scalar value corresponds to the
-    # designated time.
+    # First three variables: com position, next four variables: quaternion
+    # orientation (qw qx qy qz), next three variables: translational velocity
+    # (expressed in the world frame), next three variables: angular velocity
+    # (expressed in the world frame), next three variables: translational
+    # acceleration (expressed in the world frame), last three variables:
+    # angular acceleration (expressed in the world frame). The sole scalar value
+    # corresponds to the designated time.
     self.q_v_vdot_ball = [(0.0, np.array([]))]
 
     # Times and indicators of contact / no contact desired between the ball and

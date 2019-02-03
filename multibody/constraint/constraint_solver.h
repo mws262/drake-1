@@ -2657,7 +2657,7 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
     gurobi_solver.Solve(math_program, {}, {}, &result);
   } catch (...) {}
   if (result.get_solution_result() == solvers::kSolutionFound) {
-    return math_program.GetSolution(lambda_hat, result);    
+    return math_program.GetSolution(lambda_hat);    
   } else {
     failure_string += fmt::format(
             "Gurobi failed to find a solution: return type {}\n",
@@ -2671,7 +2671,7 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
     mosek_solver.Solve(math_program, {}, {}, &result);
   } catch (...) {}
   if (result.get_solution_result() == solvers::kSolutionFound) {
-    return math_program.GetSolution(lambda_hat, result);    
+    return math_program.GetSolution(lambda_hat);    
   } else {
     failure_string += fmt::format(
             "Mosek failed to find a solution: return type {}\n",
@@ -2685,7 +2685,7 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
     osqp_solver.Solve(math_program, {}, {}, &result);
   } catch (...) {}
   if (result.get_solution_result() == solvers::kSolutionFound) {
-    return math_program.GetSolution(lambda_hat, result);    
+    return math_program.GetSolution(lambda_hat);    
   } else {
     failure_string += fmt::format(
             "Osqp failed to find a solution: return type {}\n",
@@ -2699,7 +2699,7 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
     ipopt_solver.Solve(math_program, {}, {}, &result);
   } catch (...) {}
   if (result.get_solution_result() == solvers::kSolutionFound) {
-    return math_program.GetSolution(lambda_hat, result);    
+    return math_program.GetSolution(lambda_hat);    
   } else {
     failure_string += fmt::format(
             "Ipopt failed to find a solution: return type {}\n",

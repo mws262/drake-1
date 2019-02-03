@@ -36,7 +36,7 @@ using constant_pack = type_pack<type_pack<constant<T, kPixelTypes>>...>;
 using Eigen::Map;
 
 PYBIND11_MODULE(sensors, m) {
-  PYDRAKE_PREVENT_PYTHON3_MODULE_REIMPORT(variable);
+  PYDRAKE_PREVENT_PYTHON3_MODULE_REIMPORT(m);
 
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace drake::systems;
@@ -46,8 +46,8 @@ PYBIND11_MODULE(sensors, m) {
 
   m.doc() = "Bindings for the sensors portion of the Systems framework.";
 
-  py::module::import("pydrake.systems.framework");
   py::module::import("pydrake.common.eigen_geometry");
+  py::module::import("pydrake.systems.framework");
 
   // Expose only types that are used.
   py::enum_<PixelFormat>(m, "PixelFormat")
