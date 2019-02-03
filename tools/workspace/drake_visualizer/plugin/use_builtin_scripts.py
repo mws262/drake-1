@@ -7,6 +7,7 @@ import os
 import sys
 
 from drake.tools.workspace.drake_visualizer.plugin import (
+    show_arrows,
     show_contact,
     show_frame,
     show_image,
@@ -18,6 +19,7 @@ from drake.tools.workspace.drake_visualizer.plugin import (
 @scoped_singleton_func
 def init_visualizer():
     available = OrderedDict((
+        ("arrows", show_arrows.init_visualizer),
         ("contact", show_contact.init_visualizer),
         ("frame", show_frame.init_visualizer),
         ("image", show_image.init_visualizer),

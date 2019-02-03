@@ -43,6 +43,19 @@ drake_lcm_cc_library(
 )
 
 drake_lcm_cc_library(
+    name = "generic_arrow_for_viz",
+    lcm_package = "drake",
+    lcm_srcs = ["lcmt_generic_arrow_for_viz.lcm"],
+)
+
+drake_lcm_cc_library(
+    name = "generic_arrows_for_viz",
+    lcm_package = "drake",
+    lcm_srcs = ["lcmt_generic_arrows_for_viz.lcm"],
+    deps = [":generic_arrow_for_viz"],
+)
+
+drake_lcm_cc_library(
     name = "body_acceleration",
     lcm_package = "drake",
     lcm_srcs = ["lcmt_body_acceleration.lcm"],

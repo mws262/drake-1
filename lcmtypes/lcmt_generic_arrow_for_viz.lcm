@@ -1,0 +1,18 @@
+package drake;
+
+struct lcmt_generic_arrow_for_viz {
+  // in microseconds
+  int64_t timestamp;
+
+  // Arrow fatness scaling (default = 1.0).
+  double fatness_scaling;
+
+  // Arrow color (RGB), each component in [0,1].
+  double color[3];
+
+  // Origin point in the world frame.
+  double origin_W[3];
+
+  // Target point in the world frame.
+  double target_W[3];
+}

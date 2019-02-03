@@ -1,0 +1,9 @@
+package drake;
+
+struct lcmt_generic_arrows_for_viz {
+  // in microseconds
+  int64_t timestamp;
+
+  int32_t num_arrows_to_visualize;
+  lcmt_generic_arrow_for_viz arrows[num_arrows_to_visualize];
+}
