@@ -28,7 +28,7 @@ class GenericArrowVisualizer(object):
 
         self._sub = lcmUtils.addSubscriber(
             'GENERIC_ARROWS',
-            messageClass=lcmdrakemsg.lcmt_general_arrows_for_viz,
+            messageClass=lcmdrakemsg.lcmt_generic_arrows_for_viz,
             callback=self.handle_message)
         print self._name + " subscriber added."
 
@@ -72,9 +72,9 @@ class GenericArrowVisualizer(object):
             origin_W = np.array([arrow.origin_W[0],
                                  arrow.origin_W[1],
                                  arrow.origin_W[2]])
-            color_rgb = np.arrow([arrow.color[0],
-                                  arrow.color[1],
-                                  arrow.color[2]]
+            color_rgb = np.array([arrow.color_rgb[0],
+                                  arrow.color_rgb[1],
+                                  arrow.color_rgb[2]])
 
             # Create an arrow starting from p_W and pointing to p_W + force_W.
             d.addArrow(start=origin_W, end=target_W,
@@ -83,7 +83,7 @@ class GenericArrowVisualizer(object):
 
             # Draw the data.
             vis.showPolyData(
-                d.getPolyData(), 'Generic arrow', parent=folder, color=color)
+                d.getPolyData(), 'Generic arrow', parent=folder, color=color_rgb)
 
 
 @scoped_singleton_func

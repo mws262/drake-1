@@ -11,6 +11,7 @@
 #include "drake/lcm/drake_lcm.h"
 #include "drake/lcm/drake_lcm_interface.h"
 #include "drake/systems/lcm/connect_lcm_scope.h"
+#include "drake/systems/lcm/generic_arrows_for_viz_output.h"
 #include "drake/systems/lcm/lcm_driven_loop.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/lcm/lcm_subscriber_system.h"
@@ -18,6 +19,9 @@
 
 namespace drake {
 namespace pydrake {
+
+// TODO(eric.cousineau): Expose available scalar types.
+using T = double;
 
 using lcm::DrakeLcm;
 using lcm::DrakeLcmInterface;
@@ -94,6 +98,48 @@ PYBIND11_MODULE(lcm, m) {
 
   py::module::import("pydrake.lcm");
   py::module::import("pydrake.systems.framework");
+
+  // Arrow visualization.
+  {
+    py::class_<ArrowVisualization>(m, "ArrowVisualization")
+        .def(py::init<>()/*, doc.ArrowVisualization.ctor.doc*/)
+        .def_readwrite(
+            "origin_W", &ArrowVisualization::origin_W/*,
+            doc.ArrowVisualization.origin_W.doc*/)
+        .def_readwrite(
+            "target_W", &ArrowVisualization::target_W/*,
+            doc.ArrowVisualization.target_W.doc*/)
+        .def_readwrite("color_rgb", &ArrowVisualization::color_rgb/*,
+            doc.ArrowVisualization.color_rgb*/)
+        .def_readwrite("fatness_scaling",
+            &ArrowVisualization::fatness_scaling/*,
+            doc.ArrowVisualization.fatness_scaling*/);
+
+    m.def("CreateArrowOutputCalcCallback",
+        [](std::function<std::vector<ArrowVisualization>(
+            const Context<T>&)> callback) ->
+            typename LeafOutputPort<T>::CalcCallback {
+          return CreateArrowOutputCalcCallback(callback);
+        },
+        py::arg("callback"));
+
+    m.def("CreateArrowOutputAllocCallback",
+      []() -> typename LeafOutputPort<T>::AllocCallback {
+          return CreateArrowOutputAllocCallback<T>();
+      });
+
+    m.def("ConnectGenericArrowsToDrakeVisualizer",
+      [](systems::DiagramBuilder<T>* builder,
+      const systems::OutputPort<T>& output_port,
+      drake::lcm::DrakeLcmInterface* lcm) {
+        return ConnectGenericArrowsToDrakeVisualizer(
+                builder, output_port, lcm);
+      },
+      // Keep alive, ownership: `return` keeps `builder` alive.
+      py::keep_alive<0, 1>(), py::keep_alive<0, 2>(), py_reference,
+      // TODO(eric.cousineau): Figure out why this is necessary (#9398).
+      py::arg("builder"), py::arg("output_port"), py::arg("lcm") = nullptr);
+  }
 
   {
     using Class = SerializerInterface;

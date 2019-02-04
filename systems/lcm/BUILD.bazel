@@ -43,6 +43,7 @@ drake_cc_library(
     srcs = ["generic_arrows_for_viz_output.cc"],
     hdrs = ["generic_arrows_for_viz_output.h"],
     deps = [
+        ":lcm_pubsub_system",
         "//lcmtypes:generic_arrow_for_viz",
         "//lcmtypes:generic_arrows_for_viz",
         "//systems/framework",

@@ -8,7 +8,7 @@ FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
 Multiplexer, LcmPublisherSystem, MobilizerIndex, ConstantVectorSource,
 Isometry3, Quaternion, Parser, ConnectSpatialForcesToDrakeVisualizer,
-ConnectContactResultsToDrakeVisualizer)
+ConnectContactResultsToDrakeVisualizer, ConnectGenericArrowsToDrakeVisualizer)
 from box_controller import BoxController
 
 robot_model_name = "box_model"
@@ -68,11 +68,6 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
     all_plant.get_geometry_poses_output_port(),
     scene_graph.get_source_pose_port(all_plant.get_source_id()))
 
-  # Connect Drake Visualizer
-  ConnectDrakeVisualizer(builder=mbw_builder, scene_graph=scene_graph)
-  ConnectSpatialForcesToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
-  ConnectContactResultsToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
-
   # Export useful ports.
   robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
   ball_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(ball_instance_id))
@@ -89,6 +84,12 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
 
   # Build the controller.
   controller = builder.AddSystem(BoxController('box', all_plant, robot_plant, mbw, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance_id, ball_instance_id))
+
+  # Connect Drake Visualizer
+  ConnectDrakeVisualizer(builder=mbw_builder, scene_graph=scene_graph)
+  ConnectSpatialForcesToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
+  ConnectContactResultsToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
+  ConnectGenericArrowsToDrakeVisualizer(builder=mbw_builder, output_port=controller.ball_acceleration_visualization_output_port)
 
   # Get the necessary instances.
   robot_instance = all_plant.GetModelInstanceByName(robot_model_name)

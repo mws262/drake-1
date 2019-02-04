@@ -7,6 +7,7 @@
 #include "drake/geometry/geometry_visualization.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/lcm/drake_lcm.h"
+#include "drake/lcmt_generic_arrows_for_viz.hpp"
 #include "drake/multibody/benchmarks/acrobot/make_acrobot_plant.h"
 #include "drake/multibody/plant/spatial_forces_to_lcm.h"
 #include "drake/multibody/tree/revolute_joint.h"
@@ -15,7 +16,7 @@
 #include "drake/systems/analysis/semi_explicit_euler_integrator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram_builder.h"
-#include "drake/systems/primitives/constant_vector_source.h"
+#include "drake/systems/lcm/generic_arrows_for_viz_output.h"
 
 namespace drake {
 
@@ -26,6 +27,8 @@ using multibody::benchmarks::acrobot::AcrobotParameters;
 using multibody::benchmarks::acrobot::MakeAcrobotPlant;
 using multibody::MultibodyPlant;
 using multibody::RevoluteJoint;
+using systems::BasicVector;
+using systems::Context;
 using systems::ImplicitEulerIntegrator;
 using systems::RungeKutta3Integrator;
 using systems::SemiExplicitEulerIntegrator;
@@ -45,6 +48,43 @@ DEFINE_string(integration_scheme, "runge_kutta3",
 
 DEFINE_double(simulation_time, 10.0,
               "Desired duration of the simulation in seconds.");
+
+class DummyController : public systems::LeafSystem<double> {
+ public:
+  DummyController() {
+    this->DeclareVectorOutputPort("no_torque", BasicVector<double>(1),
+      &DummyController::OutputTorque);
+    std::function<std::vector<systems::ArrowVisualization>(
+        const Context<double>&)> fpointer = &CreateTestArrowVector;
+    arrow_output_ = this->DeclareAbstractOutputPort(
+        "arrows",
+        []() -> std::unique_ptr<AbstractValue> {
+            return std::make_unique<Value<lcmt_generic_arrows_for_viz>>();
+//          return std::make_unique<Value<std::vector<systems::ArrowVisualization>>>();
+        },
+        CreateArrowOutputLambda(fpointer)).get_index();
+  }
+
+  const systems::OutputPort<double>& get_arrow_output_port() const { 
+      return this->get_output_port(arrow_output_); 
+  }
+
+ private:
+  void OutputTorque(const Context<double>&, BasicVector<double>* output) const {
+    output->SetZero();    
+  }
+
+  static std::vector<systems::ArrowVisualization> CreateTestArrowVector(
+      const Context<double>&) {
+    std::vector<systems::ArrowVisualization> v(1);
+    v.front().color_rgb = Vector3<double>(1, 1, 1);
+    v.front().origin_W = Vector3<double>(0, 0, 0);
+    v.front().target_W = Vector3<double>(10, 10, 10);
+    return v;
+  }
+
+  systems::OutputPortIndex arrow_output_;
+};
 
 int do_main() {
   systems::DiagramBuilder<double> builder;
@@ -73,12 +113,11 @@ int do_main() {
           acrobot_parameters.elbow_joint_name());
 
   // A constant source for a zero applied torque at the elbow joint.
-  double applied_torque(0.0);
-  auto torque_source =
-      builder.AddSystem<systems::ConstantVectorSource>(applied_torque);
-  torque_source->set_name("Applied Torque");
-  builder.Connect(torque_source->get_output_port(),
+  auto dummy_controller = builder.AddSystem<DummyController>();
+  builder.Connect(dummy_controller->get_output_port(0),
                   acrobot.get_actuation_input_port());
+  ConnectGenericArrowsToDrakeVisualizer(
+      &builder, dummy_controller->get_arrow_output_port());
 
   // Sanity check on the availability of the optional source id before using it.
   DRAKE_DEMAND(!!acrobot.get_source_id());

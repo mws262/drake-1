@@ -1166,15 +1166,15 @@ void MultibodyPlant<T>::AddGeneralizedGodForces(
     if (num_velocities(model_instance_index) == 0)
       continue;
 
-    // Evaluate the God input.
-    Eigen::VectorBlock<const VectorX<T>> god_input =
-        this->EvalEigenVectorInput(context,
-                                   instance_god_ports_[model_instance_index]);
-
-    // Incorporate it into MultibodyForces.
-    tau_instance.setZero();
-    SetVelocitiesInArray(model_instance_index, god_input, &tau_instance);
-    tau += tau_instance;
+    // Evaluate the God input and incorporate it into MultibodyForces.
+    const BasicVector<T>* god_input = this->EvalVectorInput(
+        context, instance_god_ports_[model_instance_index]);
+    if (god_input) {
+      tau_instance.setZero();
+      SetVelocitiesInArray(
+          model_instance_index, god_input->get_value(), &tau_instance);
+      tau += tau_instance;
+    }
   }
 }
 

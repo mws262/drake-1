@@ -1,5 +1,7 @@
 #include "drake/lcmt_generic_arrow_for_viz.hpp"
 #include "drake/lcmt_generic_arrows_for_viz.hpp"
+#include "drake/systems/framework/diagram_builder.h"
+#include "drake/systems/framework/leaf_output_port.h"
 #include "drake/systems/lcm/generic_arrows_for_viz_output.h"
 
 namespace drake {
@@ -39,19 +41,41 @@ void CalcArrowOutput(
 }  // namespace internal
 
 template <class T>
-typename LeafOutputPort<T>::CalcCallback CreateArrowOutputLambda(
+typename LeafOutputPort<T>::CalcCallback CreateArrowOutputCalcCallback(
     std::function<std::vector<ArrowVisualization>(const Context<T>&)>
     arrow_visualization_callback) {
   return [arrow_visualization_callback](
-      const Context<T>& context, AbstractValue* output) ->
-          typename LeafOutputPort<T>::CalcCallback {
+      const Context<T>& context, AbstractValue* output) {
     DRAKE_DEMAND(output);
     const std::vector<ArrowVisualization> arrows_to_visualize =
-        (*arrow_visualization_callback)(context);        
+        arrow_visualization_callback(context);        
     auto& lcm_output = output->GetMutableValue<lcmt_generic_arrows_for_viz>();
     CalcArrowOutput(context, arrows_to_visualize, &lcm_output);
   };
 }
 
+systems::lcm::LcmPublisherSystem* ConnectGenericArrowsToDrakeVisualizer(
+    systems::DiagramBuilder<double>* builder,
+    const systems::OutputPort<double>& arrow_output_port,
+    drake::lcm::DrakeLcmInterface* lcm) {
+  DRAKE_DEMAND(builder != nullptr);
+
+  auto arrow_publisher = builder->AddSystem(
+      systems::lcm::LcmPublisherSystem::Make<lcmt_generic_arrows_for_viz>(
+          "GENERIC_ARROWS", lcm, 1.0 / 60 /* publish period */));
+  arrow_publisher->set_name("arrows_publisher");
+
+  builder->Connect(
+      arrow_output_port, arrow_publisher->get_input_port());
+
+  return arrow_publisher;
+}
+
 }  // namespace systems
 }  // namespace drake
+
+template drake::systems::LeafOutputPort<double>::CalcCallback
+    drake::systems::CreateArrowOutputCalcCallback<double>(
+        std::function<std::vector<drake::systems::ArrowVisualization>(
+            const drake::systems::Context<double>&)>
+                arrow_visualization_callback);

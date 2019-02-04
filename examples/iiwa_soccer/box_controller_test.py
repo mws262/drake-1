@@ -11,7 +11,7 @@ from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
 class ControllerTest(unittest.TestCase):
   def setUp(self):
     # TODO: figure out how to make time_step a parameter of this function.
-    time_step = 0.0
+    time_step = 1e-4
 
     # Construct some reasonable defaults.
     # Gains in Cartesian-land.
@@ -127,7 +127,7 @@ class ControllerTest(unittest.TestCase):
     v[:] = np.linspace(1, 10, nv)
 
     # Copy the elements corresponding to the robot out of v.
-    vselected = self.all_plant.tree().GetVelocitiesFromArray(self.controller.robot_instance, v)
+    vselected = self.all_plant.GetVelocitiesFromArray(self.controller.robot_instance, v)
     v_all_but_zero = np.zeros([nv])
     self.all_plant.SetVelocitiesInArray(self.controller.robot_instance, vselected, v_all_but_zero)
     vselected_row = np.zeros([len(vselected), 1])
@@ -183,8 +183,8 @@ class ControllerTest(unittest.TestCase):
 
     # Verify that q is set in the proper place in the array.
     q_all = self.controller.get_q_all(self.controller_context)
-    self.assertTrue(np.allclose(q_robot, self.controller.robot_and_ball_plant.tree().GetPositionsFromArray(self.controller.robot_instance, q_all)))
-    self.assertTrue(np.allclose(q_ball, self.controller.robot_and_ball_plant.tree().GetPositionsFromArray(self.controller.ball_instance, q_all)))
+    self.assertTrue(np.allclose(q_robot, self.controller.robot_and_ball_plant.GetPositionsFromArray(self.controller.robot_instance, q_all)))
+    self.assertTrue(np.allclose(q_ball, self.controller.robot_and_ball_plant.GetPositionsFromArray(self.controller.ball_instance, q_all)))
 
   def test_BodyAccessors(self):
     # This is just a smoke test.
@@ -262,9 +262,9 @@ class ControllerTest(unittest.TestCase):
 
     # Use the controller output to determine the generalized acceleration of the
     # robot and the ball.
-    M = all_plant.tree().CalcMassMatrixViaInverseDynamics(robot_and_ball_context)
-    link_wrenches = MultibodyForces(self.all_plant.tree())
-    fext = -all_plant.tree().CalcInverseDynamics(
+    M = all_plant.CalcMassMatrixViaInverseDynamics(robot_and_ball_context)
+    link_wrenches = MultibodyForces(self.all_plant)
+    fext = -all_plant.CalcInverseDynamics(
       robot_and_ball_context, np.zeros([len(v)]), link_wrenches)
 
     # Get the robot actuation matrix.
@@ -319,9 +319,9 @@ class ControllerTest(unittest.TestCase):
     robot_context = self.robot_plant.CreateDefaultContext()
     self.robot_plant.SetPositions(robot_context, q_robot)
     self.robot_plant.SetVelocities(robot_context, v_robot)
-    M = self.robot_plant.tree().CalcMassMatrixViaInverseDynamics(robot_context)
-    link_wrenches = MultibodyForces(self.robot_plant.tree())
-    fext = -self.robot_plant.tree().CalcInverseDynamics(
+    M = self.robot_plant.CalcMassMatrixViaInverseDynamics(robot_context)
+    link_wrenches = MultibodyForces(self.robot_plant)
+    fext = -self.robot_plant.CalcInverseDynamics(
         robot_context, np.zeros([self.controller.nv_robot()]), link_wrenches)
     vdot_robot = np.linalg.inv(M).dot(self.output.get_vector_data(0).CopyToVector() + fext)
     dbg_out += '\nDesired robot velocity: ' + str(vdot_robot)
@@ -334,7 +334,7 @@ class ControllerTest(unittest.TestCase):
     # discretization to the new configuration.
     dt = 1e-3
     vnew_robot = v_robot + dt*vdot_robot
-    qd_robot = self.robot_plant.MapVelocityToQDot(robot_context, vnew_robot, len(q_robot))
+    qd_robot = self.robot_plant.MapVelocityToQDot(robot_context, vnew_robot)
     qnew_robot = q_robot + dt*qd_robot
 
     # Set the new position and velocity "estimates" of the robot.
@@ -381,10 +381,10 @@ class ControllerTest(unittest.TestCase):
 
     # Setup debugging output.
     dbg_out = '\nDebugging log follows: '
-    dbg_out += '\nRobot velocity: ' + str(self.all_plant.tree().GetVelocitiesFromArray(self.controller.robot_instance, v)) + '\n'
-    dbg_out += '\nBall velocity: ' + str(self.all_plant.tree().GetVelocitiesFromArray(self.controller.ball_instance, v)) + '\n'
-    #v = self.all_plant.tree().SetVelocitiesInArray(self.controller.robot_instance, [0, 0, 1, 0, 0, 0], v)
-    #v = self.all_plant.tree().SetVelocitiesInArray(self.controller.ball_instance, [0, 0, 0, 0, 0, 0], v)
+    dbg_out += '\nRobot velocity: ' + str(self.all_plant.GetVelocitiesFromArray(self.controller.robot_instance, v)) + '\n'
+    dbg_out += '\nBall velocity: ' + str(self.all_plant.GetVelocitiesFromArray(self.controller.ball_instance, v)) + '\n'
+    #v = self.all_plant.SetVelocitiesInArray(self.controller.robot_instance, [0, 0, 1, 0, 0, 0], v)
+    #v = self.all_plant.SetVelocitiesInArray(self.controller.ball_instance, [0, 0, 0, 0, 0, 0], v)
 
     # Construct the Jacobian matrices using the controller function.
     [N, S, T, Ndot, Sdot, Tdot] = self.controller.ConstructJacobians(contacts, q)
@@ -428,8 +428,8 @@ class ControllerTest(unittest.TestCase):
 
       # Get the components of the contact point in the body frames.
       self.all_plant.SetPositions(robot_and_ball_context, q)
-      X_WA = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_A)
-      X_WB = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_B)
+      X_WA = self.all_plant.EvalBodyPoseInWorld(robot_and_ball_context, body_A)
+      X_WB = self.all_plant.EvalBodyPoseInWorld(robot_and_ball_context, body_B)
       p_A = X_WA.inverse().multiply(point_pair.p_WCa)
       p_B = X_WB.inverse().multiply(point_pair.p_WCb)
 
@@ -439,19 +439,19 @@ class ControllerTest(unittest.TestCase):
       qnew = q + dt*qdot
       dbg_out += '\nWorld contact point on A: ' + str(point_pair.p_WCa) + '  on B: ' + str(point_pair.p_WCb)
       dbg_out += '\nBody contact point on A: ' + str(p_A) + '  on B: ' + str(p_B)
-      dbg_out += '\nq_robot (old): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, q))
-      dbg_out += '\nq_robot (new): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qnew))
-      dbg_out += '\nqdot_robot: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.robot_instance, qdot))
-      dbg_out += '\nq_ball (old): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, q))
-      dbg_out += '\nq_ball (new): ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qnew))
-      dbg_out += '\nqdot_ball: ' + str(self.all_plant.tree().GetPositionsFromArray(self.controller.ball_instance, qdot))
+      dbg_out += '\nq_robot (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, q))
+      dbg_out += '\nq_robot (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qnew))
+      dbg_out += '\nqdot_robot: ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qdot))
+      dbg_out += '\nq_ball (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, q))
+      dbg_out += '\nq_ball (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qnew))
+      dbg_out += '\nqdot_ball: ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qdot))
       self.all_plant.SetPositions(robot_and_ball_context, qnew)
 
       # Determine the new locations of the points on the bodies. The difference
       # in the points yields a finite difference approximation to the relative
       # velocity.
-      X_WA_new = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_A)
-      X_WB_new = self.all_plant.tree().EvalBodyPoseInWorld(robot_and_ball_context, body_B)
+      X_WA_new = self.all_plant.EvalBodyPoseInWorld(robot_and_ball_context, body_A)
+      X_WB_new = self.all_plant.EvalBodyPoseInWorld(robot_and_ball_context, body_B)
 
       # The *velocity* at a point of contact, C, measured in the global frame is
       # the limit as h -> 0 of the difference in point location between t and

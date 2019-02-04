@@ -3,7 +3,9 @@ import numpy as np
 from manipulation_plan import ManipulationPlan
 from embedded_box_soccer_sim import EmbeddedSim
 
-from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType, BasicVector, MultibodyForces)
+from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
+BasicVector, MultibodyForces, CreateArrowOutputCalcCallback,
+CreateArrowOutputAllocCallback)
 from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
@@ -11,6 +13,7 @@ class BoxController(LeafSystem):
     LeafSystem.__init__(self)
 
     # Save the robot type.
+    self.set_name('box_controller')
     self.robot_type = robot_type
 
     # Construct the plan.
@@ -71,6 +74,38 @@ class BoxController(LeafSystem):
 
     # Get the geometry query input port.
     self.geometry_query_input_port = self.robot_and_ball_plant.get_geometry_query_input_port()
+
+    # Set up ball c.o.m. acceleration visualization.
+    self.ball_acceleration_visualization_output_port = self._DeclareAbstractOutputPort(
+        "arrow_output",
+        CreateArrowOutputAllocCallback(),
+        CreateArrowOutputCalcCallback(self.OutputBallAccelerationAsGenericArrow))
+
+  # Debugging function for visualizing the desired ball acceleration using
+  # white arrows.
+  def OutputBallAccelerationAsGenericArrow(self, controller_context):
+    # Get the desired ball acceleration.
+    vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
+    vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
+    
+    # Get the translational ball acceleration.
+    xdd_ball_des = vdot_ball_des[0:3]
+
+    # Evaluate the ball center-of-mass.
+    all_plant = self.robot_and_ball_plant
+    ball_body = self.get_ball_from_robot_and_ball_plant()
+    X_WB = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, ball_body)
+
+    # Populate the arrow visualization data structure.
+    arrow_viz = ArrowVisualization()
+    #arrow_viz.origin_W = com
+    #arrow_viz.target_W = com + xdd_ball_des
+    arrow_viz.origin_W = np.array([0, 0, 0])
+    arrow_viz.target_W = np.array([10, 10, 10])
+    arrow_viz.color = np.array([1, 1, 1])  # White.
+
+    # A list must be returned.
+    return [ arrow_viz ]   
 
   # Gets the value of the integral term in the state.
   def get_integral_value(self, context):
@@ -449,15 +484,18 @@ class BoxController(LeafSystem):
 
   # Computes the control torques when contact is desired and the robot and the
   # ball are *not* in contact.
-  def ComputeActuationForContactDesiredButNoContact(self, context):
+  def ComputeActuationForContactDesiredButNoContact(self, controller_context):
     # Get the relevant trees.
     all_plant = self.robot_and_ball_plant
-    all_tree = all_plant.tree()
-    robot_tree = self.robot_plant.tree()
+    robot_plant = self.robot_plant
 
-    # Get the generalized positions for the robot and the ball.
-    q0 = self.robot_and_ball_plant.GetPositions(self.robot_and_ball_context)
-    v0 = self.robot_and_ball_plant.GetVelocities(self.robot_and_ball_context)
+    # Get the generalized positions and velocities for the robot and the ball.
+    q0 = self.get_q_all(controller_context)
+    v0 = self.get_v_all(controller_context)
+
+    # Set the state in the "all plant" context.
+    all_plant.SetPositions(self.robot_and_ball_context, q0)
+    all_plant.SetVelocities(self.robot_and_ball_context, v0)
 
     # Set the joint velocities for the robot to zero.
     self.robot_and_ball_plant.SetVelocities(self.robot_and_ball_context, self.robot_instance, np.zeros([self.nv_robot()]))
@@ -534,8 +572,8 @@ class BoxController(LeafSystem):
 
     # Transform the points in the body frames corresponding to q1 to the
     # world frame.
-    X_wa = all_tree.EvalBodyPoseInWorld(self.robot_and_ball_context, body_A)
-    X_wb = all_tree.EvalBodyPoseInWorld(self.robot_and_ball_context, body_B)
+    X_wa = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, body_A)
+    X_wb = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, body_B)
     closest_Aw = X_wa.multiply(closest_Aa)
     closest_Bw = X_wb.multiply(closest_Bb)
 
@@ -544,19 +582,19 @@ class BoxController(LeafSystem):
     linear_v_des = (closest_Bw - closest_Aw) / dt
 
     # Get the robot current generalized position and velocity.
-    q_robot = self.get_q_robot(context)
-    v_robot = self.get_v_robot(context)
+    q_robot = self.get_q_robot(controller_context)
+    v_robot = self.get_v_robot(controller_context)
 
     # Set the state in the robot context to q_robot and qd_robot.
-    x = robot_tree.GetMutablePositionsAndVelocities(self.robot_context)
+    x = robot_plant.GetMutablePositionsAndVelocities(self.robot_context)
     assert len(x) == len(q_robot) + len(v_robot)
     x[0:len(q_robot)] = q_robot
     x[-len(v_robot):] = v_robot
 
     # Get the geometric Jacobian for the velocity of the closest point on the
     # robot as moving with the robot Body A.
-    foot_bodies_in_robot_tree = self.get_foot_links_from_robot_plant()
-    for body in foot_bodies_in_robot_tree:
+    foot_bodies_in_robot_plant = self.get_foot_links_from_robot_plant()
+    for body in foot_bodies_in_robot_plant:
       if body.name() == body_A.name():
         foot_body_to_use = body
     J_WAc = self.robot_plant.CalcPointsGeometricJacobianExpressedInWorld(
@@ -580,13 +618,13 @@ class BoxController(LeafSystem):
       vdot = np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_kd).dot(np.reshape(v_robot_des - v_robot), (-1, 1))
 
     # Get the generalized inertia matrix.
-    M = robot_tree.CalcMassMatrixViaInverseDynamics(self.robot_context)
+    M = robot_plant.CalcMassMatrixViaInverseDynamics(self.robot_context)
 
     # Compute the contribution from force elements.
-    link_wrenches = MultibodyForces(robot_tree)
+    link_wrenches = MultibodyForces(robot_plant)
 
     # Compute the external forces.
-    fext = np.reshape(-robot_tree.CalcInverseDynamics(
+    fext = np.reshape(-robot_plant.CalcInverseDynamics(
         self.robot_context, np.zeros([self.nv_robot()]), link_wrenches), (-1, 1))
 
     # Compute inverse dynamics.
