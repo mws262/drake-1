@@ -5,7 +5,7 @@ from embedded_box_soccer_sim import EmbeddedSim
 
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
 BasicVector, MultibodyForces, CreateArrowOutputCalcCallback,
-CreateArrowOutputAllocCallback)
+CreateArrowOutputAllocCallback, ArrowVisualization)
 from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
@@ -89,20 +89,19 @@ class BoxController(LeafSystem):
     vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
     
     # Get the translational ball acceleration.
-    xdd_ball_des = vdot_ball_des[0:3]
+    xdd_ball_des = np.reshape(vdot_ball_des[3:6], [-1])
 
     # Evaluate the ball center-of-mass.
     all_plant = self.robot_and_ball_plant
     ball_body = self.get_ball_from_robot_and_ball_plant()
     X_WB = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, ball_body)
+    com = X_WB.translation()
 
     # Populate the arrow visualization data structure.
     arrow_viz = ArrowVisualization()
-    #arrow_viz.origin_W = com
-    #arrow_viz.target_W = com + xdd_ball_des
-    arrow_viz.origin_W = np.array([0, 0, 0])
-    arrow_viz.target_W = np.array([10, 10, 10])
-    arrow_viz.color = np.array([1, 1, 1])  # White.
+    arrow_viz.origin_W = com
+    arrow_viz.target_W = com + xdd_ball_des
+    arrow_viz.color_rgb = np.array([1, 1, 1])  # White.
 
     # A list must be returned.
     return [ arrow_viz ]   

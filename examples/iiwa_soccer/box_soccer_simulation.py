@@ -74,6 +74,11 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   robot_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(robot_instance_id))
   ball_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(ball_instance_id))
 
+  # Connect Drake Visualizer
+  ConnectDrakeVisualizer(builder=mbw_builder, scene_graph=scene_graph)
+  ConnectSpatialForcesToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
+  ConnectContactResultsToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
+
   # Add the "MultibodyWorld" to the diagram.
   mbw = builder.AddSystem(mbw_builder.Build())
   mbw.set_name('MultibodyWorld')
@@ -84,12 +89,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
 
   # Build the controller.
   controller = builder.AddSystem(BoxController('box', all_plant, robot_plant, mbw, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance_id, ball_instance_id))
-
-  # Connect Drake Visualizer
-  ConnectDrakeVisualizer(builder=mbw_builder, scene_graph=scene_graph)
-  ConnectSpatialForcesToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
-  ConnectContactResultsToDrakeVisualizer(builder=mbw_builder, plant=all_plant)
-  ConnectGenericArrowsToDrakeVisualizer(builder=mbw_builder, output_port=controller.ball_acceleration_visualization_output_port)
+  ConnectGenericArrowsToDrakeVisualizer(builder=builder, output_port=controller.ball_acceleration_visualization_output_port)
 
   # Get the necessary instances.
   robot_instance = all_plant.GetModelInstanceByName(robot_model_name)

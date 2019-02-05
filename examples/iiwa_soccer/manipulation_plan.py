@@ -11,6 +11,7 @@ class ManipulationPlan:
     # value corresponds to the designated time.
     self.q_v_vdot_robot = [(0.0, np.array([]))]
 
+    # TODO: correct this- these are backwards!
     # First three variables: com position, next four variables: quaternion
     # orientation (qw qx qy qz), next three variables: translational velocity
     # (expressed in the world frame), next three variables: angular velocity
