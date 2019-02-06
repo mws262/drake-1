@@ -12,6 +12,7 @@
 #include "drake/systems/primitives/constant_value_source.h"
 #include "drake/systems/primitives/constant_vector_source.h"
 #include "drake/systems/primitives/demultiplexer.h"
+#include "drake/systems/primitives/discrete_derivative.h"
 #include "drake/systems/primitives/first_order_low_pass_filter.h"
 #include "drake/systems/primitives/gain.h"
 #include "drake/systems/primitives/integrator.h"
@@ -108,6 +109,12 @@ PYBIND11_MODULE(primitives, m) {
         m, "Demultiplexer", GetPyParam<T>(), doc.Demultiplexer.doc)
         .def(py::init<int, int>(), py::arg("size"),
             py::arg("output_ports_sizes") = 1, doc.Demultiplexer.ctor.doc);
+
+    DefineTemplateClassWithDefault<DiscreteDerivative<T>, LeafSystem<T>>(
+        m, "DiscreteDerivative", GetPyParam<T>(), doc.Adder.doc)
+        .def(py::init<int, double>(), py::arg("num_inputs"),
+            py::arg("time_step"),
+            doc.DiscreteDerivative.ctor.doc);
 
     DefineTemplateClassWithDefault<                  // BR
         FirstOrderLowPassFilter<T>, LeafSystem<T>>(  //
