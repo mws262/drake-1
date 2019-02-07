@@ -1536,6 +1536,13 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
   VectorX<T> qdot_next(this->num_positions());
   internal_tree().MapVelocityToQDot(context0, v_next, &qdot_next);
   VectorX<T> q_next = q0 + dt * qdot_next;
+const VectorX<T> vdot_approx = (v_next - v0) / dt;
+for (ModelInstanceIndex i(0); i < num_model_instances(); ++i) {
+  if (num_velocities(i) == 0)
+    continue;
+  std::cout << "Approximate acceleration for " << GetModelInstanceName(i) << ": ";
+  std::cout << GetVelocitiesFromArray(i, vdot_approx).transpose() << std::endl;    
+}
 
   VectorX<T> x_next(this->num_multibody_states());
   x_next << q_next, v_next;

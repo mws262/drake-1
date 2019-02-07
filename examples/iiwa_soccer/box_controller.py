@@ -892,8 +892,7 @@ class BoxController(LeafSystem):
         # Update epsilon.
         epsilon += delta_epsilon
 
-    print 'fext: ' + str(fext)
-    print 'Contact forces: ' + str(epsilon)
+    print 'predicted ball acceleration: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv]))
 
     return [u, z[0:nv], z[0:nprimal], P, B, epsilon]
 

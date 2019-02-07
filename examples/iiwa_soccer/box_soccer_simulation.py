@@ -144,7 +144,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   # Build the diagram.
   diagram = builder.Build()
 
-  return [ controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance ]
+  return [ controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output ]
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
@@ -179,7 +179,8 @@ def main():
   robot_gv_ki = np.ones([nv_robot]) * 0.1
   robot_gv_kd = np.ones([nv_robot]) * 1.0
 
-  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance = BuildBlockDiagram(args.time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+
 
   simulator = Simulator(diagram)
   simulator.set_publish_every_time_step(True)
