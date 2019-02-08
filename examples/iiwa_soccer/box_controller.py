@@ -87,7 +87,7 @@ class BoxController(LeafSystem):
     # Get the desired ball acceleration.
     vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
     vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
-    
+
     # Get the translational ball acceleration.
     xdd_ball_des = np.reshape(vdot_ball_des[3:6], [-1])
 
@@ -104,7 +104,7 @@ class BoxController(LeafSystem):
     arrow_viz.color_rgb = np.array([1, 1, 1])  # White.
 
     # A list must be returned.
-    return [ arrow_viz ]   
+    return [ arrow_viz ]
 
   # Gets the value of the integral term in the state.
   def get_integral_value(self, context):
@@ -886,13 +886,16 @@ class BoxController(LeafSystem):
         delta_epsilon = M.dot(vdot_approx) - fext - B.dot(np.reshape(u, (-1, 1))) - epsilon
 
         # If delta-epsilon is sufficiently small, quit.
-        if np.linalg.norm(delta_epsilon) < 1e-6:
+        if np.linalg.norm(delta_epsilon) < 1e-8:
             break
 
         # Update epsilon.
         epsilon += delta_epsilon
 
+    print 'External forces and actuator forces: ' + str(-fext - B.dot(np.reshape(u, (-1, 1))))
+    print 'Contact forces: ' + str(epsilon)
     print 'predicted ball acceleration: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv]))
+    print 'ball acceleration from vdot_approx: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx))
 
     return [u, z[0:nv], z[0:nprimal], P, B, epsilon]
 

@@ -970,7 +970,7 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
       continue;
     int body_node_index = body.node_index();
     const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
-    const Vector3<T>& com_location = X_WP.translation(); 
+    const Vector3<T>& com_location = X_WP.translation();
     spatial_forces_output->emplace_back(com_location, F_BMo_W[body_node_index]);
   }
 }
@@ -1537,11 +1537,13 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
   internal_tree().MapVelocityToQDot(context0, v_next, &qdot_next);
   VectorX<T> q_next = q0 + dt * qdot_next;
 const VectorX<T> vdot_approx = (v_next - v0) / dt;
+std::cout << "Generalized non-contact forces: " << minus_tau.transpose() << std::endl;
+std::cout << "Generalized contact forces: " << implicit_stribeck_solver_->get_generalized_contact_forces().transpose() << std::endl;
 for (ModelInstanceIndex i(0); i < num_model_instances(); ++i) {
   if (num_velocities(i) == 0)
     continue;
   std::cout << "Approximate acceleration for " << GetModelInstanceName(i) << ": ";
-  std::cout << GetVelocitiesFromArray(i, vdot_approx).transpose() << std::endl;    
+  std::cout << GetVelocitiesFromArray(i, vdot_approx).transpose() << std::endl;
 }
 
   VectorX<T> x_next(this->num_multibody_states());
@@ -1701,7 +1703,7 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
   // Spatial forces output port.
   spatial_forces_output_port_ = this->DeclareAbstractOutputPort("spatial_forces",
       std::vector<SpatialForceOutput<T>>(),
-      &MultibodyPlant<T>::CalcSpatialForcesOutput).get_index();                              
+      &MultibodyPlant<T>::CalcSpatialForcesOutput).get_index();
 }
 
 template <typename T>
