@@ -972,10 +972,6 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
     int body_node_index = body.node_index();
     const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
     const Vector3<T>& com_location = X_WP.translation();
-    const auto& rigid_body = dynamic_cast<const RigidBody<T>&>(body);
-    std::cout << "body name: " << body.name() << std::endl;
-    std::cout << "translation from body origin to c.o.m.: " << rigid_body.default_com().transpose() << std::endl;
-    std::cout << "force component: " << F_BBo_W_array[body_node_index].translational().transpose() << std::endl;
     spatial_forces_output->emplace_back(
         com_location, F_BBo_W_array[body_node_index]);
   }
@@ -1464,6 +1460,7 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
       this->EvalVectorInput(context0, applied_generalized_force_input_port_);
   if (tau_applied)
     forces0.mutable_generalized_forces() += tau_applied->get_value();
+  std::cout << "tau_applied: " << tau_applied->get_value().transpose() << std::endl;
 
   // With vdot = 0, this computes:
   //   -tau = C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W.

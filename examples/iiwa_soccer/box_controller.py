@@ -80,8 +80,11 @@ class BoxController(LeafSystem):
         CreateArrowOutputAllocCallback(),
         CreateArrowOutputCalcCallback(self.OutputBallAccelerationAsGenericArrow))
 
+    # Actuator limits.
+    self.actuator_limit = 1
+
     # TODO: delete this line.
-    print 'Warning: box_controller.py is violating the const System assumption'
+    print 'WARNING: box_controller.py is violating the const System assumption'
     self.ball_accel_from_controller = np.array([0, 0, 0])
 
 
@@ -277,7 +280,6 @@ class BoxController(LeafSystem):
         FindResourceOrThrow(prefix + path + 'ball_alphas.mat'),
         FindResourceOrThrow(prefix + path + 'contact_status.mat'))
 
-
   # Constructs the Jacobian matrices.
   def ConstructJacobians(self, contacts, q):
 
@@ -361,7 +363,6 @@ class BoxController(LeafSystem):
 
     return [ N, S, T, Ndot_v, Sdot_v, Tdot_v ]
 
-
   # Computes the control torques when contact is not desired.
   def ComputeActuationForContactNotDesired(self, context):
     # Get the desired robot acceleration.
@@ -399,13 +400,7 @@ class BoxController(LeafSystem):
 
     # Compute inverse dynamics.
     u = M * qddot - fext
-    if self.fully_actuated == True:
-      ufull = np.zeros(self.robot_and_ball_plant.num_velocities())
-      self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, u, ufull)
-      return u
-    else:
-      return u 
- 
+    return u
 
   # Updates the robot and ball configuration in the relevant context so that
   # geometric queries can be performed in configuration q.
@@ -501,7 +496,6 @@ class BoxController(LeafSystem):
       dist = min(dist, closest_points[i].distance)
 
     return dist
-
 
   # Computes the control torques when contact is desired and the robot and the
   # ball are *not* in contact.
@@ -668,6 +662,7 @@ class BoxController(LeafSystem):
     if self.fully_actuated == True:
       # _Everything_ is actuated.
       return np.eye(self.nv_robot() + self.nv_ball())
+      #return np.diag(v)
     else:
       # Only the robot is actuated.
       B = np.zeros([self.nv_robot() + self.nv_ball(), self.nv_robot()])
@@ -679,64 +674,9 @@ class BoxController(LeafSystem):
 
       return B
 
-
   # Constructs the matrix that zeros angular velocities for the ball (and
   # does not change the linear velocities).
   def ConstructBallVelocityWeightingMatrix(self):
-    # The ball's quaternionxyzmobilizer permits movement along all six DOF.
-    # We need the location in the array corresponding to angular motions.
-
-    '''
-    # Get the number of velocities.
-    nv = nv_ball() + nv_robot
-
-    # The size of the returned matrix will be:
-    W = np.zeros([nv, nv])
-
-    # Get the robot and ball multibody-plant context.
-    robot_and_ball_context = self.mbw.GetMutableSubsystemContext(
-      self.robot_and_ball_plant, self.mbw_context)
-
-    # Zero out the generalized velocities for the whole multibody.
-    x = self.robot_and_ball_plant.tree().get_mutable_multibody_state_vector(
-      robot_context)
-    x[-nv:] = zeros([nv, 1])
-
-    # Find the quaternion mobilizer.
-    for i in range(len(self.robot_and_ball_plant.tree().num_mobilizers())):
-      # Get the i'th mobilizer.
-      mobilizer = self.robot_and_ball_plant.tree().get_mobilizer(i)
-
-      # Get the outer frame body.
-      outboard_body = mobilizer.outboard_body()
-
-      # See whether the body matches the one that we are looking for.
-      if outboard_body == self.ball_name:
-        # A match! Set qmobilizer and break.
-        qmobilizer = QuaternionFloatingMobilizer(mobilizer)
-        break
-
-    # Set the angular velocity for the ball mobilizer to [1, 2, 3].
-    qmobilizer.set_angular_velocity(robot_and_ball_context, np.ones([3, 1]))
-
-    # Identify the non-zero coordinates in the array, and set those elements
-    # to 1.0 on the diagonal of the matrix. Set all other entries in the matrix
-    # to zero.
-    num_non_zero = 0
-    W = zeros([nv_ball(), nv_ball()])
-    q_len = len(x) - nv
-    for i in range(q_len, len(x)):
-      if math.abs(x[i]) > 0:
-        num_non_zero += 1
-        v_index = i - q_len
-        W[v_index, v_index] = 1.0
-
-    # Ensure that there were exactly three nonzero entries.
-    assert num_non_zero == 3
-    '''
-
-    # TODO: Replace this hack with the code above when the mobilizers are bound.
-
     # Get the indices of generalized velocity that correspond to the ball.
     nv = self.nv_ball() + self.nv_robot()
     v = np.zeros([nv])
@@ -746,7 +686,9 @@ class BoxController(LeafSystem):
     # Set the velocities weighting.
     W = np.zeros([len(dummy_ball_v), nv])
     vweighting_ball = np.zeros([self.nv_ball()])
-    vweighting_ball[-3:] = np.ones([3])    # Last three components correspond to linear velocities.
+    print 'NOTE: assigning weighting to angular velocities'
+    #vweighting_ball[-3:] = np.ones([3])    # Last three components correspond to linear velocities (see spatial_velocity.h)
+    vweighting_ball[-6:] = np.array([10, 10, 10, 1, 1, 1])
     vball_index = 0
     for i in range(nv):
       if abs(v[i]) > 0.5:
@@ -754,31 +696,6 @@ class BoxController(LeafSystem):
         vball_index += 1
 
     return W
-
-  # TODO: finish this.
-  # Computes the motor torques for ComputeActuationForCotnactDesiredAndContacting()
-  # using the stable constraint model with Coulomb friction.
-  def ComputeContactControlMotorTorques(self):
-    # Construct the actuation and weighting matrices.
-    B = self.ConstructRobotActuationMatrix()
-    P = self.ConstructBallVelocityWeightingMatrix()
-
-    # Compute the soft problem data for the MultibodyPlant.
-
-    # Get the ball "error" (differential) in q and v.
-
-    # Convert the ball differential in q to a differential in v.
-
-    # Add row outputs to the Gb_mult(.) operator.
-
-    # Add the same row outputs to the Gb_transpose_mult(.) operator.
-
-    # Update stiffness and damping coefficients Kb and Bb.
-
-    # Update phi_b0 and dotphi_b0 terms by altering kB.
-
-    # Solve the constraint problem.
-
 
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using the no-slip model.
@@ -847,7 +764,6 @@ class BoxController(LeafSystem):
 
     return [f_act, f_contact, z[0:nprimal], D, P, B]
 
-
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using a "learned" dynamics model.
   def ComputeContactControlMotorTorquesUsingLearnedDynamics(self, controller_context, M, fext, vdot_ball_des):
@@ -898,7 +814,7 @@ class BoxController(LeafSystem):
         self.embedded_sim.UpdatePlantVelocities(v)
 
         # Apply the controls to the embedded simulation.
-        self.embedded_sim.ApplyControls(u)
+        self.embedded_sim.ApplyControls(B.dot(u))
 
         # Simulate the system forward in time.
         self.embedded_sim.StepEmbeddedSimulation()
@@ -926,11 +842,21 @@ class BoxController(LeafSystem):
     '''
     print 'External forces and actuator forces: ' + str(-fext - B.dot(np.reshape(u, (-1, 1))))
     print 'Contact forces: ' + str(epsilon)
-    '''
     print 'Forces on the ball: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, -fext - B.dot(np.reshape(u, (-1, 1))) - epsilon)[-3:])
+    print 'predicted ball acceleration: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv]))
+    '''
+
+    for i in range(len(u)):
+      if u[i] > self.actuator_limit:
+        u[i] = self.actuator_limit
+      else:
+        if u[i] < -self.actuator_limit:
+          u[i] = -self.actuator_limit
+    z = np.reshape(z, [-1, 1])
+    print 'objective: ' + str(0.5 * z.T.dot(H.dot(z) + c))
     print 'desired ball acceleration: ' + str(vdot_ball_des)
     print 'ball acceleration from vdot_approx: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx))
-    print 'predicted ball acceleration: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv]))
+
     self.ball_accel_from_controller = self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])[-3:]
 
     return [u, z[0:nv], z[0:nprimal], P, B, epsilon]
@@ -1313,12 +1239,14 @@ class BoxController(LeafSystem):
 
     # Set the torque output.
     mutable_torque_out = output.get_mutable_value()
+    mutable_torque_out *= 0
+    return
     if self.fully_actuated:
         mutable_torque_out[:] = torque.flatten()
     else:
         mutable_torque_out[:] = np.zeros([self.nv_robot() + self.nv_ball()])
-        self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, tau.flatten(), mutable_torque_out)
 
+        self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, tau.flatten(), mutable_torque_out)
 
   def _DoCalcTimeDerivatives(self, context, derivatives):
     # Determine whether we're in a contacting or not-contacting phase.

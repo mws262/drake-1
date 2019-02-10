@@ -100,16 +100,9 @@ class EmbeddedSim:
     return [ control_input, diagram, all_plant, mbw, self.robot_instance, self.ball_instance ]
 
 
-  def ApplyControls(self, u):
+  def ApplyControls(self, Bu):
       control_context = self.diagram.GetMutableSubsystemContext(self.control_input, self.context)
-      all_plant = self.robot_and_ball_plant
-      nv_ball = all_plant.num_velocities(self.ball_instance)
-      nv_robot = all_plant.num_velocities(self.robot_instance)
-      if len(u) != nv_ball + nv_robot:
-          full_u = np.zeros([nv_ball + nv_robot])
-          all_plant.SetVelocitiesInArray(self.robot_instance, u, full_u)
-          u = full_u
-      self.control_input.get_mutable_source_value(control_context).SetFromVector(u)
+      self.control_input.get_mutable_source_value(control_context).SetFromVector(Bu)
 
   def UpdateTime(self, t):
       self.context.set_time(t)
