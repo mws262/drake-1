@@ -2544,6 +2544,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   /// @}
   // Closes Doxygen section "Continuous state output"
 
+
   /// Returns a constant reference to the output port of generalized contact
   /// forces for a specific model instance. This output port is only available
   /// when modeling the plant as a discrete system with periodic updates, see
@@ -2992,6 +2993,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
 
   void AddAppliedExternalSpatialForces(
       const systems::Context<T>& context, MultibodyForces<T>* forces) const;
+
+  void CalcSpatialForcesOutput(
+    const systems::Context<T>& context,
+    std::vector<SpatialForceOutput<T>>* spatial_forces_output) const;
 
   // Helper method to register geometry for a given body, either visual or
   // collision. The registration includes:

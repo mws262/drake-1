@@ -237,17 +237,12 @@ PYBIND11_MODULE(plant, m) {
              py::arg("context"), py::arg("frame_F"),
              py::arg("p_WQ_list") = Vector3<T>::Zero().eval(),
              doc.MultibodyPlant.CalcPointsGeometricJacobianExpressedInWorld.doc)
-        .def("get_god_input_port",
+        .def("get_applied_generalized_force_input_port",
              overload_cast_explicit<const systems::InputPort<T>&>(
-                 &Class::get_god_input_port),
+                 &Class::get_applied_generalized_force_input_port),
              py_reference_internal,
-             doc.MultibodyPlant.get_god_input_port.doc_0args)
-        .def("get_god_input_port",
-             overload_cast_explicit<const systems::InputPort<T>&,
-                                    multibody::ModelInstanceIndex>(
-                 &Class::get_god_input_port),
-             py_reference_internal,
-             doc.MultibodyPlant.get_god_input_port.doc_1args)
+             doc.MultibodyPlant.
+             get_applied_generalized_force_input_port.doc)
         .def("CalcJacobianSpatialVelocity",
             [](const Class* self, const systems::Context<T>& context,
                 JacobianWrtVariable with_respect_to, const Frame<T>& frame_B,
