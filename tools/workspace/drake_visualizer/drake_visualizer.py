@@ -1,4 +1,3 @@
-from __future__ import print_function
 
 import argparse
 import os
@@ -82,4 +81,5 @@ use_builtin_scripts = resolve_path(
 bin_path = resolve_path("external/drake_visualizer/bin/drake-visualizer")
 args = [bin_path] + extract_use_builtin_scripts(sys.argv[1:])
 args += ["--script", use_builtin_scripts]
+print bin_path
 os.execv(bin_path, args)

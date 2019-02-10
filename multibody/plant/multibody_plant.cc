@@ -742,6 +742,7 @@ void MultibodyPlant<T>::CalcNormalAndTangentContactJacobians(
 
     // Penetration depth, > 0 if bodies interpenetrate.
     const Vector3<T>& nhat_BA_W = point_pair.nhat_BA_W;
+    std::cout << "normal: " << nhat_BA_W << std::endl;
     const Vector3<T>& p_WCa = point_pair.p_WCa;
     const Vector3<T>& p_WCb = point_pair.p_WCb;
 
@@ -971,7 +972,12 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
     int body_node_index = body.node_index();
     const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
     const Vector3<T>& com_location = X_WP.translation();
-    spatial_forces_output->emplace_back(com_location, F_BMo_W[body_node_index]);
+    const auto& rigid_body = dynamic_cast<const RigidBody<T>&>(body);
+    std::cout << "body name: " << body.name() << std::endl;
+    std::cout << "translation from body origin to c.o.m.: " << rigid_body.default_com().transpose() << std::endl;
+    std::cout << "force component: " << F_BBo_W_array[body_node_index].translational().transpose() << std::endl;
+    spatial_forces_output->emplace_back(
+        com_location, F_BBo_W_array[body_node_index]);
   }
 }
 
@@ -1536,16 +1542,6 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
   VectorX<T> qdot_next(this->num_positions());
   internal_tree().MapVelocityToQDot(context0, v_next, &qdot_next);
   VectorX<T> q_next = q0 + dt * qdot_next;
-const VectorX<T> vdot_approx = (v_next - v0) / dt;
-std::cout << "Generalized non-contact forces: " << minus_tau.transpose() << std::endl;
-std::cout << "Generalized contact forces: " << implicit_stribeck_solver_->get_generalized_contact_forces().transpose() << std::endl;
-for (ModelInstanceIndex i(0); i < num_model_instances(); ++i) {
-  if (num_velocities(i) == 0)
-    continue;
-  std::cout << "Approximate acceleration for " << GetModelInstanceName(i) << ": ";
-  std::cout << GetVelocitiesFromArray(i, vdot_approx).transpose() << std::endl;
-}
-
   VectorX<T> x_next(this->num_multibody_states());
   x_next << q_next, v_next;
   updates->get_mutable_vector(0).SetFromVector(x_next);

@@ -9,7 +9,7 @@ CreateArrowOutputAllocCallback, ArrowVisualization)
 from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
-  def __init__(self, robot_type, all_plant, robot_plant, mbw, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance, ball_instance):
+  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance, ball_instance):
     LeafSystem.__init__(self)
 
     # Save the robot type.
@@ -30,8 +30,7 @@ class BoxController(LeafSystem):
     self.mbw = mbw
 
     # Initialize the embedded sim.
-    dt = 1e-5
-    self.embedded_sim = EmbeddedSim(dt, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+    self.embedded_sim = EmbeddedSim(sim_dt, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
 
     # Set the controller type.
     self.controller_type = 'BlackboxDynamics'#'NoFrictionalForcesApplied'
@@ -81,6 +80,11 @@ class BoxController(LeafSystem):
         CreateArrowOutputAllocCallback(),
         CreateArrowOutputCalcCallback(self.OutputBallAccelerationAsGenericArrow))
 
+    # TODO: delete this line.
+    print 'Warning: box_controller.py is violating the const System assumption'
+    self.ball_accel_from_controller = np.array([0, 0, 0])
+
+
   # Debugging function for visualizing the desired ball acceleration using
   # white arrows.
   def OutputBallAccelerationAsGenericArrow(self, controller_context):
@@ -102,6 +106,14 @@ class BoxController(LeafSystem):
     arrow_viz.origin_W = com
     arrow_viz.target_W = com + xdd_ball_des
     arrow_viz.color_rgb = np.array([1, 1, 1])  # White.
+
+    # TODO: Delete this.
+    # Construct a second one for the computed ball acceleration.
+    arrow_viz_2 = ArrowVisualization()
+    arrow_viz_2.origin_W = com
+    arrow_viz_2.target_W = com + self.ball_accel_from_controller
+    arrow_viz_2.color_rgb = np.array([1, 0, 1])
+    return [ arrow_viz, arrow_viz_2 ]
 
     # A list must be returned.
     return [ arrow_viz ]
@@ -209,57 +221,61 @@ class BoxController(LeafSystem):
   def LoadPlans(self):
     from pydrake.common import FindResourceOrThrow
 
+    # Set the Drake prefix.
+    prefix = 'drake/examples/iiwa_soccer/'
+    path = 'plan_box_curve/'
+
     # Read in the plans for the robot.
     if self.robot_type == 'iiwa':
       self.plan.ReadIiwaRobotQVAndVdot(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_timings_fit.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_angle_fit.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_vel_fit.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/joint_accel_fit.mat"))
+        FindResourceOrThrow(prefix + 'plan/joint_timings_fit.mat'),
+        FindResourceOrThrow(prefix + 'plan/joint_angle_fit.mat'),
+        FindResourceOrThrow(prefix + 'plan/joint_vel_fit.mat'),
+        FindResourceOrThrow(prefix + 'plan/joint_accel_fit.mat'))
 
       # Read in the plans for the point of contact.
       self.plan.ReadContactPoint(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_pt_timings.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_pt_positions.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_pt_velocities.mat"))
+        FindResourceOrThrow(prefix + 'plan/contact_pt_timings.mat'),
+        FindResourceOrThrow(prefix + 'plan/contact_pt_positions.mat'),
+        FindResourceOrThrow(prefix + 'plan/contact_pt_velocities.mat'))
 
       # Read in the plans for the ball kinematics.
       self.plan.ReadBallQVAndVdot(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_timings.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_positions.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_quats.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_velocities.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_omegas.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_com_accelerations.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/ball_alphas.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan/contact_status.mat"))
+        FindResourceOrThrow(prefix + 'plan/ball_timings.mat'),
+        FindResourceOrThrow(prefix + 'plan/ball_com_positions.mat'),
+        FindResourceOrThrow(prefix + 'plan/ball_quats.mat'),
+        FindResourceOrThrow(prefix + 'plan/ball_com_velocities.mat'),
+        FindResourceOrThrow(prefix + 'plan/ball_omegas.mat'),
+        FindResourceOrThrow(prefix + 'plan/ball_com_accelerations.mat'),
+        FindResourceOrThrow(prefix + 'plan/ball_alphas.mat'),
+        FindResourceOrThrow(prefix + 'plan/contact_status.mat'))
 
     if self.robot_type == 'box':
       self.plan.ReadBoxRobotQVAndVdot(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/timings.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_positions.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_quats.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_linear_vel.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_angular_vel.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_linear_accel.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/box_angular_accel.mat"))
+        FindResourceOrThrow(prefix + path + 'timings.mat'),
+        FindResourceOrThrow(prefix + path + 'box_positions.mat'),
+        FindResourceOrThrow(prefix + path + 'box_quats.mat'),
+        FindResourceOrThrow(prefix + path + 'box_linear_vel.mat'),
+        FindResourceOrThrow(prefix + path + 'box_angular_vel.mat'),
+        FindResourceOrThrow(prefix + path + 'box_linear_accel.mat'),
+        FindResourceOrThrow(prefix + path + 'box_angular_accel.mat'))
 
       # Read in the plans for the point of contact.
       self.plan.ReadContactPoint(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/timings.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_positions.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_pt_velocities.mat"))
+        FindResourceOrThrow(prefix + path + 'timings.mat'),
+        FindResourceOrThrow(prefix + path + 'contact_pt_positions.mat'),
+        FindResourceOrThrow(prefix + path + 'contact_pt_velocities.mat'))
 
       # Read in the plans for the ball kinematics.
       self.plan.ReadBallQVAndVdot(
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/timings.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_positions.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_quats.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_velocities.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_omegas.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_com_accelerations.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/ball_alphas.mat"),
-        FindResourceOrThrow("drake/examples/iiwa_soccer/plan_box/contact_status.mat"))
+        FindResourceOrThrow(prefix + path + 'timings.mat'),
+        FindResourceOrThrow(prefix + path + 'ball_com_positions.mat'),
+        FindResourceOrThrow(prefix + path + 'ball_quats.mat'),
+        FindResourceOrThrow(prefix + path + 'ball_com_velocities.mat'),
+        FindResourceOrThrow(prefix + path + 'ball_omegas.mat'),
+        FindResourceOrThrow(prefix + path + 'ball_com_accelerations.mat'),
+        FindResourceOrThrow(prefix + path + 'ball_alphas.mat'),
+        FindResourceOrThrow(prefix + path + 'contact_status.mat'))
 
 
   # Constructs the Jacobian matrices.
@@ -886,16 +902,21 @@ class BoxController(LeafSystem):
         delta_epsilon = M.dot(vdot_approx) - fext - B.dot(np.reshape(u, (-1, 1))) - epsilon
 
         # If delta-epsilon is sufficiently small, quit.
-        if np.linalg.norm(delta_epsilon) < 1e-8:
+        if np.linalg.norm(delta_epsilon) < 1e-6:
             break
 
         # Update epsilon.
         epsilon += delta_epsilon
 
+    '''
     print 'External forces and actuator forces: ' + str(-fext - B.dot(np.reshape(u, (-1, 1))))
     print 'Contact forces: ' + str(epsilon)
-    print 'predicted ball acceleration: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv]))
+    '''
+    print 'Forces on the ball: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, -fext - B.dot(np.reshape(u, (-1, 1))) - epsilon)[-3:])
+    print 'desired ball acceleration: ' + str(vdot_ball_des)
     print 'ball acceleration from vdot_approx: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx))
+    print 'predicted ball acceleration: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv]))
+    self.ball_accel_from_controller = self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])[-3:]
 
     return [u, z[0:nv], z[0:nprimal], P, B, epsilon]
 

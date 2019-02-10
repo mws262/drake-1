@@ -18,7 +18,7 @@ ground_model_path = "drake/examples/iiwa_soccer/models/ground.sdf"
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
-def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd):
+def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, fully_actuated):
 
   # Construct DiagramBuilder objects for both "MultibodyWorld" and the total
   # diagram (comprising all systems).
@@ -88,7 +88,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   #############################################
 
   # Build the controller.
-  controller = builder.AddSystem(BoxController('box', all_plant, robot_plant, mbw, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance_id, ball_instance_id))
+  controller = builder.AddSystem(BoxController(mbp_step_size, 'box', all_plant, robot_plant, mbw, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance_id, ball_instance_id, fully_actuated))
   ConnectGenericArrowsToDrakeVisualizer(builder=builder, output_port=controller.ball_acceleration_visualization_output_port)
 
   # Get the necessary instances.
@@ -130,16 +130,24 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   for i in range(nv_robot):
     builder.Connect(robot_state_demuxer.get_output_port(nq_robot + i), robot_v_muxer.get_input_port(i))
 
-  # Connect the muxers and controllers to the MBW.
+  # Connect the muxers and controllers to the controller.
   builder.Connect(ball_q_muxer.get_output_port(0), controller.get_input_port_estimated_ball_q())
   builder.Connect(ball_v_muxer.get_output_port(0), controller.get_input_port_estimated_ball_v())
   builder.Connect(robot_q_muxer.get_output_port(0), controller.get_input_port_estimated_robot_q())
   builder.Connect(robot_v_muxer.get_output_port(0), controller.get_input_port_estimated_robot_v())
-  builder.Connect(controller.get_output_port_control(), mbw.get_input_port(robot_god_input))
 
-  # Construct a constant source to "plug" the ball God input.
-  zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([controller.nv_ball()])))
-  builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
+  # Connect the "God" input ports.
+  if fully_actuated == True:
+        demuxer = Demultiplexer(size=nv_ball+nv_robot, output_port_sizes=nv_ball)
+        builder.Connect(controller.get_output_port_control(), demuxer.get_input_port())
+        builder.Connect(demuxer.get_output_port(0), mbw.get_input_port(robot_god_input))
+        builder.Connect(demuxer.get_output_port(1), mbw.get_input_port(ball_god_input))
+  else:
+      builder.Connect(controller.get_output_port_control(), mbw.get_input_port(robot_god_input))
+
+      # Construct a constant source to "plug" the ball God input.
+      zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([controller.nv_ball()])))
+      builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
 
   # Build the diagram.
   diagram = builder.Build()

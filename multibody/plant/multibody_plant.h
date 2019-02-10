@@ -2489,8 +2489,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   /// forces for the case where there is only one model instance.  This input
   /// port is a vector valued port with dimension equal to `num_velocities()`.
   /// @pre Finalize() was already called on `this` plant.
-  /// @throws std::exception if called before Finalize() or if there are
-  /// multiple model instances.
+  /// @throws std::exception if called before Finalize().
   const systems::InputPort<T>& get_god_input_port() const;
 
   /// Returns a constant reference to the "God" input port for applying external

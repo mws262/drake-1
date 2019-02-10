@@ -6,7 +6,7 @@ import numpy as np
 from pydrake.all import (DiagramBuilder, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, MobilizerIndex, ConstantVectorSource,
-Isometry3, Quaternion, Parser)
+Isometry3, Quaternion, Parser, Demultiplexer)
 
 robot_model_name = "box_model"
 ball_model_name = "soccer_ball"
@@ -17,7 +17,7 @@ ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
 class EmbeddedSim:
 
-  def __init__(self, dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd):
+  def __init__(self, dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, fully_actuated):
       self.delta_t = dt
       self.control_input, self.diagram, self.all_plant, self.mbw, robot_instance, ball_instance = self.BuildBlockDiagram(dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
 
@@ -91,14 +91,21 @@ class EmbeddedSim:
     nv_robot = all_plant.num_velocities(robot_instance)
 
     # Build the controller.
-    control_input = builder.AddSystem(ConstantVectorSource(np.zeros([nv_robot])))
+    if fully_actuated:
+        control_input = builder.AddSystem(ConstantVectorSource(np.zeros([nv_robot + nv_ball])))
+        demuxer = Demultiplexer(size=nv_ball+nv_robot, output_port_sizes=nv_ball)
+        builder.Connect(control_input.get_output_port(), demuxer.get_input_port())
+        builder.Connect(demuxer.get_output_port(0), mbw.get_input_port(robot_god_input))
+        builder.Connect(demuxer.get_output_port(1), mbw.get_input_port(ball_god_input))
+    else:
+        control_input = builder.AddSystem(ConstantVectorSource(np.zeros([nv_robot])))
 
-    # Connect the controller to the MBW.
-    builder.Connect(control_input.get_output_port(0), mbw.get_input_port(robot_god_input))
+        # Connect the controller to the MBW.
+        builder.Connect(control_input.get_output_port(0), mbw.get_input_port(robot_god_input))
 
-    # Construct a constant source to "plug" the ball God input.
-    zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([nv_ball])))
-    builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
+        # Construct a constant source to "plug" the ball God input.
+        zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([nv_ball])))
+        builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
 
     # Build the diagram.
     diagram = builder.Build()

@@ -63,8 +63,8 @@ class GenericArrowVisualizer(object):
         folder = om.getOrCreateContainer(self._folder_name)
 
         # Output the force arrows first in red.
-        d = DebugData()
         for arrow in msg.arrows:
+            d = DebugData()
             # Get the force and arrow origination point.
             target_W = np.array([arrow.target_W[0],
                                  arrow.target_W[1],
