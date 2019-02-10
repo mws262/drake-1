@@ -9,8 +9,11 @@ CreateArrowOutputAllocCallback, ArrowVisualization)
 from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
-  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance, ball_instance):
+  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance, ball_instance, fully_actuated):
     LeafSystem.__init__(self)
+
+    # Saves whether the entire system will be actuated.
+    self.fully_actuated = fully_actuated
 
     # Save the robot type.
     self.set_name('box_controller')
@@ -30,16 +33,13 @@ class BoxController(LeafSystem):
     self.mbw = mbw
 
     # Initialize the embedded sim.
-    self.embedded_sim = EmbeddedSim(sim_dt, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+    self.embedded_sim = EmbeddedSim(sim_dt, kp, kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, fully_actuated)
 
     # Set the controller type.
     self.controller_type = 'BlackboxDynamics'#'NoFrictionalForcesApplied'
 
-    if robot_type == 'box':
-      self.command_output_size = self.robot_plant.num_velocities()
-    if robot_type == 'iiwa':
-      # Get the number of actuators.
-      self.command_output_size = self.robot_plant.num_actuators()
+    # Set the output size.
+    self.command_output_size = self.robot_and_ball_plant.num_velocities()
 
     # Create contexts.
     self.mbw_context = mbw.CreateDefaultContext()
@@ -398,8 +398,14 @@ class BoxController(LeafSystem):
         robot_context, np.zeros([nv_robot(), 1]), link_wrenches)
 
     # Compute inverse dynamics.
-    return M * qddot - fext
-
+    u = M * qddot - fext
+    if self.fully_actuated == True:
+      ufull = np.zeros(self.robot_and_ball_plant.num_velocities())
+      self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, u, ufull)
+      return u
+    else:
+      return u 
+ 
 
   # Updates the robot and ball configuration in the relevant context so that
   # geometric queries can be performed in configuration q.
@@ -659,14 +665,19 @@ class BoxController(LeafSystem):
     self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, ones_nv_robot, v)
 
     # The matrix is of size nv_robot() + nv_ball() x nv_robot().
-    B = np.zeros([self.nv_robot() + self.nv_ball(), self.nv_robot()])
-    col_index = 0
-    for i in range(self.nv_robot() + self.nv_ball()):
-      if abs(v[i]) > 0.5:
-        B[i, col_index] = 1
-        col_index += 1
+    if self.fully_actuated == True:
+      # _Everything_ is actuated.
+      return np.eye(self.nv_robot() + self.nv_ball())
+    else:
+      # Only the robot is actuated.
+      B = np.zeros([self.nv_robot() + self.nv_ball(), self.nv_robot()])
+      col_index = 0
+      for i in range(self.nv_robot() + self.nv_ball()):
+        if abs(v[i]) > 0.5:
+          B[i, col_index] = 1
+          col_index += 1
 
-    return B
+      return B
 
 
   # Constructs the matrix that zeros angular velocities for the ball (and
@@ -907,6 +918,10 @@ class BoxController(LeafSystem):
 
         # Update epsilon.
         epsilon += delta_epsilon
+
+        # Question: how do we get this controller to realize *exactly* the
+        # desired ball accelerations at the beginning? What are the responsible
+        # constraints if the desired ball accelerations *can't* be achieved?
 
     '''
     print 'External forces and actuator forces: ' + str(-fext - B.dot(np.reshape(u, (-1, 1))))
@@ -1286,18 +1301,23 @@ class BoxController(LeafSystem):
       # as desired. In the second, the robot desires to be in contact, but the
       # ball and robot are not contacting: the robot must intercept the ball.
       if self.IsRobotContactingBall(contacts):
+        print 'Contact desired and contact detected'
         tau, f_contact_generalized = self.ComputeActuationForContactDesiredAndContacting(context, contacts)
       else:
+        print 'Contact desired and no contact detected'
         tau = self.ComputeActuationForContactDesiredButNoContact(context)
     else:
       # No contact desired.
+      print 'Contact not desired'
       tau = self.ComputeActuationForContactNotDesired(context)
 
     # Set the torque output.
-    torque_out = BasicVector(len(tau.flatten()))
-    torque_out.SetFromVector(tau.flatten())
-    output_vec = output.get_mutable_value()
-    output_vec[:] = tau.flatten()
+    mutable_torque_out = output.get_mutable_value()
+    if self.fully_actuated:
+        mutable_torque_out[:] = torque.flatten()
+    else:
+        mutable_torque_out[:] = np.zeros([self.nv_robot() + self.nv_ball()])
+        self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, tau.flatten(), mutable_torque_out)
 
 
   def _DoCalcTimeDerivatives(self, context, derivatives):

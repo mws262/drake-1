@@ -6,7 +6,7 @@ import numpy as np
 from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
-Multiplexer, LcmPublisherSystem, MobilizerIndex, ConstantVectorSource,
+Multiplexer, LcmPublisherSystem, MobilizerIndex,
 Isometry3, Quaternion, Parser, ConnectSpatialForcesToDrakeVisualizer,
 ConnectContactResultsToDrakeVisualizer, ConnectGenericArrowsToDrakeVisualizer)
 from box_controller import BoxController
@@ -71,8 +71,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   # Export useful ports.
   robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
   ball_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(ball_instance_id))
-  robot_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(robot_instance_id))
-  ball_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(ball_instance_id))
+  generalized_force_input = mbw_builder.ExportInput(all_plant.get_applied_generalized_force_input_port())
 
   # Connect Drake Visualizer
   ConnectDrakeVisualizer(builder=mbw_builder, scene_graph=scene_graph)
@@ -136,26 +135,25 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   builder.Connect(robot_q_muxer.get_output_port(0), controller.get_input_port_estimated_robot_q())
   builder.Connect(robot_v_muxer.get_output_port(0), controller.get_input_port_estimated_robot_v())
 
-  # Connect the "God" input ports.
-  if fully_actuated == True:
-        demuxer = Demultiplexer(size=nv_ball+nv_robot, output_port_sizes=nv_ball)
-        builder.Connect(controller.get_output_port_control(), demuxer.get_input_port())
-        builder.Connect(demuxer.get_output_port(0), mbw.get_input_port(robot_god_input))
-        builder.Connect(demuxer.get_output_port(1), mbw.get_input_port(ball_god_input))
-  else:
-      builder.Connect(controller.get_output_port_control(), mbw.get_input_port(robot_god_input))
-
-      # Construct a constant source to "plug" the ball God input.
-      zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([controller.nv_ball()])))
-      builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
+  # Connect the generalized force input port.
+  builder.Connect(controller.get_output_port_control(), mbw.get_input_port(generalized_force_input))
 
   # Build the diagram.
   diagram = builder.Build()
 
   return [ controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output ]
 
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument("--fully_actuated", type=str2bool, default=False)
   parser.add_argument(
       "--simulation_time", type=float, default=10.0,
       help="Desired duration of the simulation in seconds.")
@@ -187,7 +185,7 @@ def main():
   robot_gv_ki = np.ones([nv_robot]) * 0.1
   robot_gv_kd = np.ones([nv_robot]) * 1.0
 
-  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, args.fully_actuated)
 
 
   simulator = Simulator(diagram)

@@ -42,6 +42,7 @@ class EmbeddedSim:
 
     # Construct the multibody plant using both the robot and ball models.
     all_plant = mbw_builder.AddSystem(MultibodyPlant(mbp_step_size))
+    self.robot_and_ball_plant = all_plant
     robot_instance_id = AddModelFromSdfFile(file_name=arm_fname, plant=all_plant,
                                             scene_graph=scene_graph)
     ball_instance_id = AddModelFromSdfFile(file_name=ball_fname, plant=all_plant,
@@ -70,8 +71,7 @@ class EmbeddedSim:
     # Export useful ports.
     robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
     ball_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(ball_instance_id))
-    robot_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(robot_instance_id))
-    ball_god_input = mbw_builder.ExportInput(all_plant.get_god_input_port(ball_instance_id))
+    generalized_force_input = mbw_builder.ExportInput(all_plant.get_applied_generalized_force_input_port())
 
     # Add the "MultibodyWorld" to the diagram.
     mbw = builder.AddSystem(mbw_builder.Build())
@@ -81,40 +81,34 @@ class EmbeddedSim:
     #############################################
 
     # Get the necessary instances.
-    robot_instance = all_plant.GetModelInstanceByName(robot_model_name)
-    ball_instance = all_plant.GetModelInstanceByName(ball_model_name)
+    self.robot_instance = all_plant.GetModelInstanceByName(robot_model_name)
+    self.ball_instance = all_plant.GetModelInstanceByName(ball_model_name)
 
     # Get necessary dimensions.
-    nq_ball = all_plant.num_positions(ball_instance)
-    nq_robot = all_plant.num_positions(robot_instance)
-    nv_ball = all_plant.num_velocities(ball_instance)
-    nv_robot = all_plant.num_velocities(robot_instance)
+    nq_ball = all_plant.num_positions(self.ball_instance)
+    nq_robot = all_plant.num_positions(self.robot_instance)
+    nv_ball = all_plant.num_velocities(self.ball_instance)
+    nv_robot = all_plant.num_velocities(self.robot_instance)
 
     # Build the controller.
-    if fully_actuated:
-        control_input = builder.AddSystem(ConstantVectorSource(np.zeros([nv_robot + nv_ball])))
-        demuxer = Demultiplexer(size=nv_ball+nv_robot, output_port_sizes=nv_ball)
-        builder.Connect(control_input.get_output_port(), demuxer.get_input_port())
-        builder.Connect(demuxer.get_output_port(0), mbw.get_input_port(robot_god_input))
-        builder.Connect(demuxer.get_output_port(1), mbw.get_input_port(ball_god_input))
-    else:
-        control_input = builder.AddSystem(ConstantVectorSource(np.zeros([nv_robot])))
-
-        # Connect the controller to the MBW.
-        builder.Connect(control_input.get_output_port(0), mbw.get_input_port(robot_god_input))
-
-        # Construct a constant source to "plug" the ball God input.
-        zero_source = builder.AddSystem(ConstantVectorSource(np.zeros([nv_ball])))
-        builder.Connect(zero_source.get_output_port(0), mbw.get_input_port(ball_god_input))
+    control_input = builder.AddSystem(ConstantVectorSource(np.zeros([nv_robot + nv_ball])))
+    builder.Connect(control_input.get_output_port(0), mbw.get_input_port(generalized_force_input))
 
     # Build the diagram.
     diagram = builder.Build()
 
-    return [ control_input, diagram, all_plant, mbw, robot_instance, ball_instance ]
+    return [ control_input, diagram, all_plant, mbw, self.robot_instance, self.ball_instance ]
 
 
   def ApplyControls(self, u):
       control_context = self.diagram.GetMutableSubsystemContext(self.control_input, self.context)
+      all_plant = self.robot_and_ball_plant
+      nv_ball = all_plant.num_velocities(self.ball_instance)
+      nv_robot = all_plant.num_velocities(self.robot_instance)
+      if len(u) != nv_ball + nv_robot:
+          full_u = np.zeros([nv_ball + nv_robot])
+          all_plant.SetVelocitiesInArray(self.robot_instance, u, full_u)
+          u = full_u
       self.control_input.get_mutable_source_value(control_context).SetFromVector(u)
 
   def UpdateTime(self, t):

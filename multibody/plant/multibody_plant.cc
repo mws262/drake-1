@@ -743,7 +743,6 @@ void MultibodyPlant<T>::CalcNormalAndTangentContactJacobians(
 
     // Penetration depth, > 0 if bodies interpenetrate.
     const Vector3<T>& nhat_BA_W = point_pair.nhat_BA_W;
-    std::cout << "normal: " << nhat_BA_W << std::endl;
     const Vector3<T>& p_WCa = point_pair.p_WCa;
     const Vector3<T>& p_WCb = point_pair.p_WCb;
 
@@ -1460,9 +1459,16 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
   // Body forces (alias to forces0).
   std::vector<SpatialForce<T>>& F_BBo_W_array = forces0.mutable_body_forces();
 
+  // If there are any generalized forces applied, add them.
+  const BasicVector<T>* tau_applied =
+      this->EvalVectorInput(context0, applied_generalized_force_input_port_);
+  if (tau_applied)
+    forces0.mutable_generalized_forces() += tau_applied->get_value();
+
   // With vdot = 0, this computes:
   //   -tau = C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W.
   VectorX<T>& minus_tau = forces0.mutable_generalized_forces();
+
   internal_tree().CalcInverseDynamics(
       context0, pc0, vc0, vdot,
       F_BBo_W_array, minus_tau,
