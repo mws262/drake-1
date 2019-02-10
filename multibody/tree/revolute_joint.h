@@ -31,6 +31,7 @@ namespace multibody {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -169,9 +170,6 @@ class RevoluteJoint final : public Joint<T> {
   }
 
   /// @name Context-dependent value access
-  ///
-  /// These methods require the provided context to be an instance of
-  /// MultibodyTreeContext. Failure to do so leads to a std::logic_error.
   /// @{
 
   /// Gets the rotation angle of `this` mobilizer from `context`.

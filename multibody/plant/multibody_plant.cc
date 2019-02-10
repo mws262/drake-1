@@ -12,6 +12,7 @@
 #include "drake/geometry/geometry_visualization.h"
 #include "drake/math/orthonormal_basis.h"
 #include "drake/math/rotation_matrix.h"
+#include "drake/multibody/plant/externally_applied_spatial_force.h"
 #include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/revolute_joint.h"
 
@@ -39,7 +40,6 @@ using systems::OutputPort;
 using systems::State;
 
 using drake::multibody::MultibodyForces;
-using drake::multibody::MultibodyTree;
 using drake::multibody::PositionKinematicsCache;
 using drake::multibody::SpatialAcceleration;
 using drake::multibody::SpatialForce;
@@ -1155,32 +1155,36 @@ void MultibodyPlant<T>::CalcAndAddContactForcesByPenaltyMethod(
 }
 
 template<typename T>
-void MultibodyPlant<T>::AddGeneralizedGodForces(
+void MultibodyPlant<T>::AddAppliedExternalSpatialForces(
     const systems::Context<T>& context, MultibodyForces<T>* forces) const {
-  DRAKE_DEMAND(forces != nullptr);
+  // Get the mutable applied external spatial forces vector
+  // (a.k.a., body force vector).
+  std::vector<SpatialForce<T>>& F_BBo_W_array = forces->mutable_body_forces();
 
-  // Get the mutable generalized force vector.
-  VectorX<T>& tau = forces->mutable_generalized_forces();
+  // Evaluate the input port; if it's not connected, return now.
+  const auto* applied_input = this->template EvalInputValue<
+      std::vector<ExternallyAppliedSpatialForce<T>>>(
+          context, applied_spatial_force_input_port_);
+  if (!applied_input)
+    return;
 
-  // Construct an empty vector that will be zeroed and populated on each loop
-  // iteration.
-  VectorX<T> tau_instance(num_velocities());
+  // Loop over all forces.
+  for (const auto& force_structure : *applied_input) {
+    const BodyIndex body_index = force_structure.body_index;
+    const Body<T>& body = get_body(body_index);
+    const auto body_node_index = body.node_index();
 
-  // Evaluate the "God" input over each model instance.
-  for (ModelInstanceIndex model_instance_index(0);
-       model_instance_index < num_model_instances(); ++model_instance_index) {
-    if (num_velocities(model_instance_index) == 0)
-      continue;
+    // Get the pose for this body in the world frame.
+    // TODO(amcastro) When we can evaluate body poses and return a reference
+    // to a RigidTransform, use that reference here instead.
+    math::RigidTransform<T> X_WB(EvalBodyPoseInWorld(context, body));
 
-    // Evaluate the God input and incorporate it into MultibodyForces.
-    const BasicVector<T>* god_input = this->EvalVectorInput(
-        context, instance_god_ports_[model_instance_index]);
-    if (god_input) {
-      tau_instance.setZero();
-      SetVelocitiesInArray(
-          model_instance_index, god_input->get_value(), &tau_instance);
-      tau += tau_instance;
-    }
+    // Get the position vector from the body origin (Bo) to the point of
+    // force application (Bq), expressed in the world frame (W).
+    const Vector3<T> p_BoBq_W = X_WB.rotation() * force_structure.p_BoBq_B;
+
+    // Shift the spatial force from Bq to Bo.
+    F_BBo_W_array[body_node_index] += force_structure.F_Bq_W.Shift(-p_BoBq_W);
   }
 }
 
@@ -1307,7 +1311,7 @@ void MultibodyPlant<T>::DoCalcTimeDerivatives(
 
   // If there is any input actuation, add it to the multibody forces.
   AddJointActuationForces(context, &forces);
-  AddGeneralizedGodForces(context, &forces);
+  AddAppliedExternalSpatialForces(context, &forces);
 
   internal_tree().CalcMassMatrixViaInverseDynamics(context, &M);
 
@@ -1434,7 +1438,7 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // If there is any input actuation, add it to the multibody forces.
   AddJointActuationForces(context0, &forces0);
-  AddGeneralizedGodForces(context0, &forces0);
+  AddAppliedExternalSpatialForces(context0, &forces0);
 
   AddJointLimitsPenaltyForces(context0, &forces0);
 
@@ -1542,6 +1546,7 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
   VectorX<T> qdot_next(this->num_positions());
   internal_tree().MapVelocityToQDot(context0, v_next, &qdot_next);
   VectorX<T> q_next = q0 + dt * qdot_next;
+
   VectorX<T> x_next(this->num_multibody_states());
   x_next << q_next, v_next;
   updates->get_mutable_vector(0).SetFromVector(x_next);
@@ -1599,20 +1604,6 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
 
   // TODO(sherm1) Add ContactResults cache entry.
 
-  // Declare God force input ports.
-  instance_god_ports_.resize(num_model_instances());
-  for (ModelInstanceIndex model_instance_index(0);
-       model_instance_index < num_model_instances(); ++model_instance_index) {
-    const int instance_num_velocities =
-        num_velocities(model_instance_index);
-    if (instance_num_velocities == 0)
-      continue;
-    instance_god_ports_[model_instance_index] = this->DeclareVectorInputPort(
-        GetModelInstanceName(model_instance_index) +
-        "_god_input", systems::BasicVector<T>(
-            instance_num_velocities)).get_index();
-    }
-
   // Declare per model instance actuation ports.
   int num_actuated_instances = 0;
   ModelInstanceIndex last_actuated_instance;
@@ -1637,6 +1628,11 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
   if (num_actuated_instances == 1) {
     actuated_instance_ = last_actuated_instance;
   }
+
+  // Declare applied spatial force input force port.
+  applied_spatial_force_input_port_ = this->DeclareAbstractInputPort(
+        "applied_spatial_force",
+        Value<std::vector<ExternallyAppliedSpatialForce<T>>>()).get_index();
 
   // Declare one output port for the entire state vector.
   continuous_state_output_port_ =
@@ -1773,25 +1769,6 @@ MultibodyPlant<T>::get_actuation_input_port(
   DRAKE_THROW_UNLESS(num_actuated_dofs(model_instance) > 0);
   return systems::System<T>::get_input_port(
       instance_actuation_ports_.at(model_instance));
-}
-
-template <typename T>
-const systems::InputPort<T>&
-MultibodyPlant<T>::get_god_input_port() const {
-  DRAKE_MBP_THROW_IF_NOT_FINALIZED();
-  DRAKE_THROW_UNLESS(num_model_instances() == 1);
-  return systems::System<T>::get_input_port(instance_god_ports_.front());
-}
-
-template <typename T>
-const systems::InputPort<T>&
-MultibodyPlant<T>::get_god_input_port(
-    ModelInstanceIndex model_instance) const {
-  DRAKE_MBP_THROW_IF_NOT_FINALIZED();
-  DRAKE_THROW_UNLESS(model_instance.is_valid());
-  DRAKE_THROW_UNLESS(model_instance < num_model_instances());
-  return systems::System<T>::get_input_port(
-      instance_god_ports_.at(model_instance));
 }
 
 template <typename T>

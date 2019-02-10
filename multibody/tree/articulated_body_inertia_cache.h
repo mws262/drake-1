@@ -13,7 +13,7 @@ namespace drake {
 namespace multibody {
 namespace internal {
 
-/// This class is one of the cache entries in MultibodyTreeContext. It holds the
+/// This class is one of the cache entries in the Context. It holds the
 /// results of computations that are used in the recursive implementation of the
 /// articulated body algorithm.
 ///
@@ -30,6 +30,7 @@ namespace internal {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 template<typename T>

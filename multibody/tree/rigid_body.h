@@ -10,7 +10,6 @@
 #include "drake/common/unused.h"
 #include "drake/multibody/tree/acceleration_kinematics_cache.h"
 #include "drake/multibody/tree/body.h"
-#include "drake/multibody/tree/multibody_tree_forward_decl.h"
 #include "drake/multibody/tree/position_kinematics_cache.h"
 #include "drake/multibody/tree/spatial_inertia.h"
 #include "drake/multibody/tree/velocity_kinematics_cache.h"
@@ -45,6 +44,7 @@ namespace multibody {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -140,17 +140,17 @@ class RigidBody : public Body<T> {
     return default_spatial_inertia_;
   }
 
-  T get_mass(const internal::MultibodyTreeContext<T>&) const final {
+  T get_mass(const systems::Context<T>&) const final {
     return default_spatial_inertia_.get_mass();
   }
 
   const Vector3<T> CalcCenterOfMassInBodyFrame(
-      const internal::MultibodyTreeContext<T>&) const final {
+      const systems::Context<T>&) const final {
     return default_com().template cast<T>();
   }
 
   SpatialInertia<T> CalcSpatialInertiaInBodyFrame(
-      const internal::MultibodyTreeContext<T>&) const override {
+      const systems::Context<T>&) const override {
     return default_spatial_inertia_.cast<T>();
   }
 

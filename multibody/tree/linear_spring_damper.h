@@ -44,6 +44,7 @@ template <typename T> class Body;
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -93,22 +94,22 @@ class LinearSpringDamper final : public ForceElement<T> {
   double damping() const { return damping_; }
 
   T CalcPotentialEnergy(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc) const override;
 
   T CalcConservativePower(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc,
       const internal::VelocityKinematicsCache<T>& vc) const override;
 
   T CalcNonConservativePower(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc,
       const internal::VelocityKinematicsCache<T>& vc) const override;
 
  protected:
   void DoCalcAndAddForceContribution(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc,
       const internal::VelocityKinematicsCache<T>& vc,
       MultibodyForces<T>* forces) const override;

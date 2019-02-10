@@ -234,6 +234,7 @@ drake_pybind_library(
         ":framework_py",
         ":module_py",
         "//bindings/pydrake:lcm_py",
+        "//lcmtypes:lcmtypes_drake_py",
         "@lcmtypes_robotlocomotion//:lcmtypes_robotlocomotion_py",
     ],
     py_srcs = ["_lcm_extra.py"],
@@ -386,16 +387,15 @@ drake_py_unittest(
     ],
     deps = [
         ":controllers_py",
-        "//bindings/pydrake/attic/systems:controllers_py",
         "//bindings/pydrake/examples:pendulum_py",
-        "//bindings/pydrake/multibody:multibody_tree_py",
-        "//bindings/pydrake/multibody:rigid_body_tree_py",
+        "//bindings/pydrake/multibody:plant_py",
     ],
 )
 
 drake_py_unittest(
     name = "meshcat_visualizer_test",
     data = [
+        "//examples/kuka_iiwa_arm:models",
         "//examples/multibody/cart_pole:models",
         "//manipulation/models/iiwa_description:models",
     ],
@@ -442,10 +442,7 @@ drake_py_unittest(
     data = [
         "//systems/sensors:test_models",
     ],
-    deps = [
-        ":sensors_py",
-        "//bindings/pydrake/attic/systems:sensors_py",
-    ],
+    deps = [":sensors_py"],
 )
 
 drake_py_unittest(
@@ -453,17 +450,6 @@ drake_py_unittest(
     deps = [
         ":trajectory_optimization_py",
         "//bindings/pydrake/examples:pendulum_py",
-    ],
-)
-
-drake_py_binary(
-    name = "rgbd_camera_example",
-    srcs = ["rgbd_camera_example.py"],
-    data = [
-        "//multibody:models",
-    ],
-    deps = [
-        ":sensors_py",
     ],
 )
 

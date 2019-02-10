@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "drake/common/drake_assert.h"
-#include "drake/multibody/tree/multibody_tree.h"
+#include "drake/multibody/tree/multibody_tree-inl.h"
 
 namespace drake {
 using systems::BasicVector;
@@ -169,13 +169,6 @@ void MultibodyTreeSystem<T>::Finalize() {
   // TODO(sherm1) Allocate articulated body inertia cache.
 
   already_finalized_ = true;
-}
-
-template <typename T>
-std::unique_ptr<systems::LeafContext<T>>
-MultibodyTreeSystem<T>::DoMakeLeafContext() const {
-  return std::make_unique<MultibodyTreeContext<T>>(tree_->get_topology(),
-                                                   is_discrete_);
 }
 
 }  // namespace internal
