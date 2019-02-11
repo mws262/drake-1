@@ -13,7 +13,7 @@ from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
 
 class ControllerTest(unittest.TestCase):
   def setUp(self):
-    self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance, robot_continuous_state_output_port = BuildBlockDiagram(self.step_size, self.plan_path, False)
+    self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance, robot_continuous_state_output_port = BuildBlockDiagram(self.step_size, self.plan_path, self.fully_actuated)
 
     # Create the context for the diagram.
     self.context = self.diagram.CreateDefaultContext()
@@ -196,8 +196,8 @@ class ControllerTest(unittest.TestCase):
     self.assertEqual(self.controller.nv_robot(), 6)
 
   # Check control outputs for when contact is intended and robot and ball are
-  # indeed in contact.
-  def test_ContactAndContactIntendedOutputsCorrect(self):
+  # indeed in contact and verifies that slip is not caused.
+  def test_ContactAndContactIntendedOutputsDoNotCauseSlip(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -246,9 +246,6 @@ class ControllerTest(unittest.TestCase):
     self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
     self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
-    # Compute the output from the controller.
-    self.controller.CalcOutput(self.controller_context, self.output)
-
     # Determine the predicted forces due to contact.
     f_act, f_contact = self.controller.ComputeActuationForContactDesiredAndContacting(self.controller_context, contacts)
 
@@ -274,6 +271,65 @@ class ControllerTest(unittest.TestCase):
     self.assertLess(np.linalg.norm(Nv), zero_velocity_tol, msg=dbg_out)
     self.assertLess(np.linalg.norm(Sv), zero_velocity_tol, msg=dbg_out)
     self.assertLess(np.linalg.norm(Tv), zero_velocity_tol, msg=dbg_out)
+
+  # Check control outputs for when contact is intended and robot and ball are
+  # indeed in contact and verifies that acceleration is as desired.
+  def test_ContactAndContactIntendedOutputsAccelerationCorrect(self):
+    # Get the plan.
+    plan = self.controller.plan
+
+    # Get the robot/ball plant and the correpsonding context from the controller.
+    all_plant = self.controller.robot_and_ball_plant
+    robot_and_ball_context = self.controller.robot_and_ball_context
+
+    # Advance time, finding a point at which contact is desired *and* where
+    # the robot is contacting the ball.
+    dt = 1e-3
+    t = 0.0
+    t_final = plan.end_time()
+    while True:
+      if plan.IsContactDesired(t):
+        # Look for contact.
+        q, v = self.SetStates(t)
+        contacts = self.controller.FindContacts(q)
+        if self.controller.IsRobotContactingBall(contacts):
+          logging.info('-- TestContactAndContactIntendedOutputsAccelerationCorrect() - desired time identified: ' + str(t))
+          break
+
+      # No contact desired or contact was found.
+      t += dt
+      assert t <= t_final
+
+    # This test will compute the control forces on the robot and the contact
+    # forces on the ball. The computed contact forces on the ball will be used
+    # to integrate the ball velocity forward in time. The control and computed
+    # contact forces on the robot will be used to integrate the robot velocity
+    # forward in time as well.
+
+    # Set the plant to the planned configuration and velocity.
+    all_plant.SetPositions(robot_and_ball_context, q)
+    all_plant.SetVelocities(robot_and_ball_context, v)
+
+    # Step the plant forward in time.
+
+    # Compute the approximate acceleration.
+
+    # Get the desired acceleration for the ball.
+    nv_ball = self.controller.nv_ball()
+    vdot_ball_des = plan.GetBallQVAndVdot(t)[-nv_ball:]
+
+    # Determine the predicted forces due to contact.
+    f_act, f_contact = self.controller.ComputeActuationForContactDesiredAndContacting(self.controller_context, contacts)
+
+    # Use the controller output to determine the generalized acceleration of the
+    # robot and the ball.
+    M = all_plant.CalcMassMatrixViaInverseDynamics(robot_and_ball_context)
+    link_wrenches = MultibodyForces(self.all_plant)
+    fext = -all_plant.CalcInverseDynamics(
+      robot_and_ball_context, np.zeros([len(v)]), link_wrenches)
+
+    # Get the robot actuation matrix.
+    B = self.controller.ConstructRobotActuationMatrix()
 
   # Check control outputs for when robot is not in contact with the ball but it
   # is desired to be.
@@ -301,9 +357,6 @@ class ControllerTest(unittest.TestCase):
       if t >= t_final:
         dbg_out += '\n -- TestNoContactButContactIntendedOutputsCorrect() - contact always found!'
         return
-
-    # Compute the output from the controller.
-    self.controller.CalcOutput(self.controller_context, self.output)
 
     # Use the controller output to determine the generalized acceleration of the robot.
     q_robot = self.controller.get_q_robot(self.controller_context)
@@ -551,7 +604,7 @@ class ControllerTest(unittest.TestCase):
     dt = 1e-3
     t = 0.0
     t_final = plan.end_time()
-    while True:
+    while t < t_final:
       # Set the planned q and v.
       if plan.IsContactDesired(t):
         q, v = self.SetStates(t)
@@ -566,7 +619,7 @@ class ControllerTest(unittest.TestCase):
         self.PrintContacts(t)
 
         # Verify that the velocity at the contact points are approximately zero.
-        zero_velocity_tol = 1e-12
+        zero_velocity_tol = 1e-10
         Nv = N.dot(v)
         Sv = S.dot(v)
         Tv = T.dot(v)
@@ -620,9 +673,18 @@ class ControllerTest(unittest.TestCase):
 
     self.assertTrue(within_tolerance, msg=fail_message)
 
+# Attempts to parse a string as a Boolean value.
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument("--fully_actuated", type=str2bool, default=False)
   parser.add_argument(
       "--step_size", type=float, default=0.001,
       help="If greater than zero, the plant is modeled as a system with "
@@ -634,9 +696,11 @@ if __name__ == "__main__":
   parser.add_argument(
       "--log", default='none',
       help='Logging type: "none", "info", "warning", "debug"')
+  parser.add_argument('remainder', nargs=argparse.REMAINDER)
   args = parser.parse_args()
 
-  # Set the step size and plan path.
+  # Set the step size, plan path, and whether the ball is fully actuated.
+  ControllerTest.fully_actuated = args.fully_actuated
   ControllerTest.step_size = args.step_size
   ControllerTest.plan_path = args.plan_path
 
@@ -649,10 +713,8 @@ if __name__ == "__main__":
   else:
       logging.disable(logging.CRITICAL)
 
-  # Remove our args because we don't want to send them to unittest.
-  ns, args = parser.parse_known_args()
   # Now set the sys.argv to the unittest_args (leaving sys.argv[0] alone)
-  sys.argv[1:] = args
+  sys.argv[1:] = args.remainder
 
   unittest.main()
 

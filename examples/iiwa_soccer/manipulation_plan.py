@@ -48,7 +48,7 @@ class ManipulationPlan:
   # desired time (`t`).
   def IsContactDesired(self, t):
     return self.contact_desired[self.SearchBinary(t, self.contact_desired)][1]
-  
+
   # Gets the ball q, v, and vdot at a particular point in time.
   def GetBallQVAndVdot(self, t):
     return self.q_v_vdot_ball[self.SearchBinary(t, self.q_v_vdot_ball)][1]
@@ -91,7 +91,7 @@ class ManipulationPlan:
     #  Read in joint velocities.
     in_qd = open(qd_fname, 'r')
     in_qd_str = in_qd.read().split()
-    str_index = 0 
+    str_index = 0
     for i in range(len(self.q_v_vdot_robot)):
       for j in range(kDim/3):
         self.q_v_vdot_robot[i][1][j + kDim/3] = float(in_qd_str[str_index])
@@ -102,7 +102,7 @@ class ManipulationPlan:
     #  Read in joint velocities.
     in_qdd = open(qdd_fname, 'r')
     in_qdd_str = in_qdd.read().split()
-    str_index = 0 
+    str_index = 0
     for i in range(len(self.q_v_vdot_robot)):
       for j in range(kDim/3):
         self.q_v_vdot_robot[i][1][j + 2*kDim/3] = float(in_qdd_str[str_index])
@@ -179,7 +179,6 @@ class ManipulationPlan:
     for i in range(len(self.q_v_vdot_robot)):
       self.q_v_vdot_robot[i][1][kWOffset:] = np.zeros([kEnd - kWOffset])
 
-    '''
     #  Read in translational velocities.
     in_v = open(com_velocity_fname, 'r')
     in_v_str = in_v.read().split()
@@ -218,7 +217,6 @@ class ManipulationPlan:
       for j in range(3):
         self.q_v_vdot_robot[i][1][j + kAlphaOffset] = float(in_alpha_str[str_index])
         str_index = str_index + 1
-    '''
 
     #  Make sure there are no NaN's.
     for i in range(len(self.q_v_vdot_robot)):
@@ -229,7 +227,7 @@ class ManipulationPlan:
   def ReadContactPoint(self, timings_fname, cp_fname, cp_dot_fname):
     kLocationDim = 3
     kContactPointVelocityOffset = 3
-    
+
     del self.contact_kinematics[:]
 
     #  Read in timings.
@@ -251,7 +249,7 @@ class ManipulationPlan:
         str_index = str_index + 1
     assert str_index == len(self.contact_kinematics) * kLocationDim
     in_x.close()
-    
+
     #  Read in contact point velocity over time.
     in_xdot = open(cp_dot_fname, 'r')
     in_xdot_str = in_xdot.read().split()
@@ -351,7 +349,7 @@ class ManipulationPlan:
         self.q_v_vdot_ball[i][1][j + kVDotOffset] = float(in_vdot_str[str_index])
         str_index = str_index + 1
     in_vdot.close()
-    
+
     #  Read in angular accelerations.
     in_alpha = open(angular_accel_fname, 'r')
     in_alpha_str = in_alpha.read().split()
