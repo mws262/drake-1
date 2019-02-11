@@ -22,7 +22,6 @@ class BoxController(LeafSystem):
 
     # Construct the plan.
     self.plan = ManipulationPlan()
-    self.LoadPlans()
 
     # Save the robot and ball instances.
     self.robot_instance = robot_instance
@@ -233,12 +232,15 @@ class BoxController(LeafSystem):
       return (a, b)
 
   # Loads all plans into the controller.
-  def LoadPlans(self):
+  def LoadPlans(self, path):
     from pydrake.common import FindResourceOrThrow
 
     # Set the Drake prefix.
     prefix = 'drake/examples/iiwa_soccer/'
-    path = 'plan_box_curve/'
+
+    # Add a '/' to the end of the path if necessary.
+    if path[-1] != '/':
+      path += '/'
 
     # Read in the plans for the robot.
     if self.robot_type == 'iiwa':
@@ -822,7 +824,7 @@ class BoxController(LeafSystem):
 
     # Construct the equality constraint matrix (for the QP) corresponding to:
     # M\dot{v} - Bu = fext + epsilon and
-    # P\dot{v} = vdot_ball_des 
+    # P\dot{v} = vdot_ball_des
     A = np.zeros([nv + self.nv_ball(), nv + nu])
     A[0:nv,0:nv] = M
     A[0:nv,nv:] = -B
@@ -1143,7 +1145,7 @@ class BoxController(LeafSystem):
       f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
     if self.controller_type == 'BlackboxDynamics':
       f_act, f_contact, zprimal, P, B, f_contact_generalized = self.ComputeContactControlMotorTorquesUsingLearnedDynamics(controller_context, M, fext, vdot_ball_des)
-      return [ f_act, f_contact_generalized] 
+      return [ f_act, f_contact_generalized]
 
     # Compute the generalized contact forces.
     f_contact_generalized = None

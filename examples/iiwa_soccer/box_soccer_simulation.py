@@ -19,7 +19,7 @@ ground_model_path = "drake/examples/iiwa_soccer/models/ground.sdf"
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
-def BuildBlockDiagram(mbp_step_size, fully_actuated):
+def BuildBlockDiagram(mbp_step_size, plan_path, fully_actuated):
 
   # Construct DiagramBuilder objects for both "MultibodyWorld" and the total
   # diagram (comprising all systems).
@@ -84,6 +84,7 @@ def BuildBlockDiagram(mbp_step_size, fully_actuated):
 
   # Build the controller.
   controller = builder.AddSystem(BoxController(mbp_step_size, 'box', all_plant, robot_plant, mbw, robot_instance_id, ball_instance_id, fully_actuated))
+  controller.LoadPlans(plan_path)
   ConnectGenericArrowsToDrakeVisualizer(builder=builder, output_port=controller.ball_acceleration_visualization_output_port)
 
   # Get the necessary instances.
@@ -157,7 +158,8 @@ def main():
       "--target_realtime_rate", type=float, default=1.0,
       help="Desired rate relative to real time.  See documentation for "
            "Simulator::set_target_realtime_rate() for details.")
-  parser.add_argument(        "--time_step", type=float, default=0.01,
+  parser.add_argument(
+      "--step_size", type=float, default=0.001,
       help="If greater than zero, the plant is modeled as a system with "
            "discrete updates and period equal to this time_step. "
            "If 0, the plant is modeled as a continuous system.")
@@ -170,17 +172,23 @@ def main():
       help="Cartesian kd for impedance control. Gets used for all xyz "
            "directions.")
   parser.add_argument(
-      "--log", default='info',
-      help='Logging type: "info", "warning", "debug"')
+      "--plan_path", default='plan_box_curve/',
+      help='Path to the plan')
+  parser.add_argument(
+      "--log", default='none',
+      help='Logging type: "none", "info", "warning", "debug"')
   args = parser.parse_args()
 
   # Determine the logging level.
-  numeric_level = getattr(logging, args.log.upper(), None)
-  if not isinstance(numeric_level, int):
-      raise ValueError('Invalid log level: %s' % args.log)
-  logging.basicConfig(level=numeric_level)
+  if args.log.upper() != 'NONE':
+      numeric_level = getattr(logging, args.log.upper(), None)
+      if not isinstance(numeric_level, int):
+          raise ValueError('Invalid log level: %s' % args.log)
+      logging.basicConfig(level=numeric_level)
+  else:
+      logging.disable(logging.CRITICAL)
 
-  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.time_step, args.fully_actuated)
+  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.step_size, args.plan_path, args.fully_actuated)
 
   simulator = Simulator(diagram)
   simulator.set_publish_every_time_step(True)

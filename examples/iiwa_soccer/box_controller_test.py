@@ -1,4 +1,5 @@
 import math
+import sys
 import numpy as np
 import unittest
 import argparse
@@ -12,10 +13,7 @@ from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
 
 class ControllerTest(unittest.TestCase):
   def setUp(self):
-    # TODO: figure out how to make time_step a parameter of this function.
-    time_step = 1e-4
-
-    self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance, robot_continuous_state_output_port = BuildBlockDiagram(time_step, False)
+    self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance, robot_continuous_state_output_port = BuildBlockDiagram(self.step_size, self.plan_path, False)
 
     # Create the context for the diagram.
     self.context = self.diagram.CreateDefaultContext()
@@ -104,7 +102,7 @@ class ControllerTest(unittest.TestCase):
       frame_B_id = inspector.GetFrameId(geometry_B_id)
       body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
       body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
-      print "Contact found between " + body_A.name() + " and " + body_B.name() + " at: " + str(i.p_WCa)
+      logging.info("Contact found between " + body_A.name() + " and " + body_B.name() + " at: " + str(i.p_WCa))
 
   # This tests the control matrix for the robot (box).
   def test_ControlMatrix(self):
@@ -302,7 +300,7 @@ class ControllerTest(unittest.TestCase):
       t += dt
       if t >= t_final:
         dbg_out += '\n -- TestNoContactButContactIntendedOutputsCorrect() - contact always found!'
-        return 
+        return
 
     # Compute the output from the controller.
     self.controller.CalcOutput(self.controller_context, self.output)
@@ -317,7 +315,7 @@ class ControllerTest(unittest.TestCase):
     link_wrenches = MultibodyForces(self.robot_plant)
     fext = -self.robot_plant.CalcInverseDynamics(
         robot_context, np.zeros([self.controller.nv_robot()]), link_wrenches)
-    u_robot = self.controller.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, self.output.get_vector_data(0).CopyToVector())  
+    u_robot = self.controller.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, self.output.get_vector_data(0).CopyToVector())
     vdot_robot = np.linalg.inv(M).dot(u_robot + fext)
     dbg_out += '\nDesired robot velocity: ' + str(vdot_robot)
 
@@ -370,7 +368,7 @@ class ControllerTest(unittest.TestCase):
         if self.controller.IsRobotContactingBall(contacts):
           break
 
-      # No contact desired or contact between robot and ball not found. 
+      # No contact desired or contact between robot and ball not found.
       t += dt
       assert t < t_final
 
@@ -466,7 +464,7 @@ class ControllerTest(unittest.TestCase):
       self.assertLess(np.linalg.norm(pdot_W.flatten() - pdot_W_approx.flatten()), dt, msg='pdot - ~approx too large (>' + str(dt) + ')' + dbg_out)
 
   # Checks that planned contact points are equivalent to contact points
-  # returned by the collision detector. 
+  # returned by the collision detector.
   def test_PlannedRobotBallContactsCoincidentWithCollisionDetectionPoints(self):
     # Get the plan.
     plan = self.controller.plan
@@ -626,14 +624,35 @@ class ControllerTest(unittest.TestCase):
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument(
-      "--log", default='info',
-      help='Logging type: "info", "warning"')
+      "--step_size", type=float, default=0.001,
+      help="If greater than zero, the plant is modeled as a system with "
+           "discrete updates and period equal to this step size. "
+           "If 0, the plant is modeled as a continuous system.")
+  parser.add_argument(
+      "--plan_path", default='plan_box_curve/',
+      help='Path to the plan')
+  parser.add_argument(
+      "--log", default='none',
+      help='Logging type: "none", "info", "warning", "debug"')
   args = parser.parse_args()
 
-  numeric_level = getattr(logging, args.log.upper(), None)
-  if not isinstance(numeric_level, int):
-      raise ValueError('Invalid log level: %s' % loglevel)
-  logging.basicConfig(level=numeric_level)
+  # Set the step size and plan path.
+  ControllerTest.step_size = args.step_size
+  ControllerTest.plan_path = args.plan_path
+
+  # Set the logging level.
+  if args.log.upper() != 'NONE':
+      numeric_level = getattr(logging, args.log.upper(), None)
+      if not isinstance(numeric_level, int):
+          raise ValueError('Invalid log level: %s' % args.log)
+      logging.basicConfig(level=numeric_level)
+  else:
+      logging.disable(logging.CRITICAL)
+
+  # Remove our args because we don't want to send them to unittest.
+  ns, args = parser.parse_known_args()
+  # Now set the sys.argv to the unittest_args (leaving sys.argv[0] alone)
+  sys.argv[1:] = args
 
   unittest.main()
-  
+
