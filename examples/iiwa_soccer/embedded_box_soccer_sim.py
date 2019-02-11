@@ -17,9 +17,9 @@ ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
 class EmbeddedSim:
 
-  def __init__(self, dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, fully_actuated):
+  def __init__(self, dt):
       self.delta_t = dt
-      self.control_input, self.diagram, self.all_plant, self.mbw, robot_instance, ball_instance = self.BuildBlockDiagram(dt, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+      self.control_input, self.diagram, self.all_plant, self.mbw, robot_instance, ball_instance = self.BuildBlockDiagram(dt)
 
       self.simulator = Simulator(self.diagram)
       self.simulator.set_publish_every_time_step(True)
@@ -28,7 +28,7 @@ class EmbeddedSim:
       self.context = self.simulator.get_mutable_context()
 
   # Constructs the necessary block diagram.
-  def BuildBlockDiagram(self, mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd):
+  def BuildBlockDiagram(self, mbp_step_size):
     # Construct DiagramBuilder objects for both "MultibodyWorld" and the total
     # diagram (comprising all systems).
     builder = DiagramBuilder()

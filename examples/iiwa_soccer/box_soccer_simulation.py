@@ -3,6 +3,7 @@
 import trace
 import argparse
 import numpy as np
+import logging
 from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
@@ -18,7 +19,7 @@ ground_model_path = "drake/examples/iiwa_soccer/models/ground.sdf"
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
-def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, fully_actuated):
+def BuildBlockDiagram(mbp_step_size, fully_actuated):
 
   # Construct DiagramBuilder objects for both "MultibodyWorld" and the total
   # diagram (comprising all systems).
@@ -82,7 +83,7 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
   #############################################
 
   # Build the controller.
-  controller = builder.AddSystem(BoxController(mbp_step_size, 'box', all_plant, robot_plant, mbw, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, robot_instance_id, ball_instance_id, fully_actuated))
+  controller = builder.AddSystem(BoxController(mbp_step_size, 'box', all_plant, robot_plant, mbw, robot_instance_id, ball_instance_id, fully_actuated))
   ConnectGenericArrowsToDrakeVisualizer(builder=builder, output_port=controller.ball_acceleration_visualization_output_port)
 
   # Get the necessary instances.
@@ -168,20 +169,18 @@ def main():
       "--kd", type=float, default=30.0,
       help="Cartesian kd for impedance control. Gets used for all xyz "
            "directions.")
+  parser.add_argument(
+      "--log", default='info',
+      help='Logging type: "info", "warning", "debug"')
   args = parser.parse_args()
 
-  # Gains in Cartesian-land.
-  robot_cart_kp = np.ones([3, 1]) * args.kp
-  robot_cart_kd = np.ones([3, 1]) * args.kd
+  # Determine the logging level.
+  numeric_level = getattr(logging, args.log.upper(), None)
+  if not isinstance(numeric_level, int):
+      raise ValueError('Invalid log level: %s' % args.log)
+  logging.basicConfig(level=numeric_level)
 
-  # Joint gains for the robot.
-  nv_robot = 6
-  robot_gv_kp = np.ones([nv_robot]) * 10
-  robot_gv_ki = np.ones([nv_robot]) * 0.1
-  robot_gv_kd = np.ones([nv_robot]) * 1.0
-
-  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd, args.fully_actuated)
-
+  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.time_step, args.fully_actuated)
 
   simulator = Simulator(diagram)
   simulator.set_publish_every_time_step(True)

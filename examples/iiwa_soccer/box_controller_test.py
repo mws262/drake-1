@@ -1,6 +1,8 @@
 import math
 import numpy as np
 import unittest
+import argparse
+import logging
 from manipulation_plan import ManipulationPlan
 from box_controller import BoxController
 from box_soccer_simulation import BuildBlockDiagram
@@ -13,18 +15,7 @@ class ControllerTest(unittest.TestCase):
     # TODO: figure out how to make time_step a parameter of this function.
     time_step = 1e-4
 
-    # Construct some reasonable defaults.
-    # Gains in Cartesian-land.
-    robot_cart_kp = np.ones([3]) * 100
-    robot_cart_kd = np.ones([3]) * 10
-
-    # Joint gains for the robot.
-    nv_robot = 6
-    robot_gv_kp = np.ones([nv_robot]) * 10
-    robot_gv_ki = np.ones([nv_robot]) * 0.1
-    robot_gv_kd = np.ones([nv_robot]) * 1.0
-
-    self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance = BuildBlockDiagram(time_step, robot_cart_kp, robot_cart_kd, robot_gv_kp, robot_gv_ki, robot_gv_kd)
+    self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance, robot_continuous_state_output_port = BuildBlockDiagram(time_step, False)
 
     # Create the context for the diagram.
     self.context = self.diagram.CreateDefaultContext()
@@ -136,11 +127,14 @@ class ControllerTest(unittest.TestCase):
     # Check whether B*v = v_all_but_zero.
     self.assertTrue(np.allclose(v_all_but_zero, B.dot(vselected).flatten()))
 
+  # NOTE: this unit test is disabled because it's yet unclear whether we want
+  # some zero entries corresponding to the ball angular velocity in the
+  # weighting matrix.
   @unittest.expectedFailure
   # This tests the velocity weighting matrix for the ball.
   def test_BallVelocityMatrix(self):
     # Get the state weighting matrix.
-    W = self.controller.ConstructBallVelocityWeightingMatrix()
+    P = self.controller.ConstructBallVelocityWeightingMatrix()
 
     # Set a recognizable velocity vector.
     nv = self.controller.nv_robot() + self.controller.nv_ball()
@@ -148,14 +142,14 @@ class ControllerTest(unittest.TestCase):
     v[:] = np.linspace(1, 10, nv)
 
     # Copy the elements corresponding to the ball out of v.
-    vselected = self.all_plant.GetVelocitiesFromArray(self.controller.ball_instance, v)
+    vselected = np.reshape(self.all_plant.GetVelocitiesFromArray(self.controller.ball_instance, v), [-1, 1])
     v_all_but_zero = np.zeros([nv])
     self.all_plant.SetVelocitiesInArray(self.controller.ball_instance, vselected, v_all_but_zero)
     vselected_row = np.zeros([len(vselected), 1])
-    vselected_row[:,0] = vselected
+    vselected_row[:] = vselected
 
-    # Check whether B*v = v_all_but_zero.
-    self.assertTrue(np.allclose(v_all_but_zero, B.dot(vselected).flatten()))
+    # Check whether P*v = v_all_but_zero.
+    self.assertTrue(np.allclose(v_all_but_zero, P.dot(vselected).flatten()))
 
   # This tests only that q and v for the ball and the robot (box) have
   # expected values.
@@ -323,7 +317,8 @@ class ControllerTest(unittest.TestCase):
     link_wrenches = MultibodyForces(self.robot_plant)
     fext = -self.robot_plant.CalcInverseDynamics(
         robot_context, np.zeros([self.controller.nv_robot()]), link_wrenches)
-    vdot_robot = np.linalg.inv(M).dot(self.output.get_vector_data(0).CopyToVector() + fext)
+    u_robot = self.controller.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, self.output.get_vector_data(0).CopyToVector())  
+    vdot_robot = np.linalg.inv(M).dot(u_robot + fext)
     dbg_out += '\nDesired robot velocity: ' + str(vdot_robot)
 
     # Get the current distance from the robot to the ball.
@@ -629,5 +624,16 @@ class ControllerTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument(
+      "--log", default='info',
+      help='Logging type: "info", "warning"')
+  args = parser.parse_args()
+
+  numeric_level = getattr(logging, args.log.upper(), None)
+  if not isinstance(numeric_level, int):
+      raise ValueError('Invalid log level: %s' % loglevel)
+  logging.basicConfig(level=numeric_level)
+
   unittest.main()
   
