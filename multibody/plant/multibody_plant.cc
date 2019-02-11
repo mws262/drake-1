@@ -1460,7 +1460,6 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
       this->EvalVectorInput(context0, applied_generalized_force_input_port_);
   if (tau_applied)
     forces0.mutable_generalized_forces() += tau_applied->get_value();
-  std::cout << "tau_applied: " << tau_applied->get_value().transpose() << std::endl;
 
   // With vdot = 0, this computes:
   //   -tau = C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W.

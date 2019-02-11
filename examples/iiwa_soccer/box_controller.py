@@ -81,45 +81,11 @@ class BoxController(LeafSystem):
         CreateArrowOutputCalcCallback(self.OutputBallAccelerationAsGenericArrow))
 
     # Actuator limits.
-    self.actuator_limit = 1
+    self.actuator_limit = float('inf')
 
     # TODO: delete this line.
     print 'WARNING: box_controller.py is violating the const System assumption'
     self.ball_accel_from_controller = np.array([0, 0, 0])
-
-
-  # Debugging function for visualizing the desired ball acceleration using
-  # white arrows.
-  def OutputBallAccelerationAsGenericArrow(self, controller_context):
-    # Get the desired ball acceleration.
-    vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
-    vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
-
-    # Get the translational ball acceleration.
-    xdd_ball_des = np.reshape(vdot_ball_des[3:6], [-1])
-
-    # Evaluate the ball center-of-mass.
-    all_plant = self.robot_and_ball_plant
-    ball_body = self.get_ball_from_robot_and_ball_plant()
-    X_WB = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, ball_body)
-    com = X_WB.translation()
-
-    # Populate the arrow visualization data structure.
-    arrow_viz = ArrowVisualization()
-    arrow_viz.origin_W = com
-    arrow_viz.target_W = com + xdd_ball_des
-    arrow_viz.color_rgb = np.array([1, 1, 1])  # White.
-
-    # TODO: Delete this.
-    # Construct a second one for the computed ball acceleration.
-    arrow_viz_2 = ArrowVisualization()
-    arrow_viz_2.origin_W = com
-    arrow_viz_2.target_W = com + self.ball_accel_from_controller
-    arrow_viz_2.color_rgb = np.array([1, 0, 1])
-    return [ arrow_viz, arrow_viz_2 ]
-
-    # A list must be returned.
-    return [ arrow_viz ]
 
   # Gets the value of the integral term in the state.
   def get_integral_value(self, context):
@@ -212,6 +178,39 @@ class BoxController(LeafSystem):
     return self.EvalVectorInput(context, self.get_input_port_estimated_ball_v().get_index()).CopyToVector()
 
   ### "Private" methods below.
+
+  # Debugging function for visualizing the desired ball acceleration using
+  # white arrows.
+  def OutputBallAccelerationAsGenericArrow(self, controller_context):
+    # Get the desired ball acceleration.
+    vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
+    vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
+
+    # Get the translational ball acceleration.
+    xdd_ball_des = np.reshape(vdot_ball_des[3:6], [-1])
+
+    # Evaluate the ball center-of-mass.
+    all_plant = self.robot_and_ball_plant
+    ball_body = self.get_ball_from_robot_and_ball_plant()
+    X_WB = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, ball_body)
+    com = X_WB.translation()
+
+    # Populate the arrow visualization data structure.
+    arrow_viz = ArrowVisualization()
+    arrow_viz.origin_W = com
+    arrow_viz.target_W = com + xdd_ball_des
+    arrow_viz.color_rgb = np.array([1, 1, 1])  # White.
+
+    # TODO: Delete this.
+    # Construct a second one for the computed ball acceleration.
+    arrow_viz_2 = ArrowVisualization()
+    arrow_viz_2.origin_W = com
+    arrow_viz_2.target_W = com + self.ball_accel_from_controller
+    arrow_viz_2.color_rgb = np.array([1, 0, 1])
+    return [ arrow_viz, arrow_viz_2 ]
+
+    # A list must be returned.
+    return [ arrow_viz ]
 
   # Makes a sorted pair.
   def MakeSortedPair(self, a, b):
@@ -651,8 +650,7 @@ class BoxController(LeafSystem):
     # verify this because we want to be able to use free bodies as "robots" too.
 
     # First zero out the generalized velocities for the whole multibody.
-    v = self.robot_and_ball_plant.GetMutableVelocities(self.robot_and_ball_context)
-    v[:] = np.zeros([self.nv_robot() + self.nv_ball()])
+    v = np.zeros([self.nv_robot() + self.nv_ball()])
 
     # Now set the velocities in the generalized velocity array to ones.
     ones_nv_robot = np.ones([self.nv_robot()])
@@ -661,8 +659,15 @@ class BoxController(LeafSystem):
     # The matrix is of size nv_robot() + nv_ball() x nv_robot().
     if self.fully_actuated == True:
       # _Everything_ is actuated.
-      return np.eye(self.nv_robot() + self.nv_ball())
-      #return np.diag(v)
+      #return np.eye(self.nv_robot() + self.nv_ball())
+
+      # Full size actuation matrix but only ball is actuated.
+      v[:] *= 0
+      self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, ones_nv_robot, v)
+      return np.diag(v)
+
+      # Full size actuation matrix but only robot is actuated.
+      return np.diag(v)
     else:
       # Only the robot is actuated.
       B = np.zeros([self.nv_robot() + self.nv_ball(), self.nv_robot()])
@@ -764,6 +769,96 @@ class BoxController(LeafSystem):
 
     return [f_act, f_contact, z[0:nprimal], D, P, B]
 
+  # Computes the applied forces when the ball is fully actuated.
+  def ComputeFullyActuatedBallControlForces(self, controller_context):
+    assert self.fully_actuated
+
+    # Get the generalized inertia matrix.
+    all_plant = self.robot_and_ball_plant
+    all_context = self.robot_and_ball_context
+    M = all_plant.CalcMassMatrixViaInverseDynamics(all_context)
+    iM = np.linalg.inv(M)
+
+    # Compute the contribution from force elements.
+    link_wrenches = MultibodyForces(all_plant)
+    all_plant.CalcForceElementsContribution(all_context, link_wrenches)
+
+    # Compute the external forces.
+    fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([self.nv_robot() + self.nv_ball()]), link_wrenches)
+    fext = np.reshape(fext, [-1, 1])
+
+    # Get the desired ball acceleration.
+    vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
+    vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
+
+    # Construct the actuation and weighting matrices.
+    B = self.ConstructRobotActuationMatrix()
+    P = self.ConstructBallVelocityWeightingMatrix()
+
+    # Primal variables are motor torques and accelerations.
+    nv, nu = B.shape
+    nprimal = nu + nv
+
+    # Initialize epsilon.
+    epsilon = np.zeros([nv, 1])
+
+    # Get the current system positions and velocities.
+    q = self.get_q_all(controller_context)
+    v = self.get_v_all(controller_context)
+
+    # Set maximum number of loop iterations.
+    max_loop_iterations = 100
+
+    for i in range(max_loop_iterations):
+        # Compute b.
+        b = fext + epsilon
+
+        # Solve the linear system M*[vdot_des_ball; 0] - Bu = fext + epsilon,
+        # meaning that we want the robot to remain stationary.
+        vdot_des = np.zeros([nv, 1])
+        all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, vdot_des)
+        [u, resid, rank, singular_values] = np.linalg.lstsq(B, M.dot(vdot_des) - fext - epsilon)
+        u = np.reshape(u, [-1])
+        z = np.zeros(nprimal)
+        z[0:nv] = np.reshape(vdot_des, [-1])
+        z[:-nv] = u
+
+        # Update the state in the embedded simulation.
+        self.embedded_sim.UpdateTime(controller_context.get_time())
+        self.embedded_sim.UpdatePlantPositions(q)
+        self.embedded_sim.UpdatePlantVelocities(v)
+
+        # Apply the controls to the embedded simulation.
+        self.embedded_sim.ApplyControls(B.dot(u))
+
+        # Simulate the system forward in time.
+        self.embedded_sim.StepEmbeddedSimulation()
+
+        # Get the new system velocity.
+        vnew = self.embedded_sim.GetPlantVelocities()
+
+        # Compute the estimated acceleration.
+        vdot_approx = np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
+
+        # Compute delta-epsilon.
+        delta_epsilon = M.dot(vdot_approx) - fext - B.dot(np.reshape(u, (-1, 1))) - epsilon
+
+        # If delta-epsilon is sufficiently small, quit.
+        if np.linalg.norm(delta_epsilon) < 1e-6:
+            break
+
+        # Update epsilon.
+        epsilon += delta_epsilon
+
+    if i == max_loop_iterations - 1:
+      print 'WARNING: BlackBoxDynamics controller did not terminate!'
+
+    self.ball_accel_from_controller = all_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])[-3:]
+    print 'Motor torques: ' + str(u)
+    print 'Ball velocity: ' + str(all_plant.GetVelocitiesFromArray(self.ball_instance, v))
+
+    return [u, z[0:nv], z[0:nprimal], P, B, epsilon]
+
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using a "learned" dynamics model.
   def ComputeContactControlMotorTorquesUsingLearnedDynamics(self, controller_context, M, fext, vdot_ball_des):
@@ -785,7 +880,8 @@ class BoxController(LeafSystem):
     c = np.zeros([nprimal, 1])
     c[0:nv] = -P.T.dot(vdot_ball_des)
 
-    # Construct the equality constraint matrix.
+    # Construct the equality constraint matrix (for the QP) corresponding to:
+    # M\dot{v} - Bu = fext + epsilon
     A = np.zeros([nv, nv + nu])
     A[:,0:nv] = M
     A[:,nv:] = -B
@@ -794,7 +890,10 @@ class BoxController(LeafSystem):
     q = self.get_q_all(controller_context)
     v = self.get_v_all(controller_context)
 
-    while True:
+    # Set maximum number of loop iterations.
+    max_loop_iterations = 100
+
+    for i in range(max_loop_iterations):
         # Compute b.
         b = fext + epsilon
 
@@ -839,6 +938,8 @@ class BoxController(LeafSystem):
         # desired ball accelerations at the beginning? What are the responsible
         # constraints if the desired ball accelerations *can't* be achieved?
 
+    if i == max_loop_iterations - 1:
+      print 'WARNING: BlackBoxDynamics controller did not terminate!'
     '''
     print 'External forces and actuator forces: ' + str(-fext - B.dot(np.reshape(u, (-1, 1))))
     print 'Contact forces: ' + str(epsilon)
@@ -854,7 +955,7 @@ class BoxController(LeafSystem):
           u[i] = -self.actuator_limit
     z = np.reshape(z, [-1, 1])
     print 'objective: ' + str(0.5 * z.T.dot(H.dot(z) + c))
-    print 'desired ball acceleration: ' + str(vdot_ball_des)
+    print 'desired ball acceleration: ' + str(vdot_ball_des.T)
     print 'ball acceleration from vdot_approx: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx))
 
     self.ball_accel_from_controller = self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])[-3:]
@@ -1218,34 +1319,38 @@ class BoxController(LeafSystem):
     # Get the generalized positions.
     q = self.get_q_all(context)
 
-    # Compute tau.
-    if contact_desired == True:
-      # Find contacts.
-      contacts = self.FindContacts(q)
+    # Look for full actuation.
+    if self.fully_actuated:
+        tau = self.ComputeFullyActuatedBallControlForces(context)
 
-      # Two cases: in the first, the robot and the ball are already in contact,
-      # as desired. In the second, the robot desires to be in contact, but the
-      # ball and robot are not contacting: the robot must intercept the ball.
-      if self.IsRobotContactingBall(contacts):
-        print 'Contact desired and contact detected'
-        tau, f_contact_generalized = self.ComputeActuationForContactDesiredAndContacting(context, contacts)
-      else:
-        print 'Contact desired and no contact detected'
-        tau = self.ComputeActuationForContactDesiredButNoContact(context)
-    else:
-      # No contact desired.
-      print 'Contact not desired'
-      tau = self.ComputeActuationForContactNotDesired(context)
+    else:  # "Real" control.
+        # Compute tau.
+        if contact_desired == True:
+            # Find contacts.
+            contacts = self.FindContacts(q)
+
+            # Two cases: in the first, the robot and the ball are already in contact,
+            # as desired. In the second, the robot desires to be in contact, but the
+            # ball and robot are not contacting: the robot must intercept the ball.
+            if self.IsRobotContactingBall(contacts):
+                print 'Contact desired and contact detected at time ' + str(context.get_time())
+                tau, f_contact_generalized = self.ComputeActuationForContactDesiredAndContacting(context, contacts)
+            else:
+                print 'Contact desired and no contact detected at time ' + str(context.get_time())
+                tau = self.ComputeActuationForContactDesiredButNoContact(context)
+        else:
+            # No contact desired.
+            print 'Contact not desired at time ' + str(context.get_time())
+            tau = self.ComputeActuationForContactNotDesired(context)
+
 
     # Set the torque output.
     mutable_torque_out = output.get_mutable_value()
-    mutable_torque_out *= 0
+    mutable_torque_out[:] = np.zeros(mutable_torque_out.shape)
     return
     if self.fully_actuated:
         mutable_torque_out[:] = torque.flatten()
     else:
-        mutable_torque_out[:] = np.zeros([self.nv_robot() + self.nv_ball()])
-
         self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, tau.flatten(), mutable_torque_out)
 
   def _DoCalcTimeDerivatives(self, context, derivatives):
