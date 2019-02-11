@@ -4,7 +4,7 @@ import trace
 import argparse
 import numpy as np
 from pydrake.all import (DiagramBuilder, SceneGraph,
-FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
+FindResourceOrThrow, MultibodyPlant,
 UniformGravityFieldElement, Simulator, MobilizerIndex, ConstantVectorSource,
 Isometry3, Quaternion, Parser, Demultiplexer)
 
@@ -43,11 +43,9 @@ class EmbeddedSim:
     # Construct the multibody plant using both the robot and ball models.
     all_plant = mbw_builder.AddSystem(MultibodyPlant(mbp_step_size))
     self.robot_and_ball_plant = all_plant
-    robot_instance_id = AddModelFromSdfFile(file_name=arm_fname, plant=all_plant,
-                                            scene_graph=scene_graph)
-    ball_instance_id = AddModelFromSdfFile(file_name=ball_fname, plant=all_plant,
-                                          scene_graph=scene_graph)
-    AddModelFromSdfFile(file_name=ground_fname, plant=all_plant, scene_graph=scene_graph)
+    Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=ground_fname)
+    robot_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=arm_fname)
+    ball_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=ball_fname)
 
     # Weld the ground to the world.
     all_plant.WeldFrames(all_plant.world_frame(), all_plant.GetFrameByName("ground_body"))

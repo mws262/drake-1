@@ -4,7 +4,7 @@ import trace
 import argparse
 import numpy as np
 from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
-FindResourceOrThrow, MultibodyPlant, AddModelFromSdfFile,
+FindResourceOrThrow, MultibodyPlant,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
 Multiplexer, LcmPublisherSystem, MobilizerIndex,
 Isometry3, Quaternion, Parser, ConnectSpatialForcesToDrakeVisualizer,
@@ -33,18 +33,13 @@ def BuildBlockDiagram(mbp_step_size, robot_cart_kp, robot_cart_kd, robot_gv_kp, 
 
   # Construct a multibody plant just for kinematics/dynamics calculations.
   robot_plant = MultibodyPlant(mbp_step_size)
-  AddModelFromSdfFile(file_name=arm_fname, plant=robot_plant)
-  #Parser(plant=robot_plant).AddModelFromFile(file_name=arm_fname)
+  Parser(plant=robot_plant).AddModelFromFile(file_name=arm_fname)
 
   # Construct the multibody plant using both the robot and ball models.
   all_plant = mbw_builder.AddSystem(MultibodyPlant(mbp_step_size))
-  robot_instance_id = AddModelFromSdfFile(file_name=arm_fname, plant=all_plant,
-                                          scene_graph=scene_graph)
-  ball_instance_id = AddModelFromSdfFile(file_name=ball_fname, plant=all_plant,
-                                         scene_graph=scene_graph)
-  AddModelFromSdfFile(file_name=ground_fname, plant=all_plant, scene_graph=scene_graph)
-  #robot_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=arm_fname)
-  #ball_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=ball_fname)
+  Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=ground_fname)
+  robot_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=arm_fname)
+  ball_instance_id = Parser(plant=all_plant, scene_graph=scene_graph).AddModelFromFile(file_name=ball_fname)
 
   # Weld the ground to the world.
   all_plant.WeldFrames(all_plant.world_frame(), all_plant.GetFrameByName("ground_body"))
