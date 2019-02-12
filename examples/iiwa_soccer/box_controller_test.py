@@ -276,6 +276,9 @@ class ControllerTest(unittest.TestCase):
   # Check control outputs for when contact is intended and robot and ball are
   # indeed in contact and verifies that acceleration is as desired.
   def test_FullyActuatedAccelerationCorrect(self):
+    # Make sure the plant has been setup as fully actuated.
+    assert self.fully_actuated
+
     # Get the plan.
     plan = self.controller.plan
 

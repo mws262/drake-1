@@ -870,7 +870,8 @@ class BoxController(LeafSystem):
       logging.warning('BlackBoxDynamics controller did not terminate!')
 
     z = np.reshape(z, [-1, 1])
-    logging.debug('z: ' + str(z))
+    logging.debug('u: ' + str(u))
+    logging.debug('objective: ' + str(0.5*np.linalg.norm(P.dot(vdot_approx) - vdot_ball_des)))
     logging.debug('Delta epsilon norm: ' + str(np.linalg.norm(delta_epsilon)))
     logging.debug('Ball acceleration: ' + str(all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
     logging.debug('P * vdot (computed): ' + str(P.dot(z[0:nv])))
@@ -880,7 +881,7 @@ class BoxController(LeafSystem):
 
   # Computes the applied forces when the ball is fully actuated.
   # This is a function for debugging functionality.
-  def ComputeFullyActuatedBallControlForces2(self, controller_context):
+  def ComputeFullyActuatedBallControlForces(self, controller_context):
     assert self.fully_actuated
 
     # Get the generalized inertia matrix.
@@ -902,27 +903,27 @@ class BoxController(LeafSystem):
     vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
 
     # Construct the actuation and weighting matrices.
-    B = self.ConstructRobotActuationMatrix()
     P = self.ConstructBallVelocityWeightingMatrix()
 
     # Primal variables are motor torques and accelerations.
-    nv, nu = B.shape
+    nv = self.nv_ball() + self.nv_robot()
+    nu = nv
     nprimal = nu + nv
 
     # Construct the Hessian matrix and linear term.
+    # min (P*vdot_new - vdot_des_ball)^2
     H = np.zeros([nprimal, nprimal])
-    H[0:nv,0:nv] = P.T.dot(P)
-    H[nv:,nv:] = np.eye(nu)
+    H[0:nv,0:nv] = P.T.dot(P) + np.eye(nv) * 1e-6
     c = np.zeros([nprimal, 1])
     c[0:nv] = -P.T.dot(vdot_ball_des)
 
     # Construct the equality constraint matrix (for the QP) corresponding to:
     # M\dot{v} - Bu = fext + epsilon and
-    # P\dot{v} = vdot_ball_des
-    A = np.zeros([nv + self.nv_ball(), nv + nu])
+
+    A = np.zeros([nv, nv + nu])
     A[0:nv,0:nv] = M
-    A[0:nv,nv:] = -B
-    A[nv:,0:nv] = P
+    A[0:nv,nv:] = -np.eye(nv)
+
     '''
     fout = open('A.dat', 'w')
     fout.write(str(A))
@@ -950,9 +951,10 @@ class BoxController(LeafSystem):
 
     for i in range(max_loop_iterations):
         # Compute b.
-        b = np.zeros([len(fext) + len(vdot_ball_des), 1])
+        b = np.zeros([nv, 1])
         b[0:nv] = fext + epsilon
-        b[nv:] = vdot_ball_des
+        vdot_des = np.zeros([nv, 1])
+        all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, vdot_des)
         '''
         fout = open('b.dat', 'w')
         fout.write(str(b))
@@ -969,7 +971,8 @@ class BoxController(LeafSystem):
             print result
             assert False
         z = prog.GetSolution(vars)
-        u = z[:-nv]
+        u = np.reshape(z[nv:], [-1, 1])
+        vdot = np.reshape(z[0:nv], [-1, 1])
 
         # Update the state in the embedded simulation.
         self.embedded_sim.UpdateTime(controller_context.get_time())
@@ -977,7 +980,7 @@ class BoxController(LeafSystem):
         self.embedded_sim.UpdatePlantVelocities(v)
 
         # Apply the controls to the embedded simulation.
-        self.embedded_sim.ApplyControls(B.dot(u))
+        self.embedded_sim.ApplyControls(u)
 
         # Simulate the system forward in time.
         self.embedded_sim.Step()
@@ -989,7 +992,7 @@ class BoxController(LeafSystem):
         vdot_approx = np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
 
         # Compute delta-epsilon.
-        delta_epsilon = M.dot(vdot_approx) - fext - B.dot(np.reshape(u, (-1, 1))) - epsilon
+        delta_epsilon = M.dot(vdot_approx) - fext - np.reshape(u, (-1, 1)) - epsilon
 
         # If delta-epsilon is sufficiently small, quit.
         if np.linalg.norm(delta_epsilon) < 1e-6:
@@ -1001,12 +1004,17 @@ class BoxController(LeafSystem):
     if i == max_loop_iterations - 1:
       logging.warning('BlackBoxDynamics controller did not terminate!')
 
+    # We know that M\dot{v}* = fext + u
+    # and we know that M\dot{v} - u = fext
+
     self.ball_accel_from_controller = all_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])[-3:]
     z = np.reshape(z, [-1, 1])
     logging.debug('z: ' + str(z))
+    logging.debug('u: ' + str(u))
     logging.debug('Delta epsilon norm: ' + str(np.linalg.norm(delta_epsilon)))
     logging.debug('Ball acceleration: ' + str(all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
-    logging.debug('objective: ' + str(z.T.dot(0.5 * H.dot(z) + c)))
+    logging.debug('objective (opt): ' + str(z.T.dot(0.5 * H.dot(z) + c)))
+    logging.debug('objective (true): ' + str(z.T.dot(0.5 * H.dot(z) + c) + 0.5*vdot_ball_des.T.dot(vdot_ball_des)))
     logging.debug('vdot_approx - vdot (computed): ' + str(vdot_approx - z[0:nv]))
     logging.debug('A * z - b: ' + str(A.dot(z) - b))
     logging.debug('P * vdot (computed): ' + str(P.dot(z[0:nv])))
