@@ -815,6 +815,100 @@ class BoxController(LeafSystem):
     nv, nu = B.shape
     nprimal = nu + nv
 
+    # Initialize epsilon.
+    epsilon = np.zeros([nv, 1])
+
+    # Get the current system positions and velocities.
+    q = self.get_q_all(controller_context)
+    v = self.get_v_all(controller_context)
+
+    # Solve the equation:
+    # M\dot{v} - Bu = fext + epsilon
+    # where:
+    # \dot{v} = | vdot_ball_des |
+    #           | 0             |
+    dotv = np.zeros([len(v), 1])
+    all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, dotv)
+
+    # Set maximum number of loop iterations.
+    max_loop_iterations = 100
+
+    for i in range(max_loop_iterations):
+        # Compute b.
+        b = M.dot(dotv) - fext - epsilon
+        [z, residuals, rank, singular_values] = np.linalg.lstsq(B, b)
+        u = np.reshape(z, [-1])
+
+        # Update the state in the embedded simulation.
+        self.embedded_sim.UpdateTime(controller_context.get_time())
+        self.embedded_sim.UpdatePlantPositions(q)
+        self.embedded_sim.UpdatePlantVelocities(v)
+
+        # Apply the controls to the embedded simulation.
+        self.embedded_sim.ApplyControls(B.dot(u))
+
+        # Simulate the system forward in time.
+        self.embedded_sim.Step()
+
+        # Get the new system velocity.
+        vnew = self.embedded_sim.GetPlantVelocities()
+
+        # Compute the estimated acceleration.
+        vdot_approx = np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
+
+        # Compute delta-epsilon.
+        delta_epsilon = M.dot(vdot_approx) - fext - B.dot(np.reshape(u, (-1, 1))) - epsilon
+
+        # If delta-epsilon is sufficiently small, quit.
+        if np.linalg.norm(delta_epsilon) < 1e-6:
+            break
+
+        # Update epsilon.
+        epsilon += delta_epsilon
+
+    if i == max_loop_iterations - 1:
+      logging.warning('BlackBoxDynamics controller did not terminate!')
+
+    z = np.reshape(z, [-1, 1])
+    logging.debug('z: ' + str(z))
+    logging.debug('Delta epsilon norm: ' + str(np.linalg.norm(delta_epsilon)))
+    logging.debug('Ball acceleration: ' + str(all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
+    logging.debug('P * vdot (computed): ' + str(P.dot(z[0:nv])))
+    logging.debug('P * vdot (approx): ' + str(P.dot(vdot_approx)))
+
+    return u
+
+  # Computes the applied forces when the ball is fully actuated.
+  # This is a function for debugging functionality.
+  def ComputeFullyActuatedBallControlForces2(self, controller_context):
+    assert self.fully_actuated
+
+    # Get the generalized inertia matrix.
+    all_plant = self.robot_and_ball_plant
+    all_context = self.robot_and_ball_context
+    M = all_plant.CalcMassMatrixViaInverseDynamics(all_context)
+    iM = np.linalg.inv(M)
+
+    # Compute the contribution from force elements.
+    link_wrenches = MultibodyForces(all_plant)
+    all_plant.CalcForceElementsContribution(all_context, link_wrenches)
+
+    # Compute the external forces.
+    fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([self.nv_robot() + self.nv_ball()]), link_wrenches)
+    fext = np.reshape(fext, [-1, 1])
+
+    # Get the desired ball acceleration.
+    vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
+    vdot_ball_des = np.reshape(vdot_ball_des, [self.nv_ball(), 1])
+
+    # Construct the actuation and weighting matrices.
+    B = self.ConstructRobotActuationMatrix()
+    P = self.ConstructBallVelocityWeightingMatrix()
+
+    # Primal variables are motor torques and accelerations.
+    nv, nu = B.shape
+    nprimal = nu + nv
+
     # Construct the Hessian matrix and linear term.
     H = np.zeros([nprimal, nprimal])
     H[0:nv,0:nv] = P.T.dot(P)
@@ -886,7 +980,7 @@ class BoxController(LeafSystem):
         self.embedded_sim.ApplyControls(B.dot(u))
 
         # Simulate the system forward in time.
-        self.embedded_sim.StepEmbeddedSimulation()
+        self.embedded_sim.Step()
 
         # Get the new system velocity.
         vnew = self.embedded_sim.GetPlantVelocities()
@@ -915,8 +1009,8 @@ class BoxController(LeafSystem):
     logging.debug('objective: ' + str(z.T.dot(0.5 * H.dot(z) + c)))
     logging.debug('vdot_approx - vdot (computed): ' + str(vdot_approx - z[0:nv]))
     logging.debug('A * z - b: ' + str(A.dot(z) - b))
-    logging.debug('P * vdot: ' + str(P.dot(z[0:nv])))
-    logging.debug('P * vdot - bcomponents: ' + str(P.dot(z[0:nv]) - b[nv:]))
+    logging.debug('P * vdot (computed): ' + str(P.dot(z[0:nv])))
+    logging.debug('P * vdot (approx): ' + str(P.dot(vdot_approx)))
 
     return u
 
@@ -977,7 +1071,7 @@ class BoxController(LeafSystem):
         self.embedded_sim.ApplyControls(B.dot(u))
 
         # Simulate the system forward in time.
-        self.embedded_sim.StepEmbeddedSimulation()
+        self.embedded_sim.Step()
 
         # Get the new system velocity.
         vnew = self.embedded_sim.GetPlantVelocities()

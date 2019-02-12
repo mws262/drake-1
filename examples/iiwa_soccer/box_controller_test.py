@@ -7,6 +7,7 @@ import logging
 from manipulation_plan import ManipulationPlan
 from box_controller import BoxController
 from box_soccer_simulation import BuildBlockDiagram
+from embedded_box_soccer_sim import EmbeddedSim
 
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
                          BasicVector, MultibodyForces, ComputeBasisFromAxis)
@@ -274,7 +275,7 @@ class ControllerTest(unittest.TestCase):
 
   # Check control outputs for when contact is intended and robot and ball are
   # indeed in contact and verifies that acceleration is as desired.
-  def test_ContactAndContactIntendedOutputsAccelerationCorrect(self):
+  def test_FullyActuatedAccelerationCorrect(self):
     # Get the plan.
     plan = self.controller.plan
 
@@ -306,30 +307,28 @@ class ControllerTest(unittest.TestCase):
     # contact forces on the robot will be used to integrate the robot velocity
     # forward in time as well.
 
-    # Set the plant to the planned configuration and velocity.
-    all_plant.SetPositions(robot_and_ball_context, q)
-    all_plant.SetVelocities(robot_and_ball_context, v)
+    # Determine the predicted forces due to contact.
+    f_act = self.controller.ComputeFullyActuatedBallControlForces(self.controller_context)
 
-    # Step the plant forward in time.
+    # Step the plant forward by a small time.
+    sim = EmbeddedSim(self.step_size)
+    sim.UpdateTime(t)
+    sim.UpdatePlantPositions(q)
+    sim.UpdatePlantVelocities(v)
+    sim.ApplyControls(f_act)
+    sim.Step()
 
     # Compute the approximate acceleration.
+    vnew = sim.GetPlantVelocities()
+    vdot_approx = np.reshape((vnew - v) / sim.delta_t, (-1, 1))
+    vdot_ball_approx = all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)
 
     # Get the desired acceleration for the ball.
     nv_ball = self.controller.nv_ball()
     vdot_ball_des = plan.GetBallQVAndVdot(t)[-nv_ball:]
 
-    # Determine the predicted forces due to contact.
-    f_act, f_contact = self.controller.ComputeActuationForContactDesiredAndContacting(self.controller_context, contacts)
-
-    # Use the controller output to determine the generalized acceleration of the
-    # robot and the ball.
-    M = all_plant.CalcMassMatrixViaInverseDynamics(robot_and_ball_context)
-    link_wrenches = MultibodyForces(self.all_plant)
-    fext = -all_plant.CalcInverseDynamics(
-      robot_and_ball_context, np.zeros([len(v)]), link_wrenches)
-
-    # Get the robot actuation matrix.
-    B = self.controller.ConstructRobotActuationMatrix()
+    # Check the accelerations.
+    self.assertAlmostEqual(np.linalg.norm(vdot_ball_approx - vdot_ball_des), 0, places=5)
 
   # Check control outputs for when robot is not in contact with the ball but it
   # is desired to be.
