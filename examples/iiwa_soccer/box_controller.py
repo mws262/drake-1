@@ -1087,7 +1087,7 @@ class BoxController(LeafSystem):
       u = np.reshape(u, [-1, 1])
 
       # Compute the approximate acceleration.
-      vdot_approx = ComputeApproximateAcceleration(controller_context, q, v, u)
+      vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u)
 
       # Compute the difference between the dynamics computed by the no slip controller and the true dynamics.
       # The dynamics will be:
@@ -1104,7 +1104,7 @@ class BoxController(LeafSystem):
     [u, fz] = self.ComputeContactControlMotorTorquesNoSlip(iM, fext + epsilon, vdot_ball_des, Z, Zdot_v)
 
     # Compute the estimated acceleration.
-    vdot_approx = ComputeApproximateAcceleration(u)
+    vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u)
 
     #logging.warning('Reason: ' + msg)
     #logging.warning('BlackBoxDynamics controller did not terminate!')
