@@ -276,6 +276,9 @@ class ControllerTest(unittest.TestCase):
   # Check control outputs for when contact is intended and robot and ball are
   # indeed in contact and verifies that slip is not caused.
   def test_AccelerationFromLearnedDynamicsControlCorrect(self):
+    # Get the actuation matrix.
+    B = self.controller.ConstructRobotActuationMatrix()
+
     # Get the plan.
     plan = self.controller.plan
 
@@ -310,8 +313,23 @@ class ControllerTest(unittest.TestCase):
     vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
     vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])
 
+    # Get the Jacobians at the point of contact: N, S, T, and construct Z and
+    # Zdot_v.
+    nc = len(contacts)
+    N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
+    Z = np.zeros([N.shape[0] * 3, N.shape[1]])
+    Z[0:nc,:] = N
+    Z[nc:2*nc,:] = S
+    Z[-nc:,:] = T
+
+    # Set the time-derivatives of the Jacobians times the velocity.
+    Zdot_v = np.zeros([nc * 3])
+    Zdot_v[0:nc] = Ndot_v[:,0]
+    Zdot_v[nc:2*nc] = Sdot_v[:, 0]
+    Zdot_v[-nc:] = Tdot_v[:, 0]
+
     # Determine the control forces using the learned dynamics controller.
-    u, vdot_predicted, z, P, B, epsilon = self.controller.ComputeContactControlMotorTorquesUsingLearnedDynamics(self.controller_context, M, fext, vdot_ball_des)
+    u, fz = self.controller.ComputeContactControlMotorTorquesUsingLearnedDynamics(self.controller_context, M, fext, vdot_ball_des, Z, Zdot_v)
 
     # Step the plant forward by a small time.
     sim = EmbeddedSim(self.step_size)
@@ -334,7 +352,11 @@ class ControllerTest(unittest.TestCase):
     self.assertAlmostEqual(np.linalg.norm(vdot_ball_approx - vdot_ball_des), 0, places=5)
 
   # Check control outputs for when contact is intended and robot and ball are
-  # indeed in contact and verifies that acceleration is as desired.
+  # indeed in contact and verifies that acceleration is as desired. This method
+  # uses full actuation so that we know that the desired accelerations are
+  # capable of being met. Hence, the desired and actual accelerations must be
+  # equal at the optimal solution. So this test validates that the objective
+  # function used in the control function's QP is sound.
   def test_FullyActuatedAccelerationCorrect(self):
     # Make sure the plant has been setup as fully actuated.
     assert self.fully_actuated
@@ -748,7 +770,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("--fully_actuated", type=str2bool, default=False)
   parser.add_argument(
-      "--step_size", type=float, default=0.001,
+      "--step_size", type=float, default=1e-3,
       help="If greater than zero, the plant is modeled as a system with "
            "discrete updates and period equal to this step size. "
            "If 0, the plant is modeled as a continuous system.")

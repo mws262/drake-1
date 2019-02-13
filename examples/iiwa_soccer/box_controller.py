@@ -1,5 +1,6 @@
 # TODO: turn this system into an actual discrete system (estimated time required: 30m)
 import numpy as np
+import scipy.optimize
 import logging
 from manipulation_plan import ManipulationPlan
 from embedded_box_soccer_sim import EmbeddedSim
@@ -706,19 +707,29 @@ class BoxController(LeafSystem):
     return W
 
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
-  # using the no-slip model.
+  # using the no-slip contact model. Specifically, this function optimizes:
+  # argmin vdot_sub_des 1/2 * (vdot_sub_des - P * vdot)' * W *
+  #                             (vdot_sub_des - P * vdot)
+  # subject to:
+  # Gn * vdot_sub_des + dotGn * v_sub_des >= 0
+  # Gs * vdot_sub_des + dotGs * v_sub_des = 0
+  # Gt * vdot_sub_des + dotGt * v_sub_des = 0
+  # M * vdot = fext + Gn' * fn + Gs' * fs + Gt' * ft + B * u
+  # fn >= 0
+  #
+  # and preconditions:
+  # Nv = 0
+  # 
   # iM: the inverse of the joint robot/ball generalized inertia matrix
   # fext: the generalized external forces acting on the robot/ball
   # vdot_ball_des: the desired spatial acceleration on the ball
-  # Z: the contact normal/tan1/tan2 Jacobian matrix (all normal rows come first,
-  #    all first-tangent direction rows come next, all second-tangent direction
-  #    rows come last).
-  # Zdot_v: the time derivative of the contact Jacobian matrices times the
-  #         generalized velocities.
-  # RETURNS: a tuple containing (1) the actuation forces, (2) the contact force
-  #          magnitudes (along the contact normals, the first tangent direction,
-  #          and the second contact tangent direction, respectively), and (3)
-  #          the primal solution to the quadratic program.
+  # Z: the contact normal/tan1/tan2 Jacobian matrix (all normal rows come first, all first-tangent direction rows come
+  # next, all second-tangent direction rows come last). In the notation above, Z = [ Gn; Gs; Gt ].
+  # Zdot_v: the time derivative of the contact Jacobian matrices times the generalized velocities. In the notation
+  # above, Zdot = [ dotGn; dotGs; dotGt ].
+  #
+  # Returns: a tuple containing (1) the actuation forces (u), (2) the contact force magnitudes fz (along the contact
+  # normals, the first tangent direction, and the second contact tangent direction, respectively), 
   def ComputeContactControlMotorTorquesNoSlip(self, iM, fext, vdot_ball_des, Z, Zdot_v):
     # Construct the actuation and weighting matrices.
     B = self.ConstructRobotActuationMatrix()
@@ -763,17 +774,19 @@ class BoxController(LeafSystem):
     z = prog.GetSolution(vars)
 
     # Get the actuation forces and the contact forces.
-    f_act = z[0:nu]
+    u = z[0:nu]
     f_contact = z[nu:nprimal]
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
     assert np.min(f_contact_n) >= -1e-8
 
-    return [f_act, f_contact, z[0:nprimal], D, P, B]
+    return [u, f_contact]
 
-  # Computes the applied forces when the ball is fully actuated.
-  # This is a function for debugging functionality.
+  # Computes the applied forces when the ball is fully actuated (version that
+  # simply solves a linear system). This is a function for debugging purposes.
+  # It shows that the desired accelerations are feasible using *some* forces
+  # (not necessarily ones that are consistent with kinematic/force constraints).
   def ComputeFullyActuatedBallControlForces(self, controller_context):
     assert self.fully_actuated
 
@@ -867,8 +880,10 @@ class BoxController(LeafSystem):
 
     return u
 
-  # Computes the applied forces when the ball is fully actuated.
-  # This is a function for debugging functionality.
+  # Computes the applied forces when the ball is fully actuated (version that
+  # solves a QP). This is a function for debugging purposes. It shows that the
+  # optimization criterion that we use is a reasonable one; see the unit test
+  # for this function.
   def ComputeFullyActuatedBallControlForces(self, controller_context):
     assert self.fully_actuated
 
@@ -912,20 +927,10 @@ class BoxController(LeafSystem):
     A[0:nv,0:nv] = M
     A[0:nv,nv:] = -np.eye(nv)
 
-    '''
-    fout = open('A.dat', 'w')
-    fout.write(str(A))
-    fout.close()
-    fout = open('H.dat', 'w')
-    fout.write(str(H))
-    fout.close()
-    fout = open('c.dat', 'w')
-    fout.write(str(c))
-    fout.close()
-    fout = open('P.dat', 'w')
-    fout.write(str(P))
-    fout.close()
-    '''
+    np.savetxt('A.dat', A)
+    np.savetxt('H.dat', H)
+    np.savetxt('c.dat', c)
+    np.savetxt('P.dat', P)
 
     # Initialize epsilon.
     epsilon = np.zeros([nv, 1])
@@ -943,11 +948,7 @@ class BoxController(LeafSystem):
         b[0:nv] = fext + epsilon
         vdot_des = np.zeros([nv, 1])
         all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, vdot_des)
-        '''
-        fout = open('b.dat', 'w')
-        fout.write(str(b))
-        fout.close()
-        '''
+        np.savetxt('b.dat', b)
 
         # Solve the QP.
         prog = mathematicalprogram.MathematicalProgram()
@@ -959,6 +960,7 @@ class BoxController(LeafSystem):
             print result
             assert False
         z = prog.GetSolution(vars)
+        np.savetxt('z.dat', z)
         u = np.reshape(z[nv:], [-1, 1])
         vdot = np.reshape(z[0:nv], [-1, 1])
 
@@ -1012,105 +1014,86 @@ class BoxController(LeafSystem):
 
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using a "learned" dynamics model.
-  def ComputeContactControlMotorTorquesUsingLearnedDynamics(self, controller_context, M, fext, vdot_ball_des):
-    # Construct the actuation and weighting matrices.
+  # See ComputeContactControlMotorTorquesNoSlip() for description of parameters. 
+  def ComputeContactControlMotorTorquesUsingLearnedDynamics(self, controller_context, M, fext, vdot_ball_des, Z, Zdot_v):
+    # Get the actuation matrix.
     B = self.ConstructRobotActuationMatrix()
-    P = self.ConstructBallVelocityWeightingMatrix()
-
-    # Primal variables are motor torques and accelerations.
-    nv, nu = B.shape
-    nprimal = nu + nv
-
-    # Initialize epsilon.
-    epsilon = np.zeros([nv, 1])
-
-    # Construct the Hessian matrix and linear term.
-    H = np.zeros([nprimal, nprimal])
-    H[0:nv,0:nv] = P.T.dot(P) + np.eye(nv) * 1e-8
-    H[nv:,nv:] = np.zeros([nu, nu])
-    c = np.zeros([nprimal, 1])
-    c[0:nv] = -P.T.dot(vdot_ball_des)
-
-    # Construct the equality constraint matrix (for the QP) corresponding to:
-    # M\dot{v} - Bu = fext + epsilon
-    A = np.zeros([nv, nv + nu])
-    A[:,0:nv] = M
-    A[:,nv:] = -B
 
     # Get the current system positions and velocities.
     q = self.get_q_all(controller_context)
     v = self.get_v_all(controller_context)
+    nv = len(v)
 
-    # Set maximum number of loop iterations.
-    max_loop_iterations = 100
+    # Compute inverse(M)
+    iM = np.linalg.inv(M)
 
-    for i in range(max_loop_iterations):
-        # Compute b.
-        b = fext + epsilon
+    # Check N*v, S*v, T*v.
+    logging.debug('Z*v: ' + str(Z.dot(v)))
 
-        # Solve the QP.
-        prog = mathematicalprogram.MathematicalProgram()
-        vars = prog.NewContinuousVariables(len(c), "vars")
-        prog.AddQuadraticCost(H, c, vars)
-        prog.AddLinearConstraint(A, b, b, vars)
-        result = prog.Solve()
-        assert result == mathematicalprogram.SolutionResult.kSolutionFound
-        z = prog.GetSolution(vars)
-        u = z[:-nv]
+    # Approximates the acceleration using the embedded simulation.
+    def ComputeApproximateAcceleration(u):
+      # Update the state in the embedded simulation.
+      self.embedded_sim.UpdateTime(controller_context.get_time())
+      self.embedded_sim.UpdatePlantPositions(q)
+      self.embedded_sim.UpdatePlantVelocities(v)
 
-        # Update the state in the embedded simulation.
-        self.embedded_sim.UpdateTime(controller_context.get_time())
-        self.embedded_sim.UpdatePlantPositions(q)
-        self.embedded_sim.UpdatePlantVelocities(v)
+      # Apply the controls to the embedded simulation and step the simulation
+      # forward in time.
+      self.embedded_sim.ApplyControls(B.dot(u))
+      self.embedded_sim.Step()
 
-        # Apply the controls to the embedded simulation.
-        self.embedded_sim.ApplyControls(B.dot(u))
+      # Get the new system velocity.
+      vnew = self.embedded_sim.GetPlantVelocities()
 
-        # Simulate the system forward in time.
-        self.embedded_sim.Step()
+      # Compute the estimated acceleration.
+      return np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
 
-        # Get the new system velocity.
-        vnew = self.embedded_sim.GetPlantVelocities()
+    # Computes the reality gap.
+    def reality_gap(epsilon):
+      epsilon = np.reshape(epsilon, [-1, 1])
 
-        # Compute the estimated acceleration.
-        vdot_approx = np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
+      # Call the no slip controller.
+      [u, fz] = self.ComputeContactControlMotorTorquesNoSlip(iM, fext + epsilon, vdot_ball_des, Z, Zdot_v)
 
-        # Compute delta-epsilon.
-        delta_epsilon = M.dot(vdot_approx) - fext - B.dot(np.reshape(u, (-1, 1))) - epsilon
+      # Make u and fz column vectors.
+      fz = np.reshape(fz, [-1, 1])
+      u = np.reshape(u, [-1, 1])
 
-        # If delta-epsilon is sufficiently small, quit.
-        if np.linalg.norm(delta_epsilon) < 1e-6:
-            break
+      # Compute the approximate acceleration.
+      vdot_approx = ComputeApproximateAcceleration(u)
 
-        # Update epsilon.
-        epsilon += delta_epsilon
+      # Compute the difference between the dynamics computed by the no slip controller and the true dynamics.
+      # The dynamics will be:
+      # M * vdot = fext + Gn' * fn + Gs' * fs + Gt' * ft + B * u + epsilon.
+      # The "reality gap" is the unaccounted for force.
+      delta = M.dot(vdot_approx) - fext - Z.T.dot(fz) - B.dot(u) - epsilon
+      logging.debug('reality gap: ' + str(np.reshape(delta, -1)))
+      return np.reshape(delta, -1)
 
-        # Question: how do we get this controller to realize *exactly* the
-        # desired ball accelerations at the beginning? What are the responsible
-        # constraints if the desired ball accelerations *can't* be achieved?
+    # Attempt to solve the nonlinear system of equations.
+    epsilon = np.reshape(scipy.optimize.fsolve(reality_gap, np.zeros([nv, 1])), [-1, 1])
 
-    if i == max_loop_iterations - 1:
-      print 'WARNING: BlackBoxDynamics controller did not terminate!'
+    # Call the no slip controller.
+    [u, fz] = self.ComputeContactControlMotorTorquesNoSlip(iM, fext + epsilon, vdot_ball_des, Z, Zdot_v)
+
+    # Compute the estimated acceleration.
+    vdot_approx = ComputeApproximateAcceleration(u)
+
+    #logging.warning('Reason: ' + msg)
+    #logging.warning('BlackBoxDynamics controller did not terminate!')
+    logging.warning('Residual error norm: ' + str(np.linalg.norm(reality_gap(epsilon))))
 
     logging.debug('External forces and actuator forces: ' + str(-fext - B.dot(np.reshape(u, (-1, 1)))))
-    logging.debug('Contact forces: ' + str(epsilon))
+    logging.debug('Spatial contact force acting at the center-of-mass of the robot: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, Z.T.dot(fz))))
+    logging.debug('Spatial contact force acting at the center-of-mass of the ball: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, Z.T.dot(fz))))
+    logging.debug('Unmodeled forces: ' + str(epsilon))   
     logging.debug('Forces on the ball: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, -fext - B.dot(np.reshape(u, (-1, 1))) - epsilon)[-3:]))
-
-    for i in range(len(u)):
-      if u[i] > self.actuator_limit:
-        u[i] = self.actuator_limit
-      else:
-        if u[i] < -self.actuator_limit:
-          u[i] = -self.actuator_limit
-    z = np.reshape(z, [-1, 1])
-    logging.debug('objective: ' + str(0.5 * z.T.dot(H.dot(z) + c)))
-    logging.debug('predicted ball acceleration: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])))
     logging.debug('desired ball acceleration: ' + str(vdot_ball_des.T))
     logging.debug('ball acceleration from vdot_approx: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
 
-    self.ball_accel_from_controller = self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])[-3:]
+    self.ball_accel_from_controller = self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)[-3:]
 
-    return [u, z[0:nv], z[0:nprimal], P, B, epsilon]
+    return [u, fz]
 
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # under the requirement that no tangential forces are applied- the robot
@@ -1234,7 +1217,7 @@ class BoxController(LeafSystem):
     if self.controller_type == 'NoSlip':
       f_act, f_contact, zprimal, D, P, B = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
     if self.controller_type == 'BlackboxDynamics':
-      f_act, f_contact, zprimal, P, B, f_contact_generalized = self.ComputeContactControlMotorTorquesUsingLearnedDynamics(controller_context, M, fext, vdot_ball_des)
+      f_act, f_contact, zprimal, P, B, f_contact_generalized = self.ComputeContactControlMotorTorquesUsingLearnedDynamics(controller_context, M, fext, vdot_ball_des, Z, Zdot_v)
       return [ f_act, f_contact_generalized]
 
     # Compute the generalized contact forces.
