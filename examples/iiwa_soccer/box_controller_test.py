@@ -274,6 +274,66 @@ class ControllerTest(unittest.TestCase):
     self.assertLess(np.linalg.norm(Tv), zero_velocity_tol, msg=dbg_out)
 
   # Check control outputs for when contact is intended and robot and ball are
+  # indeed in contact and verifies that slip is not caused.
+  def test_AccelerationFromLearnedDynamicsControlCorrect(self):
+    # Get the plan.
+    plan = self.controller.plan
+
+    # Get the robot/ball plant and the correpsonding context from the controller.
+    all_plant = self.controller.robot_and_ball_plant
+    all_context = self.controller.robot_and_ball_context
+
+    # Advance time, finding a point at which contact is desired *and* where
+    # the robot is contacting the ball.
+    dt = 1e-3
+    t = 0.0
+    t_final = plan.end_time()
+    while True:
+      if plan.IsContactDesired(t):
+        # Look for contact.
+        q, v = self.SetStates(t)
+        contacts = self.controller.FindContacts(q)
+        if self.controller.IsRobotContactingBall(contacts):
+          logging.info('-- TestAccelerationFromLearnedDynamicsControlCorrect() - desired time identified: ' + str(t))
+          break
+
+      # No contact desired or contact was found.
+      t += dt
+      assert t <= t_final
+
+    # Prepare to compute the control forces.
+    M = all_plant.CalcMassMatrixViaInverseDynamics(all_context)
+    link_wrenches = MultibodyForces(all_plant)
+    all_plant.CalcForceElementsContribution(all_context, link_wrenches)
+    fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
+    fext = np.reshape(fext, [len(v), 1])
+    vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
+    vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])
+
+    # Determine the control forces using the learned dynamics controller.
+    u, vdot_predicted, z, P, B, epsilon = self.controller.ComputeContactControlMotorTorquesUsingLearnedDynamics(self.controller_context, M, fext, vdot_ball_des)
+
+    # Step the plant forward by a small time.
+    sim = EmbeddedSim(self.step_size)
+    sim.UpdateTime(t)
+    sim.UpdatePlantPositions(q)
+    sim.UpdatePlantVelocities(v)
+    sim.ApplyControls(B.dot(u))
+    sim.Step()
+
+    # Compute the approximate acceleration.
+    vnew = sim.GetPlantVelocities()
+    vdot_approx = np.reshape((vnew - v) / sim.delta_t, (-1, 1))
+    vdot_ball_approx = all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)
+
+    # Get the desired acceleration for the ball.
+    nv_ball = self.controller.nv_ball()
+    vdot_ball_des = plan.GetBallQVAndVdot(t)[-nv_ball:]
+
+    # Check the accelerations.
+    self.assertAlmostEqual(np.linalg.norm(vdot_ball_approx - vdot_ball_des), 0, places=5)
+
+  # Check control outputs for when contact is intended and robot and ball are
   # indeed in contact and verifies that acceleration is as desired.
   def test_FullyActuatedAccelerationCorrect(self):
     # Make sure the plant has been setup as fully actuated.

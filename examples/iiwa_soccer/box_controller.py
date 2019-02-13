@@ -672,27 +672,15 @@ class BoxController(LeafSystem):
     self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, ones_nv_robot, v)
 
     # The matrix is of size nv_robot() + nv_ball() x nv_robot().
-    if self.fully_actuated == True:
-      # _Everything_ is actuated.
-      #return np.eye(self.nv_robot() + self.nv_ball())
-
-      # Full size actuation matrix but only ball is actuated.
-      v[:] *= 0
-      self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, ones_nv_robot, v)
-      return np.diag(v)
-
-      # Full size actuation matrix but only robot is actuated.
-      return np.diag(v)
-    else:
-      # Only the robot is actuated.
-      B = np.zeros([self.nv_robot() + self.nv_ball(), self.nv_robot()])
-      col_index = 0
-      for i in range(self.nv_robot() + self.nv_ball()):
+    # Only the robot is actuated.
+    B = np.zeros([self.nv_robot() + self.nv_ball(), self.nv_robot()])
+    col_index = 0
+    for i in range(self.nv_robot() + self.nv_ball()):
         if abs(v[i]) > 0.5:
           B[i, col_index] = 1
           col_index += 1
 
-      return B
+    return B
 
   # Constructs the matrix that zeros angular velocities for the ball (and
   # does not change the linear velocities).
@@ -1038,8 +1026,8 @@ class BoxController(LeafSystem):
 
     # Construct the Hessian matrix and linear term.
     H = np.zeros([nprimal, nprimal])
-    H[0:nv,0:nv] = P.T.dot(P)
-    H[nv:,nv:] = np.eye(nu)
+    H[0:nv,0:nv] = P.T.dot(P) + np.eye(nv) * 1e-8
+    H[nv:,nv:] = np.zeros([nu, nu])
     c = np.zeros([nprimal, 1])
     c[0:nv] = -P.T.dot(vdot_ball_des)
 
