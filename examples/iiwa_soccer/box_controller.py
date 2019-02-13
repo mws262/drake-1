@@ -1012,6 +1012,10 @@ class BoxController(LeafSystem):
 
     return u
 
+  # Computes the motor torques for ComputeActuationForContactDesiredAndContacting() that minimize deviation from the
+  # desired acceleration using no dynamics information and a gradient-free optimization strategy.
+  def ComputeOptimalContactControlMotorTorquesDerivativeFree(self, controller_context, M, fext, vdot_ball_des, Z, Zdot_v):
+
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using a "learned" dynamics model.
   # See ComputeContactControlMotorTorquesNoSlip() for description of parameters. 
