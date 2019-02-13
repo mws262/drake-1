@@ -313,40 +313,12 @@ class ControllerTest(unittest.TestCase):
     vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
     vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])
 
-    # Get the Jacobians at the point of contact: N, S, T, and construct Z and
-    # Zdot_v.
-    nc = len(contacts)
-    N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
-    Z = np.zeros([N.shape[0] * 3, N.shape[1]])
-    Z[0:nc,:] = N
-    Z[nc:2*nc,:] = S
-    Z[-nc:,:] = T
-
-    # Set the time-derivatives of the Jacobians times the velocity.
-    Zdot_v = np.zeros([nc * 3])
-    Zdot_v[0:nc] = Ndot_v[:,0]
-    Zdot_v[nc:2*nc] = Sdot_v[:, 0]
-    Zdot_v[-nc:] = Tdot_v[:, 0]
-
     # Determine the control forces using the learned dynamics controller.
-    u, fz = self.controller.ComputeContactControlMotorTorquesUsingLearnedDynamics(self.controller_context, M, fext, vdot_ball_des, Z, Zdot_v)
+    u = self.controller.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, vdot_ball_des)
 
-    # Step the plant forward by a small time.
-    sim = EmbeddedSim(self.step_size)
-    sim.UpdateTime(t)
-    sim.UpdatePlantPositions(q)
-    sim.UpdatePlantVelocities(v)
-    sim.ApplyControls(B.dot(u))
-    sim.Step()
-
-    # Compute the approximate acceleration.
-    vnew = sim.GetPlantVelocities()
-    vdot_approx = np.reshape((vnew - v) / sim.delta_t, (-1, 1))
+    # Get the approximate velocity.
+    vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
     vdot_ball_approx = all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)
-
-    # Get the desired acceleration for the ball.
-    nv_ball = self.controller.nv_ball()
-    vdot_ball_des = plan.GetBallQVAndVdot(t)[-nv_ball:]
 
     # Check the accelerations.
     self.assertAlmostEqual(np.linalg.norm(vdot_ball_approx - vdot_ball_des), 0, places=5)

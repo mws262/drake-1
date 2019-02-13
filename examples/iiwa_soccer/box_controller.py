@@ -2,6 +2,7 @@
 import numpy as np
 import scipy.optimize
 import logging
+import cma
 from manipulation_plan import ManipulationPlan
 from embedded_box_soccer_sim import EmbeddedSim
 
@@ -719,7 +720,7 @@ class BoxController(LeafSystem):
   #
   # and preconditions:
   # Nv = 0
-  # 
+  #
   # iM: the inverse of the joint robot/ball generalized inertia matrix
   # fext: the generalized external forces acting on the robot/ball
   # vdot_ball_des: the desired spatial acceleration on the ball
@@ -729,7 +730,7 @@ class BoxController(LeafSystem):
   # above, Zdot = [ dotGn; dotGs; dotGt ].
   #
   # Returns: a tuple containing (1) the actuation forces (u), (2) the contact force magnitudes fz (along the contact
-  # normals, the first tangent direction, and the second contact tangent direction, respectively), 
+  # normals, the first tangent direction, and the second contact tangent direction, respectively),
   def ComputeContactControlMotorTorquesNoSlip(self, iM, fext, vdot_ball_des, Z, Zdot_v):
     # Construct the actuation and weighting matrices.
     B = self.ConstructRobotActuationMatrix()
@@ -1012,13 +1013,53 @@ class BoxController(LeafSystem):
 
     return u
 
+  # Computes the approximate acceleration from a q, a v, and a u.
+  def ComputeApproximateAcceleration(self, controller_context, q, v, u):
+    # Update the state in the embedded simulation.
+    self.embedded_sim.UpdateTime(controller_context.get_time())
+    self.embedded_sim.UpdatePlantPositions(q)
+    self.embedded_sim.UpdatePlantVelocities(v)
+
+    # Apply the controls to the embedded simulation and step the simulation
+    # forward in time.
+    B = self.ConstructRobotActuationMatrix()
+    self.embedded_sim.ApplyControls(B.dot(u))
+    self.embedded_sim.Step()
+
+    # Get the new system velocity.
+    vnew = self.embedded_sim.GetPlantVelocities()
+
+    # Compute the estimated acceleration.
+    return np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
+
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting() that minimize deviation from the
   # desired acceleration using no dynamics information and a gradient-free optimization strategy.
-  def ComputeOptimalContactControlMotorTorquesDerivativeFree(self, controller_context, M, fext, vdot_ball_des, Z, Zdot_v):
+  def ComputeOptimalContactControlMotorTorquesDerivativeFree(self, controller_context, vdot_ball_des):
+
+    P = self.ConstructBallVelocityWeightingMatrix()
+    nu = self.ConstructRobotActuationMatrix().shape[1]
+
+    # Get the current system positions and velocities.
+    q = self.get_q_all(controller_context)
+    v = self.get_v_all(controller_context)
+    nv = len(v)
+
+    # The objective function.
+    def objective_function(u):
+      vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u)
+      delta = P.dot(vdot_approx) - vdot_ball_des
+      return np.linalg.norm(delta)
+
+    # Do CMA-ES.
+    sigma = 100.0
+    es = cma.CMAEvolutionStrategy(np.zeros(nu), sigma)
+    es.optimize(objective_function)
+    print es.result.fbest
+    return es.result.xbest
 
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using a "learned" dynamics model.
-  # See ComputeContactControlMotorTorquesNoSlip() for description of parameters. 
+  # See ComputeContactControlMotorTorquesNoSlip() for description of parameters.
   def ComputeContactControlMotorTorquesUsingLearnedDynamics(self, controller_context, M, fext, vdot_ball_des, Z, Zdot_v):
     # Get the actuation matrix.
     B = self.ConstructRobotActuationMatrix()
@@ -1034,24 +1075,6 @@ class BoxController(LeafSystem):
     # Check N*v, S*v, T*v.
     logging.debug('Z*v: ' + str(Z.dot(v)))
 
-    # Approximates the acceleration using the embedded simulation.
-    def ComputeApproximateAcceleration(u):
-      # Update the state in the embedded simulation.
-      self.embedded_sim.UpdateTime(controller_context.get_time())
-      self.embedded_sim.UpdatePlantPositions(q)
-      self.embedded_sim.UpdatePlantVelocities(v)
-
-      # Apply the controls to the embedded simulation and step the simulation
-      # forward in time.
-      self.embedded_sim.ApplyControls(B.dot(u))
-      self.embedded_sim.Step()
-
-      # Get the new system velocity.
-      vnew = self.embedded_sim.GetPlantVelocities()
-
-      # Compute the estimated acceleration.
-      return np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
-
     # Computes the reality gap.
     def reality_gap(epsilon):
       epsilon = np.reshape(epsilon, [-1, 1])
@@ -1064,7 +1087,7 @@ class BoxController(LeafSystem):
       u = np.reshape(u, [-1, 1])
 
       # Compute the approximate acceleration.
-      vdot_approx = ComputeApproximateAcceleration(u)
+      vdot_approx = ComputeApproximateAcceleration(controller_context, q, v, u)
 
       # Compute the difference between the dynamics computed by the no slip controller and the true dynamics.
       # The dynamics will be:
@@ -1090,7 +1113,7 @@ class BoxController(LeafSystem):
     logging.debug('External forces and actuator forces: ' + str(-fext - B.dot(np.reshape(u, (-1, 1)))))
     logging.debug('Spatial contact force acting at the center-of-mass of the robot: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, Z.T.dot(fz))))
     logging.debug('Spatial contact force acting at the center-of-mass of the ball: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, Z.T.dot(fz))))
-    logging.debug('Unmodeled forces: ' + str(epsilon))   
+    logging.debug('Unmodeled forces: ' + str(epsilon))
     logging.debug('Forces on the ball: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, -fext - B.dot(np.reshape(u, (-1, 1))) - epsilon)[-3:]))
     logging.debug('desired ball acceleration: ' + str(vdot_ball_des.T))
     logging.debug('ball acceleration from vdot_approx: ' + str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
