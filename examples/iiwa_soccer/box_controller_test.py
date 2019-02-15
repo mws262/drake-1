@@ -248,7 +248,7 @@ class ControllerTest(unittest.TestCase):
     self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
     # Determine the predicted forces due to contact.
-    f_act, f_contact = self.controller.ComputeActuationForContactDesiredAndContacting(self.controller_context, contacts)
+    u = self.controller.ComputeActuationForContactDesiredAndContacting(self.controller_context, contacts)
 
     # Use the controller output to determine the generalized acceleration of the
     # robot and the ball.
@@ -261,11 +261,12 @@ class ControllerTest(unittest.TestCase):
     B = self.controller.ConstructRobotActuationMatrix()
 
     # Integrate the velocity forward in time.
-    dt = 1e-10
-    vdot = np.linalg.solve(M, fext + f_contact + B.dot(f_act))
+    dt = 1e-6
+    vdot = np.reshape(self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u, dt=dt), -1)
     vnew = v + dt * vdot
 
     # Get the velocity at the point of contacts.
+    print 'vdot: ' + str(all_plant.GetVelocitiesFromArray(self.controller.ball_instance, vdot))
     Nv = N.dot(vnew)
     Sv = S.dot(vnew)
     Tv = T.dot(vnew)
@@ -311,14 +312,14 @@ class ControllerTest(unittest.TestCase):
     fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
     fext = np.reshape(fext, [len(v), 1])
     vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
-    vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])
+    vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])[-3:]
 
     # Determine the control forces using the learned dynamics controller.
     u = self.controller.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, vdot_ball_des)
 
     # Get the approximate velocity.
     vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
-    vdot_ball_approx = all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)
+    vdot_ball_approx = all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)[-3:]
 
     # Check the accelerations.
     self.assertAlmostEqual(np.linalg.norm(vdot_ball_approx - vdot_ball_des), 0, places=5)
@@ -382,7 +383,7 @@ class ControllerTest(unittest.TestCase):
 
     # Get the desired acceleration for the ball.
     nv_ball = self.controller.nv_ball()
-    vdot_ball_des = plan.GetBallQVAndVdot(t)[-nv_ball:]
+    vdot_ball_des = plan.GetBallQVAndVdot(t)[-self.controller.nv_ball():]
 
     # Check the accelerations.
     self.assertAlmostEqual(np.linalg.norm(vdot_ball_approx - vdot_ball_des), 0, places=5)
@@ -395,7 +396,6 @@ class ControllerTest(unittest.TestCase):
 
     # Advance time, finding a point at which contact is desired *and* where
     # the robot is not contacting the ground.
-    dbg_out = '\n\nDebugging output follows:'
     dt = 1e-3
     t = 0.0
     t_final = plan.end_time()
@@ -405,28 +405,30 @@ class ControllerTest(unittest.TestCase):
         q, v = self.SetStates(t)
         contacts = self.controller.FindContacts(q)
         if not self.controller.IsRobotContactingBall(contacts):
-          dbg_out += '\n  -- TestNoContactButContactIntendedOutputsCorrect() - desired time identified: ' + str(t)
+          logging.debug('-- TestNoContactButContactIntendedOutputsCorrect() - desired time identified: ' + str(t))
           break
 
       # No contact desired or contact was found.
       t += dt
       if t >= t_final:
-        dbg_out += '\n -- TestNoContactButContactIntendedOutputsCorrect() - contact always found!'
+        logging.debug(' -- TestNoContactButContactIntendedOutputsCorrect() - contact always found!')
         return
 
     # Use the controller output to determine the generalized acceleration of the robot.
     q_robot = self.controller.get_q_robot(self.controller_context)
-    v_robot = self.controller.get_v_robot(self.controller_context)
+    v_robot = np.reshape(self.controller.get_v_robot(self.controller_context), [-1, 1])
     robot_context = self.robot_plant.CreateDefaultContext()
     self.robot_plant.SetPositions(robot_context, q_robot)
     self.robot_plant.SetVelocities(robot_context, v_robot)
     M = self.robot_plant.CalcMassMatrixViaInverseDynamics(robot_context)
     link_wrenches = MultibodyForces(self.robot_plant)
-    fext = -self.robot_plant.CalcInverseDynamics(
-        robot_context, np.zeros([self.controller.nv_robot()]), link_wrenches)
-    u_robot = self.controller.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, self.output.get_vector_data(0).CopyToVector())
-    vdot_robot = np.linalg.inv(M).dot(u_robot + fext)
-    dbg_out += '\nDesired robot velocity: ' + str(vdot_robot)
+    fext = -np.reshape(self.robot_plant.CalcInverseDynamics(
+        robot_context, np.zeros([self.controller.nv_robot()]), link_wrenches), [-1, 1])
+    u = self.controller.ComputeActuationForContactDesiredButNoContact(self.controller_context)
+    #u = self.controller.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, self.output.get_vector_data(0).CopyToVector())
+    logging.debug('u: ' + str(u))
+    vdot_robot = np.linalg.inv(M).dot(u + fext)
+    logging.debug('Desired robot acceleration: ' + str(vdot_robot))
 
     # Get the current distance from the robot to the ball.
     old_dist = self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)
@@ -445,7 +447,7 @@ class ControllerTest(unittest.TestCase):
     robot_q_input_vec = robot_q_input.get_mutable_value()
     robot_v_input_vec = robot_v_input.get_mutable_value()
     robot_q_input_vec[:] = qnew_robot
-    robot_v_input_vec[:] = vnew_robot
+    robot_v_input_vec[:] = vnew_robot[:,0]
     self.controller_context.FixInputPort(
         self.controller.get_input_port_estimated_robot_q().get_index(),
         robot_q_input)
@@ -455,9 +457,9 @@ class ControllerTest(unittest.TestCase):
 
     # Get the new distance from the box to the ball.
     new_dist = self.controller.GetSignedDistanceFromRobotToBall(self.controller_context)
-    dbg_out += '\nOld distance: ' + str(old_dist) + ' new distance: ' +  str(new_dist)
+    logging.debug('Old distance: ' + str(old_dist) + ' new distance: ' +  str(new_dist))
 
-    self.assertLess(new_dist, old_dist, msg=dbg_out)
+    self.assertLess(new_dist, old_dist)
 
   # Check that contact Jacobian construction is correct.
   def test_JacobianConstruction(self):
