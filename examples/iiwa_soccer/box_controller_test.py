@@ -4,6 +4,9 @@ import numpy as np
 import unittest
 import argparse
 import logging
+import scipy.optimize
+import cma
+
 from manipulation_plan import ManipulationPlan
 from box_controller import BoxController
 from box_soccer_simulation import BuildBlockDiagram
@@ -197,6 +200,270 @@ class ControllerTest(unittest.TestCase):
     self.assertEqual(self.controller.nq_robot(), 7)
     self.assertEqual(self.controller.nv_robot(), 6)
 
+  # Computes the applied forces when the ball is fully actuated (version that
+  # simply solves a linear system). This is a function for debugging purposes.
+  # It shows that the desired accelerations are feasible using *some* forces
+  # (not necessarily ones that are consistent with kinematic/force constraints).
+  def ComputeFullyActuatedBallControlForces(self, controller_context):
+    assert self.fully_actuated
+
+    # Get the generalized inertia matrix.
+    all_plant = self.robot_and_ball_plant
+    all_context = self.robot_and_ball_context
+    M = all_plant.CalcMassMatrixViaInverseDynamics(all_context)
+    iM = np.linalg.inv(M)
+
+    # Compute the contribution from force elements.
+    link_wrenches = MultibodyForces(all_plant)
+    all_plant.CalcForceElementsContribution(all_context, link_wrenches)
+
+    # Compute the external forces.
+    fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([self.nv_robot() + self.nv_ball()]), link_wrenches)
+    fext = np.reshape(fext, [-1, 1])
+
+    # Get the desired ball *linear* acceleration.
+    vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-3:]
+    vdot_ball_des = np.reshape(vdot_ball_des, [-1, 1])
+
+    # Construct the actuation and weighting matrices.
+    B = self.ConstructRobotActuationMatrix()
+    P = self.ConstructBallVelocityWeightingMatrix()
+
+    # Primal variables are motor torques and accelerations.
+    nv, nu = B.shape
+    nprimal = nu + nv
+
+    # Initialize epsilon.
+    epsilon = np.zeros([nv, 1])
+
+    # Get the current system positions and velocities.
+    q = self.get_q_all(controller_context)
+    v = self.get_v_all(controller_context)
+
+    # Solve the equation:
+    # M\dot{v} - Bu = fext + epsilon
+    # where:
+    # \dot{v} = | vdot_ball_des |
+    #           | 0             |
+    dotv = np.zeros([len(v), 1])
+    all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, dotv)
+
+    # Set maximum number of loop iterations.
+    max_loop_iterations = 100
+
+    for i in range(max_loop_iterations):
+        # Compute b.
+        b = M.dot(dotv) - fext - epsilon
+        [z, residuals, rank, singular_values] = np.linalg.lstsq(B, b)
+        u = np.reshape(z, [-1])
+
+        # Update the state in the embedded simulation.
+        self.embedded_sim.UpdateTime(controller_context.get_time())
+        self.embedded_sim.UpdatePlantPositions(q)
+        self.embedded_sim.UpdatePlantVelocities(v)
+
+        # Apply the controls to the embedded simulation.
+        self.embedded_sim.ApplyControls(B.dot(u))
+
+        # Simulate the system forward in time.
+        self.embedded_sim.Step()
+
+        # Get the new system velocity.
+        vnew = self.embedded_sim.GetPlantVelocities()
+
+        # Compute the estimated acceleration.
+        vdot_approx = np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
+
+        # Compute delta-epsilon.
+        delta_epsilon = M.dot(vdot_approx) - fext - B.dot(np.reshape(u, (-1, 1))) - epsilon
+
+        # If delta-epsilon is sufficiently small, quit.
+        if np.linalg.norm(delta_epsilon) < 1e-6:
+            break
+
+        # Update epsilon.
+        epsilon += delta_epsilon
+
+    if i == max_loop_iterations - 1:
+      logging.warning('BlackBoxDynamics controller did not terminate!')
+
+    z = np.reshape(z, [-1, 1])
+    logging.debug('u: ' + str(u))
+    logging.debug('objective: ' + str(0.5*np.linalg.norm(P.dot(vdot_approx) - vdot_ball_des)))
+    logging.debug('Delta epsilon norm: ' + str(np.linalg.norm(delta_epsilon)))
+    logging.debug('Ball acceleration: ' + str(all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
+    logging.debug('P * vdot (computed): ' + str(P.dot(z[0:nv])))
+    logging.debug('P * vdot (approx): ' + str(P.dot(vdot_approx)))
+
+    return u
+
+  # Computes the motor torques for ComputeActuationForContactDesiredAndContacting() that minimize deviation from the
+  # desired acceleration using no dynamics information and a gradient-free optimization strategy.
+  # This controller uses the simulator to compute contact forces, rather than attempting to predict the contact forces
+  # that the simulator will generate.
+  def ComputeOptimalContactControlMotorTorquesDerivativeFree(self, controller_context, vdot_ball_des):
+
+    P = self.controller.ConstructBallVelocityWeightingMatrix()
+    nu = self.controller.ConstructRobotActuationMatrix().shape[1]
+
+    # Get the current system positions and velocities.
+    q = self.controller.get_q_all(controller_context)
+    v = self.controller.get_v_all(controller_context)
+    nv = len(v)
+
+    # The objective function.
+    def objective_function(u):
+      vdot_approx = self.controller.ComputeApproximateAcceleration(controller_context, q, v, u)
+      delta = P.dot(vdot_approx) - vdot_ball_des
+      return np.linalg.norm(delta)
+
+    # Do CMA-ES.
+    sigma = 100.0
+    u_best = np.zeros(nu)
+    fbest = objective_function(u_best)
+    for i in range(1):
+      es = cma.CMAEvolutionStrategy(np.random.randn(nu) * 100, sigma)
+      es.optimize(objective_function)
+      if es.result.fbest < fbest:
+        fbest = es.result.fbest
+        u_best = es.result.xbest
+
+    return u_best
+
+  # Computes the applied forces when the ball is fully actuated (version that
+  # solves a QP). This is a function for debugging purposes. It shows that the
+  # optimization criterion that we use is a reasonable one; see the unit test
+  # for this function.
+  def ComputeFullyActuatedBallControlForces(self, controller_context):
+    assert self.fully_actuated
+
+    # Get the generalized inertia matrix.
+    all_plant = self.robot_and_ball_plant
+    all_context = self.robot_and_ball_context
+    M = all_plant.CalcMassMatrixViaInverseDynamics(all_context)
+    iM = np.linalg.inv(M)
+
+    # Compute the contribution from force elements.
+    link_wrenches = MultibodyForces(all_plant)
+    all_plant.CalcForceElementsContribution(all_context, link_wrenches)
+
+    # Compute the external forces.
+    fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([self.nv_robot() + self.nv_ball()]), link_wrenches)
+    fext = np.reshape(fext, [-1, 1])
+
+    # Get the desired ball acceleration.
+    vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-self.nv_ball():]
+    vdot_ball_des = np.reshape(vdot_ball_des, [-1, 1])
+
+    # Construct the weighting matrix. This must be done manually so that we
+    # capture *all* degrees-of-freedom.
+    nv = self.nv_ball() + self.nv_robot()
+    v = np.zeros([nv])
+    dummy_ball_v = np.array([1, 1, 1, 1, 1, 1])
+    self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, dummy_ball_v, v)
+    P = np.zeros([self.nv_ball(), nv])
+    vball_index = 0
+    for i in range(nv):
+      if abs(v[i]) > 0.5:
+        P[vball_index, i] = v[i]
+        vball_index += 1
+
+    # Primal variables are motor torques and accelerations.
+    nu = nv
+    nprimal = nu + nv
+
+    # Construct the Hessian matrix and linear term.
+    # min (P*vdot_new - vdot_des_ball)^2
+    H = np.zeros([nprimal, nprimal])
+    H[0:nv,0:nv] = P.T.dot(P) + np.eye(nv) * 1e-6
+    c = np.zeros([nprimal, 1])
+    c[0:nv] = -P.T.dot(vdot_ball_des)
+
+    # Construct the equality constraint matrix (for the QP) corresponding to:
+    # M\dot{v} - Bu = fext + epsilon and
+
+    A = np.zeros([nv, nv + nu])
+    A[0:nv,0:nv] = M
+    A[0:nv,nv:] = -np.eye(nv)
+
+    # Initialize epsilon.
+    epsilon = np.zeros([nv, 1])
+
+    # Get the current system positions and velocities.
+    q = self.get_q_all(controller_context)
+    v = self.get_v_all(controller_context)
+
+    # Set maximum number of loop iterations.
+    max_loop_iterations = 100
+
+    for i in range(max_loop_iterations):
+        # Compute b.
+        b = np.zeros([nv, 1])
+        b[0:nv] = fext + epsilon
+        vdot_des = np.zeros([nv, 1])
+        all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, vdot_des)
+
+        # Solve the QP.
+        prog = mathematicalprogram.MathematicalProgram()
+        vars = prog.NewContinuousVariables(len(c), "vars")
+        prog.AddQuadraticCost(H, c, vars)
+        prog.AddLinearConstraint(A, b, b, vars)
+        result = prog.Solve()
+        if result != mathematicalprogram.SolutionResult.kSolutionFound:
+            print result
+            assert False
+        z = prog.GetSolution(vars)
+        u = np.reshape(z[nv:], [-1, 1])
+        vdot = np.reshape(z[0:nv], [-1, 1])
+
+        # Update the state in the embedded simulation.
+        self.embedded_sim.UpdateTime(controller_context.get_time())
+        self.embedded_sim.UpdatePlantPositions(q)
+        self.embedded_sim.UpdatePlantVelocities(v)
+
+        # Apply the controls to the embedded simulation.
+        self.embedded_sim.ApplyControls(u)
+
+        # Simulate the system forward in time.
+        self.embedded_sim.Step()
+
+        # Get the new system velocity.
+        vnew = self.embedded_sim.GetPlantVelocities()
+
+        # Compute the estimated acceleration.
+        vdot_approx = np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
+
+        # Compute delta-epsilon.
+        delta_epsilon = M.dot(vdot_approx) - fext - np.reshape(u, (-1, 1)) - epsilon
+
+        # If delta-epsilon is sufficiently small, quit.
+        if np.linalg.norm(delta_epsilon) < 1e-6:
+            break
+
+        # Update epsilon.
+        epsilon += delta_epsilon
+
+    if i == max_loop_iterations - 1:
+      logging.warning('BlackBoxDynamics controller did not terminate!')
+
+    # We know that M\dot{v}* = fext + u
+    # and we know that M\dot{v} - u = fext
+
+    self.ball_accel_from_controller = all_plant.GetVelocitiesFromArray(self.ball_instance, z[0:nv])[-3:]
+    z = np.reshape(z, [-1, 1])
+    logging.debug('z: ' + str(z))
+    logging.debug('u: ' + str(u))
+    logging.debug('Delta epsilon norm: ' + str(np.linalg.norm(delta_epsilon)))
+    logging.debug('Ball acceleration: ' + str(all_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
+    logging.debug('objective (opt): ' + str(z.T.dot(0.5 * H.dot(z) + c)))
+    logging.debug('objective (true): ' + str(z.T.dot(0.5 * H.dot(z) + c) + 0.5*vdot_ball_des.T.dot(vdot_ball_des)))
+    logging.debug('vdot_approx - vdot (computed): ' + str(vdot_approx - z[0:nv]))
+    logging.debug('A * z - b: ' + str(A.dot(z) - b))
+    logging.debug('P * vdot (computed): ' + str(P.dot(z[0:nv])))
+    logging.debug('P * vdot (approx): ' + str(P.dot(vdot_approx)))
+
+    return u
+
   # Computes the contact force solution for test_NoSlipAcceleration.
   def ComputeContactForces(self, q, v, Z, P, vdot_ball_des):
       # Get the robot/ball plant and the correpsonding context from the controller.
@@ -250,7 +517,6 @@ class ControllerTest(unittest.TestCase):
           assert False
       fz = np.reshape(prog.GetSolution(vars), [-1, 1])
       return [fz, iM, fext]
-
 
   # Checks that the ball can be accelerated while maintaining the no-slip condition (i.e., and assuming that the state
   # of the ball does not correspond to slipping). We check this by seeing whether contact forces exist that can realize
@@ -352,7 +618,7 @@ class ControllerTest(unittest.TestCase):
       vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])[-6:]
 
       # Get the Jacobians.
-      N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
+      N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
       [Z, Zdot_v] = SetZAndZdot(N, S, T, np.zeros([nc, 1]), np.zeros([nc, 1]), np.zeros([nc, 1]))
 
       # Verify that the velocities in each direction of the contact frame
@@ -379,11 +645,12 @@ class ControllerTest(unittest.TestCase):
 
       # Verify that the complementarity condition is satisfied.
       nc = N.shape[0]
-      self.assertLess(fz[0:nc,0].dot(N.dot(vdot) + Ndot_v), complementarity_tol)
+      self.assertLess(fz[0:nc,0].dot(N.dot(vdot) + Ndot_v), complementarity_tol,
+          msg='Complementarity constraint violated')
 
       # Verify that the no-slip condition is satisfied.
-      self.assertLess(abs(S.dot(vdot) + Sdot_v), zero_accel_tol)
-      self.assertLess(abs(T.dot(vdot) + Tdot_v), zero_accel_tol)
+      self.assertLess(abs(S.dot(vdot) + Sdot_v), zero_accel_tol, msg='No slip constraint violated')
+      self.assertLess(abs(T.dot(vdot) + Tdot_v), zero_accel_tol, msg='No slip constraint violated')
 
       t += dt
 
@@ -408,7 +675,7 @@ class ControllerTest(unittest.TestCase):
         q, v = self.SetStates(t)
         contacts = self.controller.FindContacts(q)
         if self.controller.IsRobotContactingBall(contacts):
-          dbg_out += '\n  -- TestContactAndContactIntendedOutputsCorrect() - desired time identified: ' + str(t)
+          logging.info('  -- TestContactAndContactIntendedOutputsCorrect() - desired time identified: ' + str(t))
           break
 
       # No contact desired or contact was found.
@@ -427,7 +694,7 @@ class ControllerTest(unittest.TestCase):
     v[:] = np.zeros([len(v)])
     all_plant.SetPositions(robot_and_ball_context, q)
     all_plant.SetVelocities(robot_and_ball_context, v)
-    N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
+    N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
     zero_velocity_tol = 1e-3
     Nv = N.dot(v)
     Sv = S.dot(v)
@@ -458,9 +725,9 @@ class ControllerTest(unittest.TestCase):
     Nv = N.dot(vnew)
     Sv = S.dot(vnew)
     Tv = T.dot(vnew)
-    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol, msg=dbg_out)
-    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol, msg=dbg_out)
-    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol, msg=dbg_out)
+    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
+    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
   # Check control outputs for when contact is intended and robot and ball are
   # indeed in contact and verifies that slip is not caused.
@@ -503,7 +770,7 @@ class ControllerTest(unittest.TestCase):
     vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])[-3:]
 
     # Determine the control forces using the learned dynamics controller.
-    u = self.controller.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, vdot_ball_des)
+    u = self.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, vdot_ball_des)
 
     # Get the approximate velocity.
     vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
@@ -520,7 +787,9 @@ class ControllerTest(unittest.TestCase):
   # function used in the control function's QP is sound.
   def test_FullyActuatedAccelerationCorrect(self):
     # Make sure the plant has been setup as fully actuated.
-    assert self.fully_actuated
+    if not self.fully_actuated:
+      print 'test_FullyActuatedAccelerationCorrect() only works with --fully_actuated=True option.'
+      return
 
     # Get the plan.
     plan = self.controller.plan
@@ -672,14 +941,11 @@ class ControllerTest(unittest.TestCase):
       assert t < t_final
 
     # Setup debugging output.
-    dbg_out = '\nDebugging log follows: '
-    dbg_out += '\nRobot velocity: ' + str(self.all_plant.GetVelocitiesFromArray(self.controller.robot_instance, v)) + '\n'
-    dbg_out += '\nBall velocity: ' + str(self.all_plant.GetVelocitiesFromArray(self.controller.ball_instance, v)) + '\n'
-    #v = self.all_plant.SetVelocitiesInArray(self.controller.robot_instance, [0, 0, 1, 0, 0, 0], v)
-    #v = self.all_plant.SetVelocitiesInArray(self.controller.ball_instance, [0, 0, 0, 0, 0, 0], v)
+    logging.debug('Robot velocity: ' + str(self.all_plant.GetVelocitiesFromArray(self.controller.robot_instance, v)))
+    logging.debug('Ball velocity: ' + str(self.all_plant.GetVelocitiesFromArray(self.controller.ball_instance, v)))
 
     # Construct the Jacobian matrices using the controller function.
-    [N, S, T, Ndot_v, Sdot_v, Tdot_v] = self.controller.ConstructJacobians(contacts, q)
+    [N, S, T, Ndot_v, Sdot_v, Tdot_v] = self.controller.ConstructJacobians(contacts, q, v)
 
     self.PrintContacts(t)
     # Set a time step.
@@ -703,7 +969,7 @@ class ControllerTest(unittest.TestCase):
       frame_B_id = inspector.GetFrameId(geometry_B_id)
       body_A = self.all_plant.GetBodyFromFrameId(frame_A_id)
       body_B = self.all_plant.GetBodyFromFrameId(frame_B_id)
-      dbg_out += "\nProcessing contact between " + body_A.name() + " and " + body_B.name()
+      logging.info('Processing contact between ' + body_A.name() + '' and '' + body_B.name())
 
       # The Jacobians yield the instantaneous movement of a contact point along
       # the various directions. Determine the location of the contact point
@@ -729,14 +995,14 @@ class ControllerTest(unittest.TestCase):
       # approximation and the arbitrary velocity.
       qdot = self.all_plant.MapVelocityToQDot(robot_and_ball_context, v)
       qnew = q + dt*qdot
-      dbg_out += '\nWorld contact point on A: ' + str(point_pair.p_WCa) + '  on B: ' + str(point_pair.p_WCb)
-      dbg_out += '\nBody contact point on A: ' + str(p_A) + '  on B: ' + str(p_B)
-      dbg_out += '\nq_robot (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, q))
-      dbg_out += '\nq_robot (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qnew))
-      dbg_out += '\nqdot_robot: ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qdot))
-      dbg_out += '\nq_ball (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, q))
-      dbg_out += '\nq_ball (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qnew))
-      dbg_out += '\nqdot_ball: ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qdot))
+      logging.debug('World contact point on A: ' + str(point_pair.p_WCa) + '  on B: ' + str(point_pair.p_WCb))
+      logging.debug('Body contact point on A: ' + str(p_A) + '  on B: ' + str(p_B))
+      logging.debug('q_robot (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, q)))
+      logging.debug('nq_robot (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qnew)))
+      logging.debug('qdot_robot: ' + str(self.all_plant.GetPositionsFromArray(self.controller.robot_instance, qdot)))
+      logging.debug('q_ball (old): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, q)))
+      logging.debug('q_ball (new): ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qnew)))
+      logging.debug('qdot_ball: ' + str(self.all_plant.GetPositionsFromArray(self.controller.ball_instance, qdot)))
       self.all_plant.SetPositions(robot_and_ball_context, qnew)
 
       # Determine the new locations of the points on the bodies. The difference
@@ -748,19 +1014,19 @@ class ControllerTest(unittest.TestCase):
       # The *velocity* at a point of contact, C, measured in the global frame is
       # the limit as h -> 0 of the difference in point location between t and
       # t + h, divided by h.
-      dbg_out += '\nNew point location p_W_A: ' + str(X_WA_new.multiply(p_A))
-      dbg_out += '\nNew point location p_W_B: ' + str(X_WB_new.multiply(p_B))
+      logging.debug('New point location p_W_A: ' + str(X_WA_new.multiply(p_A)))
+      logging.debug('New point location p_W_B: ' + str(X_WB_new.multiply(p_B)))
       pdot_W_A_approx = (X_WA_new.multiply(p_A) - X_WA.multiply(p_A)) / dt
       pdot_W_B_approx = (X_WB_new.multiply(p_B) - X_WB.multiply(p_B)) / dt
-      dbg_out += '\npdot_W_A (approx): ' + str(pdot_W_A_approx)
-      dbg_out += '\npdot_W_B (approx): ' + str(pdot_W_B_approx)
+      logging.debug('pdot_W_A (approx): ' + str(pdot_W_A_approx))
+      logging.debug('pdot_W_B (approx): ' + str(pdot_W_B_approx))
       pdot_W_approx = pdot_W_A_approx - pdot_W_B_approx
-      dbg_out += '\npdot_W (approx): ' + str(pdot_W_approx) + '\n'
+      logging.debug('pdot_W (approx): ' + str(pdot_W_approx))
 
       # The Jacobian-determined contact point and the new contact point should
       # differ little.
-      dbg_out += '\npdot_W (true): ' + str(pdot_W) + '\n'
-      self.assertLess(np.linalg.norm(pdot_W.flatten() - pdot_W_approx.flatten()), dt, msg='pdot - ~approx too large (>' + str(dt) + ')' + dbg_out)
+      logging.debug('pdot_W (true): ' + str(pdot_W))
+      self.assertLess(np.linalg.norm(pdot_W.flatten() - pdot_W_approx.flatten()), dt, msg='pdot - ~approx too large (>' + str(dt) + ')')
 
   # Checks that planned contact points are equivalent to contact points
   # returned by the collision detector.
@@ -823,7 +1089,7 @@ class ControllerTest(unittest.TestCase):
         p_true = (pr_WA + pr_WB) * 0.5
 
         # Construct the Jacobian matrices using the controller function.
-        N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
+        N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
 
         # Output all contacting bodies
         self.PrintContacts(t)
@@ -831,8 +1097,7 @@ class ControllerTest(unittest.TestCase):
         # Verify that the velocity at the contact point is approximately zero.
         zero_velocity_tol = 1e-12
         Nv = N.dot(v)
-        dbg_out = '\n\nDebugging output follows:'
-        dbg_out += '\nNv: ' + str(Nv)
+        logging.debug('Nv: ' + str(Nv))
         self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
         break
 
@@ -859,7 +1124,7 @@ class ControllerTest(unittest.TestCase):
       contacts = self.controller.FindRobotBallContacts(q)
       if len(contacts) > 0:
         # Construct the Jacobian matrices using the controller function.
-        N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
+        N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q, v)
 
         # Output all contacting bodies
         self.PrintContacts(t)
@@ -869,10 +1134,9 @@ class ControllerTest(unittest.TestCase):
         Nv = N.dot(v)
         Sv = S.dot(v)
         Tv = T.dot(v)
-        dbg_out = '\n\nDebugging output follows:'
-        dbg_out += '\nNv: ' + str(Nv)
-        dbg_out += '\nSv: ' + str(Sv)
-        dbg_out += '\nTv: ' + str(Tv)
+        logging.debug('Nv: ' + str(Nv))
+        logging.debug('Sv: ' + str(Sv))
+        logging.debug('Tv: ' + str(Tv))
         self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
         self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
         self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
