@@ -12,7 +12,7 @@ CreateArrowOutputAllocCallback, ArrowVisualization)
 from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
-  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, robot_instance, ball_instance, fully_actuated=False, controller_type='NoFrictionalForcesApplied'):
+  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, robot_instance, ball_instance, fully_actuated=False, controller_type='NoSlip'):
     LeafSystem.__init__(self)
 
     # Saves whether the entire system will be actuated.
@@ -933,11 +933,6 @@ class BoxController(LeafSystem):
     A[0:nv,0:nv] = M
     A[0:nv,nv:] = -np.eye(nv)
 
-    np.savetxt('A.dat', A)
-    np.savetxt('H.dat', H)
-    np.savetxt('c.dat', c)
-    np.savetxt('P.dat', P)
-
     # Initialize epsilon.
     epsilon = np.zeros([nv, 1])
 
@@ -954,7 +949,6 @@ class BoxController(LeafSystem):
         b[0:nv] = fext + epsilon
         vdot_des = np.zeros([nv, 1])
         all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, vdot_des)
-        np.savetxt('b.dat', b)
 
         # Solve the QP.
         prog = mathematicalprogram.MathematicalProgram()
@@ -966,7 +960,6 @@ class BoxController(LeafSystem):
             print result
             assert False
         z = prog.GetSolution(vars)
-        np.savetxt('z.dat', z)
         u = np.reshape(z[nv:], [-1, 1])
         vdot = np.reshape(z[0:nv], [-1, 1])
 
@@ -1137,71 +1130,6 @@ class BoxController(LeafSystem):
 
     return [u, fz]
 
-  # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
-  # under the requirement that no tangential forces are applied- the robot
-  # can only apply "normal" forces.
-  # iM: the inverse of the joint robot/ball generalized inertia matrix
-  # fext: the generalized external forces acting on the robot/ball
-  # vdot_ball_des: the desired spatial acceleration on the ball
-  # N: the contact normal Jacobian matrix.
-  # Ndot_v: the time derivative of the contact normal Jacobian matrix times the
-  #         generalized velocities.
-  # RETURNS: a tuple containing (1) the actuation forces, (2) the contact force
-  #          magnitudes (along the contact normals), and (3) the primal solution
-  #          to the quadratic program.
-  def ComputeContactControlMotorTorquesNoFrictionalForces(self, iM, fext, vdot_ball_des, N, Ndot_v):
-    # Construct the actuation and weighting matrices.
-    B = self.ConstructRobotActuationMatrix()
-    P = self.ConstructBallVelocityWeightingMatrix()
-
-    # Primal variables are motor torques and contact force magnitudes.
-    B_rows, B_cols = B.shape
-    nc = len(Ndot_v)
-    nprimal = B_cols + nc
-    nv = B_rows
-
-    # Construct the matrices necessary to construct the Hessian.
-    N_rows, N_cols = N.shape
-    D = np.zeros([nv, nprimal])
-    D[0:B_rows, 0:B_cols] = B
-    D[-N_cols:, -N_rows:] = N.T
-
-    # Set the Hessian matrix for the QP.
-    H = D.T.dot(iM.dot(P.T).dot(P.dot(iM.dot(D))))
-
-    # Verify that the Hessian is positive semi-definite.
-    H = H + np.eye(H.shape[0]) * 1e-8
-    np.linalg.cholesky(H)
-
-    # Compute the linear terms.
-    c = D.T.dot(iM.dot(P.T).dot(-vdot_ball_des + P.dot(iM.dot(fext))))
-
-    # Set the affine constraint matrix.
-    A = np.zeros([nc*2, nprimal])
-    b = np.zeros([nc*2, 1])
-    A[0:nc,:] = N.dot(iM.dot(D))
-    A[nc:, -nc:] = np.eye(nc)
-    b[0:nc] = -N.dot(iM.dot(fext)) - Ndot_v
-
-    # Solve the QP.
-    prog = mathematicalprogram.MathematicalProgram()
-    vars = prog.NewContinuousVariables(len(c), "vars")
-    prog.AddQuadraticCost(H, c, vars)
-    prog.AddLinearConstraint(A, b, np.ones([len(b), 1]) * 1e8, vars)
-    result = prog.Solve()
-    assert result == mathematicalprogram.SolutionResult.kSolutionFound
-    z = prog.GetSolution(vars)
-
-    # Get the actuation forces and the contact forces.
-    f_act = z[0:B_cols]
-    f_contact = z[B_cols:nprimal]
-
-    # Get the normal forces and ensure that they are not tensile.
-    f_contact_n = f_contact[0:nc]
-    assert np.min(f_contact_n) >= -1e-8
-
-    return [f_act, f_contact]
-
   # Computes the control torques when contact is desired and the robot and the
   # ball are in contact.
   def ComputeActuationForContactDesiredAndContacting(self, controller_context, contacts):
@@ -1254,8 +1182,6 @@ class BoxController(LeafSystem):
     Zdot_v[-nc:] = Tdot_v[:, 0]
 
     # Compute torques without applying any tangential forces.
-    if self.controller_type == 'NoFrictionalForcesApplied':
-      u, f_contact = self.ComputeContactControlMotorTorquesNoFrictionalForces(iM, fext, vdot_ball_des, N, Ndot_v)
     if self.controller_type == 'NoSlip':
       u, f_contact = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
     if self.controller_type == 'BlackboxDynamics':
@@ -1264,8 +1190,6 @@ class BoxController(LeafSystem):
 
     # Compute the generalized contact forces.
     f_contact_generalized = None
-    if self.controller_type == 'NoFrictionalForcesApplied':
-      f_contact_generalized = N.T.dot(f_contact)
     if self.controller_type == 'NoSlip':
       f_contact_generalized = Z.T.dot(f_contact)
 
@@ -1539,5 +1463,3 @@ class BoxController(LeafSystem):
       q_robot = get_q_robot(context)
       derivatives.get_mutable_vector().SetFromVector(q_robot_des - q_robot)
 
-
-#  def DoPublish(context, publish_events):
