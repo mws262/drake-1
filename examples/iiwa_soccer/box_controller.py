@@ -1059,7 +1059,7 @@ class BoxController(LeafSystem):
       delta = P.dot(vdot_approx) - vdot_ball_des
       return np.linalg.norm(delta)
 
-        # Do CMA-ES.
+    # Do CMA-ES.
     sigma = 100.0
     u_best = np.zeros(nu)
     fbest = objective_function(u_best)
@@ -1069,7 +1069,6 @@ class BoxController(LeafSystem):
       if es.result.fbest < fbest:
         fbest = es.result.fbest
         u_best = es.result.xbest
-    print 'Best objective: ' + str(fbest)
 
     return u_best
 

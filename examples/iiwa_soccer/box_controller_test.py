@@ -9,8 +9,9 @@ from box_controller import BoxController
 from box_soccer_simulation import BuildBlockDiagram
 from embedded_box_soccer_sim import EmbeddedSim
 
-from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
-                         BasicVector, MultibodyForces, ComputeBasisFromAxis)
+from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType, BasicVector, MultibodyForces,
+                          ComputeBasisFromAxis, MathematicalProgram)
+from pydrake.solvers import mathematicalprogram
 
 class ControllerTest(unittest.TestCase):
   def setUp(self):
@@ -196,8 +197,198 @@ class ControllerTest(unittest.TestCase):
     self.assertEqual(self.controller.nq_robot(), 7)
     self.assertEqual(self.controller.nv_robot(), 6)
 
-  # Check control outputs for when contact is intended and robot and ball are
-  # indeed in contact and verifies that slip is not caused.
+  # Computes the contact force solution for test_NoSlipAcceleration.
+  def ComputeContactForces(self, q, v, Z, P, vdot_ball_des):
+      # Get the robot/ball plant and the correpsonding context from the controller.
+      all_plant = self.controller.robot_and_ball_plant
+      all_context = self.controller.robot_and_ball_context
+
+      # Get everything we need to compute contact forces.
+      all_plant.SetPositions(all_context, q)
+      all_plant.SetVelocities(all_context, v)
+      M = all_plant.CalcMassMatrixViaInverseDynamics(all_context)
+      iM = np.linalg.inv(M)
+      link_wrenches = MultibodyForces(all_plant)
+      all_plant.CalcForceElementsContribution(all_context, link_wrenches)
+      fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
+      fext = np.reshape(fext, [len(v), 1])
+
+      # Solve the following QP:
+      # fz = argmin 1/2 (vdot_des - P*vdot)' * (vdot_des - P * vdot)
+      # subject to: M * vdot = f + N' * fn + S' * fs + T' * ft
+      # fn >= 0
+      #
+      # where *we consider only the ball, not the robot.*
+      #
+      # The objective function expands to (leaving out vdot_des'*vdot_des term):
+      # 1/2 vdot' * P' * P * vdot - vdot_des' * P * vdot =
+      #   1/2 (fext' + fz' * Z) * inv(M) * P' * P * inv(M) * (fext + Z * fz) - vdot_des' * P * inv(M) * (fext + Z' * fz)
+      #
+      # The gradient of the above is: 1/2 * Z * inv(M) * P' * P * inv(M) * Z * fz - Z * inv(M) * P' * vdot_des +
+      #    Z * inv(M) * P' * P * inv(M) * fext
+      #
+      # The Hessian matrix is: 1/2 * Z * inv(M) * P' * P * inv(M) * Z
+
+      # Compute the Hessian.
+      H = Z.dot(iM).dot(P.T).dot(P).dot(iM).dot(Z.T)
+
+      # Compute the linear term.
+      c = Z.dot(iM).dot(P.T).dot(P.dot(iM).dot(fext) - vdot_ball_des)
+
+      # Formualte the QP.
+      prog = mathematicalprogram.MathematicalProgram()
+      vars = prog.NewContinuousVariables(len(c), "vars")
+      prog.AddQuadraticCost(H, c, vars)
+      nc = Z.shape[0]/3
+      for i in range(nc):
+          prog.AddBoundingBoxConstraint(0, float('inf'), vars)
+
+      # Solve the QP.
+      result = prog.Solve()
+      if result != mathematicalprogram.SolutionResult.kSolutionFound:
+          print result
+          assert False
+      fz = np.reshape(prog.GetSolution(vars), [-1, 1])
+      return [fz, iM, fext]
+
+
+  # Checks that the ball can be accelerated while maintaining the no-slip condition (i.e., and assuming that the state
+  # of the ball does not correspond to slipping). We check this by seeing whether contact forces exist that can realize
+  # the desired acceleration on the ball.
+  def test_NoSlipAcceleration(self):
+    # Construct the weighting matrix.
+    nv = self.controller.nv_ball() + self.controller.nv_robot()
+    v = np.zeros([nv])
+    dummy_ball_v = np.array([1, 1, 1, 1, 1, 1])
+    self.controller.robot_and_ball_plant.SetVelocitiesInArray(self.controller.ball_instance, dummy_ball_v, v)
+    P = np.zeros([6, nv])
+    vball_index = 0
+    for i in range(nv):
+      if abs(v[i]) > 0.5:
+        P[vball_index, i] = v[i]
+        vball_index += 1
+
+    # Get the plan.
+    plan = self.controller.plan
+
+    # Get the robot/ball plant and the correpsonding context from the controller.
+    all_plant = self.controller.robot_and_ball_plant
+    all_context = self.controller.robot_and_ball_context
+
+    # Set tolerances.
+    zero_velocity_tol = 1e-6
+    zero_accel_tol = 1e-6
+    complementarity_tol = 1e-6
+
+    # Function for constructing Z and Zdot_v
+    def SetZAndZdot(N, S, T, Ndot_v, Sdot_v, Tdot_v):
+      nc = N.shape[0]
+
+      # Set Z and Zdot_v
+      Z = np.zeros([N.shape[0] * 3, N.shape[1]])
+      Z[0:nc,:] = N
+      Z[nc:2*nc,:] = S
+      Z[-nc:,:] = T
+      Zdot_v = np.zeros([nc * 3])
+      Zdot_v[0:nc] = Ndot_v[:,0]
+      Zdot_v[nc:2*nc] = Sdot_v[:, 0]
+      Zdot_v[-nc:] = Tdot_v[:, 0]
+
+      return [Z, Zdot_v]
+
+    # First test a simple known configuration that should pass.
+    # 1. Set the state arbitrarily.
+    q, v = self.SetStates(0)
+
+    # 2. Hand craft the Jacobians for "point of contact" in the middle of the
+    # ball.
+    nc = 1
+    N = np.zeros([nc, len(v)])
+    S = np.zeros([nc, len(v)])
+    T = np.zeros([nc, len(v)])
+    # Allow ball to be pushed along +x, +y, and +z.
+    N[0, 9] = 1
+    S[0, 10] = 1
+    T[0, 11] = 1
+    [Z, Zdot_v] = SetZAndZdot(N, S, T, np.zeros([nc, 1]), np.zeros([nc, 1]), np.zeros([nc, 1]))
+
+    # 3. Set the ball acceleration to something that should be easy to achieve.
+    vdot_ball_des = np.reshape(np.array([0, 0, 0, 1, 1, 1]), [-1, 1])
+
+    # 4. Solve the QP.
+    [fz, iM, fext] = self.ComputeContactForces(q, v, Z, P, vdot_ball_des)
+
+    # Compute the value at the objective function.
+    vdot = iM.dot(fext + Z.T.dot(fz))
+    vdot_ball = P.dot(vdot)
+
+    # If the objective function value is zero, the acceleration of the ball
+    # is realizable without slip. 
+    fval = np.linalg.norm(vdot_ball - vdot_ball_des)
+    self.assertLess(fval, zero_accel_tol)
+
+    # Advance time, finding a point at which contact is desired *and* where
+    # the robot is contacting the ball.
+    dt = 1e-3
+    t = 0.0
+    t_final = plan.end_time()
+    while t < t_final:
+      # Keep looping if contact is not desired.
+      if not plan.IsContactDesired:
+        t += dt
+        continue
+
+      # Look for contact.
+      q, v = self.SetStates(t)
+      contacts = self.controller.FindContacts(q)
+      if not self.controller.IsRobotContactingBall(contacts):
+        t += dt
+        continue
+
+      logging.debug('-- TestNoSlipAcceleration() - identified testable time/state at t=' + str(t))
+
+      # Get the desired acceleration.
+      vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
+      vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])[-6:]
+
+      # Get the Jacobians.
+      N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
+      [Z, Zdot_v] = SetZAndZdot(N, S, T, np.zeros([nc, 1]), np.zeros([nc, 1]), np.zeros([nc, 1]))
+
+      # Verify that the velocities in each direction of the contact frame
+      # are zero. If they're not zero, make them zero so that we can test
+      # the no-slip condition under this configuration.
+      Nv = N.dot(v)
+      Sv = S.dot(v)
+      Tv = T.dot(v)
+      self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
+      self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
+      self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
+
+      # Solve the QP.
+      [fz, iM, fext] = self.ComputeContactForces(q, v, Z, P, vdot_ball_des)
+
+      # Compute the value at the objective function.
+      vdot = iM.dot(fext + Z.T.dot(fz))
+      vdot_ball = P.dot(vdot)
+
+      # If the objective function value is zero, the acceleration of the ball
+      # is realizable without slip. 
+      fval = np.linalg.norm(vdot_ball - vdot_ball_des)
+      self.assertLess(fval, zero_accel_tol)
+
+      # Verify that the complementarity condition is satisfied.
+      nc = N.shape[0]
+      self.assertLess(fz[0:nc,0].dot(N.dot(vdot) + Ndot_v), complementarity_tol)
+
+      # Verify that the no-slip condition is satisfied.
+      self.assertLess(abs(S.dot(vdot) + Sdot_v), zero_accel_tol)
+      self.assertLess(abs(T.dot(vdot) + Tdot_v), zero_accel_tol)
+
+      t += dt
+
+  # Check control outputs for when contact is intended and robot and ball are indeed in contact and verifies that slip
+  # is not caused.
   def test_ContactAndContactIntendedOutputsDoNotCauseSlip(self):
     # Get the plan.
     plan = self.controller.plan
@@ -205,8 +396,6 @@ class ControllerTest(unittest.TestCase):
     # Get the robot/ball plant and the correpsonding context from the controller.
     all_plant = self.controller.robot_and_ball_plant
     robot_and_ball_context = self.controller.robot_and_ball_context
-
-    dbg_out = '\n\nDebugging output below:'
 
     # Advance time, finding a point at which contact is desired *and* where
     # the robot is contacting the ball.
@@ -238,7 +427,7 @@ class ControllerTest(unittest.TestCase):
     v[:] = np.zeros([len(v)])
     all_plant.SetPositions(robot_and_ball_context, q)
     all_plant.SetVelocities(robot_and_ball_context, v)
-    N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
+    N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
     zero_velocity_tol = 1e-3
     Nv = N.dot(v)
     Sv = S.dot(v)
@@ -266,7 +455,6 @@ class ControllerTest(unittest.TestCase):
     vnew = v + dt * vdot
 
     # Get the velocity at the point of contacts.
-    print 'vdot: ' + str(all_plant.GetVelocitiesFromArray(self.controller.ball_instance, vdot))
     Nv = N.dot(vnew)
     Sv = S.dot(vnew)
     Tv = T.dot(vnew)
@@ -491,7 +679,7 @@ class ControllerTest(unittest.TestCase):
     #v = self.all_plant.SetVelocitiesInArray(self.controller.ball_instance, [0, 0, 0, 0, 0, 0], v)
 
     # Construct the Jacobian matrices using the controller function.
-    [N, S, T, Ndot, Sdot, Tdot] = self.controller.ConstructJacobians(contacts, q)
+    [N, S, T, Ndot_v, Sdot_v, Tdot_v] = self.controller.ConstructJacobians(contacts, q)
 
     self.PrintContacts(t)
     # Set a time step.
@@ -635,7 +823,7 @@ class ControllerTest(unittest.TestCase):
         p_true = (pr_WA + pr_WB) * 0.5
 
         # Construct the Jacobian matrices using the controller function.
-        N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q)
+        N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q)
 
         # Output all contacting bodies
         self.PrintContacts(t)
