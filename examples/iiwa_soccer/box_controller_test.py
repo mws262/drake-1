@@ -564,6 +564,7 @@ class ControllerTest(unittest.TestCase):
 
     # First test a simple known configuration that should pass.
     # 1. Set the state arbitrarily.
+    logging.info('About to test a known configuration that should pass.')
     q, v = self.SetStates(0)
 
     # 2. Hand craft the Jacobians for "point of contact" in the middle of the
@@ -580,16 +581,21 @@ class ControllerTest(unittest.TestCase):
 
     # 3. Set the ball acceleration to something that should be easy to achieve.
     vdot_ball_des = np.reshape(np.array([0, 0, 0, 1, 1, 1]), [-1, 1])
+    logging.debug('desired ball acceleration (angular/linear): ' + str(vdot_ball_des))
 
     # 4. Solve the QP.
     [fz, iM, fext] = self.ComputeContactForces(q, v, Z, P, vdot_ball_des)
+    logging.debug('contact force magnitudes along contact normals: ' + str(fz[0:nc]))
+    logging.debug('contact force magnitudes along first contact tangents: ' + str(fz[nc:nc*2]))
+    logging.debug('contact force magnitudes along second contact tangents: ' + str(fz[-nc:]))
 
     # Compute the value at the objective function.
     vdot = iM.dot(fext + Z.T.dot(fz))
     vdot_ball = P.dot(vdot)
+    logging.debug('actual ball acceleration: ' + str(vdot_ball))
 
     # If the objective function value is zero, the acceleration of the ball
-    # is realizable without slip. 
+    # is realizable without slip.
     fval = np.linalg.norm(vdot_ball - vdot_ball_des)
     self.assertLess(fval, zero_accel_tol)
 
@@ -611,19 +617,18 @@ class ControllerTest(unittest.TestCase):
         t += dt
         continue
 
-      logging.debug('-- TestNoSlipAcceleration() - identified testable time/state at t=' + str(t))
+      logging.info('-- TestNoSlipAcceleration() - identified testable time/state at t=' + str(t))
 
       # Get the desired acceleration.
       vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
       vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])[-6:]
+      logging.debug('desired ball acceleration (angular/linear): ' + str(vdot_ball_des))
 
       # Get the Jacobians.
       N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
       [Z, Zdot_v] = SetZAndZdot(N, S, T, np.zeros([nc, 1]), np.zeros([nc, 1]), np.zeros([nc, 1]))
 
-      # Verify that the velocities in each direction of the contact frame
-      # are zero. If they're not zero, make them zero so that we can test
-      # the no-slip condition under this configuration.
+      # Verify that the velocities in each direction of the contact frame are zero.
       Nv = N.dot(v)
       Sv = S.dot(v)
       Tv = T.dot(v)
@@ -633,10 +638,22 @@ class ControllerTest(unittest.TestCase):
 
       # Solve the QP.
       [fz, iM, fext] = self.ComputeContactForces(q, v, Z, P, vdot_ball_des)
+      logging.debug('contact force magnitudes along contact normals: ' + str(fz[0:nc]))
+      logging.debug('contact force magnitudes along first contact tangents: ' + str(fz[nc:nc*2]))
+      logging.debug('contact force magnitudes along second contact tangents: ' + str(fz[-nc:]))
 
       # Compute the value at the objective function.
       vdot = iM.dot(fext + Z.T.dot(fz))
       vdot_ball = P.dot(vdot)
+      logging.debug('actual ball acceleration: ' + str(vdot_ball))
+
+      # Get the accelerations of the ball along the contact directions.
+      Nvdot = N.dot(vdot) + Ndot_v
+      Svdot = S.dot(vdot) + Sdot_v
+      Tvdot = T.dot(vdot) + Tdot_v
+      logging.debug('acceleration along contact normals: ' + str(Nvdot))
+      logging.debug('acceleration along first contact tangents: ' + str(Svdot))
+      logging.debug('acceleration along second contact tangents: ' + str(Tvdot))
 
       # If the objective function value is zero, the acceleration of the ball
       # is realizable without slip. 
@@ -645,12 +662,12 @@ class ControllerTest(unittest.TestCase):
 
       # Verify that the complementarity condition is satisfied.
       nc = N.shape[0]
-      self.assertLess(fz[0:nc,0].dot(N.dot(vdot) + Ndot_v), complementarity_tol,
+      self.assertLess(fz[0:nc,0].dot(Nvdot), complementarity_tol,
           msg='Complementarity constraint violated')
 
       # Verify that the no-slip condition is satisfied.
-      self.assertLess(abs(S.dot(vdot) + Sdot_v), zero_accel_tol, msg='No slip constraint violated')
-      self.assertLess(abs(T.dot(vdot) + Tdot_v), zero_accel_tol, msg='No slip constraint violated')
+      self.assertLess(abs(Svdot), zero_accel_tol, msg='No slip constraint violated')
+      self.assertLess(abs(Tvdot), zero_accel_tol, msg='No slip constraint violated')
 
       t += dt
 
