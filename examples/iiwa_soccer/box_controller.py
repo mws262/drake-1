@@ -819,7 +819,7 @@ class BoxController(LeafSystem):
   #
   # Returns: a tuple containing (1) the actuation forces (u), (2) the contact force magnitudes fz (along the contact
   # normals, the first tangent direction, and the second contact tangent direction, respectively),
-  def ComputeContactControlMotorTorquesNoSlip(self, iM, fext, vdot_ball_des, Z, Zdot_v):
+  def ComputeContactControlMotorTorquesNoSlip(self, iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground):
     # Construct the actuation and weighting matrices.
     B = self.ConstructRobotActuationMatrix()
     P = self.ConstructBallVelocityWeightingMatrix()
@@ -839,23 +839,31 @@ class BoxController(LeafSystem):
     # Set the Hessian matrix for the QP.
     H = D.T.dot(iM.dot(P.T).dot(P.dot(iM.dot(D))))
 
-    # Verify that the Hessian is positive semi-definite.
-    H = H + np.eye(H.shape[0]) * 1e-8
-    np.linalg.cholesky(H)
-
     # Compute the linear terms.
     c = D.T.dot(iM.dot(P.T).dot(-vdot_ball_des + P.dot(iM.dot(fext))))
 
-    # Set the affine constraint matrix.
-    A = np.zeros([nc*4, nprimal])
-    A[0:nc*3, :] = Z.dot(iM.dot(D))
-    A[nc*3:, nu:nu+nc] = np.eye(nc)    # Constraint normal forces to be non-negative.
-    b = np.zeros([nc*4, 1])
-    b[0:nc*3] = -Z.dot(iM.dot(fext)) - np.reshape(Zdot_v, (-1, 1))
+    # Set the affine constraint matrix. There are nc + 1 constraints:
+    # normal accelerations are zero (nc constraints),
+    # no slip at the ground (2 constraints).
+    A = np.zeros([nc + 2, nprimal])
+    A[0:nc, :] = N.dot(iM.dot(D))
+    A[nc, :] = S_ground.dot(iM.dot(D))
+    A[nc+1, :] = T_ground.dot(iM.dot(D))
+    b = np.zeros([nc+2, 1])
+    b[0:nc] = -N.dot(iM.dot(fext)) - np.reshape(Ndot_v, (-1, 1))
+    b[nc] = -S_ground.dot(iM.dot(fext)) - np.reshape(Sdot_v_ground, (-1, 1))
+    b[nc+1] = -T_ground.dot(iM.dot(fext)) - np.reshape(Tdot_v_ground, (-1, 1))
 
-    # Solve the QP.
+    # Add a compressive-force constraint on the normal contact forces.
     prog = mathematicalprogram.MathematicalProgram()
     vars = prog.NewContinuousVariables(len(c), "vars")
+    lb = np.zeros(nprimal)
+    lb[0:nu] = np.ones(nu) * -float('inf')
+    lb[nu + nc:] = np.ones(nc * 2) * -float('inf')
+    ub = np.ones(nprimal) * float('inf')
+    prog.AddBoundingBoxConstraint(lb, ub, vars)
+
+    # Solve the QP.
     prog.AddQuadraticCost(H, c, vars)
     prog.AddLinearConstraint(A, b, np.ones([len(b), 1]) * 1e8, vars)
     result = prog.Solve()
@@ -863,8 +871,8 @@ class BoxController(LeafSystem):
     z = prog.GetSolution(vars)
 
     # Get the actuation forces and the contact forces.
-    u = z[0:nu]
-    f_contact = z[nu:nprimal]
+    u = np.reshape(z[0:nu], [-1, 1])
+    f_contact = np.reshape(z[nu:nprimal], [-1, 1])
 
     # Get the normal forces and ensure that they are not tensile.
     f_contact_n = f_contact[0:nc]
@@ -957,6 +965,41 @@ class BoxController(LeafSystem):
 
     return [u, fz]
 
+  # Gets the index of contact between the ball and the ground.
+  def GetBallGroundContactIndex(self, q, contacts):
+     # Get the ball and ground bodies.
+    ball_body = self.get_ball_from_robot_and_ball_plant()
+    world_body = self.get_ground_from_robot_and_ball_plant()
+
+    # Ensure that the context is set correctly.
+    all_plant = self.robot_and_ball_plant
+    all_context = self.robot_and_ball_context
+    all_plant.SetPositions(all_context, q)
+
+    # Evaluate scene graph's output port, getting a SceneGraph reference.
+    query_object = self.robot_and_ball_plant.EvalAbstractInput(
+      self.robot_and_ball_context, self.geometry_query_input_port.get_index()).get_value()
+    inspector = query_object.inspector()
+
+    # Get the tree corresponding to all bodies.
+    all_plant = self.robot_and_ball_plant
+
+    # Get the desired contact.
+    ball_ground_contact_index = -1
+    for i in range(len(contacts)):
+      geometry_A_id = contacts[i].id_A
+      geometry_B_id = contacts[i].id_B
+      frame_A_id = inspector.GetFrameId(geometry_A_id)
+      frame_B_id = inspector.GetFrameId(geometry_B_id)
+      body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+      body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+      body_A_B_pair = self.MakeSortedPair(body_A, body_B)
+      if body_A_B_pair == self.MakeSortedPair(ball_body, world_body):
+        assert ball_ground_contact_index == -1
+        ball_ground_contact_index = i
+
+    return i
+ 
   # Computes the control torques when contact is desired and the robot and the
   # ball are in contact.
   def ComputeActuationForContactDesiredAndContacting(self, controller_context, contacts):
@@ -1002,6 +1045,13 @@ class BoxController(LeafSystem):
     Z[nc:2*nc,:] = S
     Z[-nc:,:] = T
 
+    # Get the Jacobians for ball/ground contact.
+    ball_ground_contact_index = self.GetBallGroundContactIndex(q, contacts)
+    S_ground = S[ball_ground_contact_index, :]
+    T_ground = T[ball_ground_contact_index, :]
+    Sdot_v_ground = Sdot_v[ball_ground_contact_index]
+    Tdot_v_ground = Tdot_v[ball_ground_contact_index]
+
     # Set the time-derivatives of the Jacobians times the velocity.
     Zdot_v = np.zeros([nc * 3])
     Zdot_v[0:nc] = Ndot_v[:,0]
@@ -1010,7 +1060,7 @@ class BoxController(LeafSystem):
 
     # Compute torques without applying any tangential forces.
     if self.controller_type == 'NoSlip':
-      u, f_contact = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v)
+      u, f_contact = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
     if self.controller_type == 'NoSeparation':
       u, f_contact = self.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des, Z, N, Ndot_v)
     if self.controller_type == 'BlackboxDynamics':
@@ -1176,13 +1226,18 @@ class BoxController(LeafSystem):
     return contacts
 
   # Determines whether the ball and the ground are in contact.
-  def IsBallContactingGround(self, contacts):
+  def IsBallContactingGround(self, q, contacts):
     # Get the ball and ground bodies.
     ball_body = self.get_ball_from_robot_and_ball_plant()
     ground_body = self.get_ground_from_robot_and_ball_plant()
 
     # Make sorted pairs to check.
     ball_ground_pair = self.MakeSortedPair(ball_body, ground_body)
+
+    # Ensure that the context is set correctly.
+    all_plant = self.robot_and_ball_plant
+    all_context = self.robot_and_ball_context
+    all_plant.SetPositions(all_context, q)
 
     # Evaluate scene graph's output port, getting a SceneGraph reference.
     query_object = self.robot_and_ball_plant.EvalAbstractInput(
@@ -1205,10 +1260,15 @@ class BoxController(LeafSystem):
     return False
 
   # Determines whether the ball and the robot are in contact.
-  def IsRobotContactingBall(self, contacts):
+  def IsRobotContactingBall(self, q, contacts):
     # Get the ball body and foot bodies.
     ball_body = self.get_ball_from_robot_and_ball_plant()
     foot_bodies = self.get_foot_links_from_robot_and_ball_plant()
+
+    # Ensure that the context is set correctly.
+    all_plant = self.robot_and_ball_plant
+    all_context = self.robot_and_ball_context
+    all_plant.SetPositions(all_context, q)
 
     # Make sorted pairs to check.
     ball_foot_pairs = [0] * len(foot_bodies)
@@ -1256,7 +1316,7 @@ class BoxController(LeafSystem):
             # Two cases: in the first, the robot and the ball are already in contact,
             # as desired. In the second, the robot desires to be in contact, but the
             # ball and robot are not contacting: the robot must intercept the ball.
-            if self.IsRobotContactingBall(contacts):
+            if self.IsRobotContactingBall(q, contacts):
                 logging.info('Contact desired and contact detected at time ' + str(context.get_time()))
                 tau = self.ComputeActuationForContactDesiredAndContacting(context, contacts)
             else:

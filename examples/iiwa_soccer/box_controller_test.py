@@ -558,7 +558,7 @@ class ControllerTest(unittest.TestCase):
       result = prog.Solve()
       self.assertEquals(result, mathematicalprogram.SolutionResult.kSolutionFound, msg='Unable to solve QP, reason: ' + str(result))
       fz = np.reshape(prog.GetSolution(vars), [-1, 1])
-      return [fz, Z, iM, fext]
+      return [fz, Z, Zdot_v, iM, fext]
 
 
   # Computes the contact force solution for test_NoSlipAcceleration (i.e., while also minimizing the deviation from
@@ -634,9 +634,91 @@ class ControllerTest(unittest.TestCase):
       fz = np.reshape(prog.GetSolution(vars), [-1, 1])
       return [fz, Z, iM, fext]
 
-  # Checks that the ball can be accelerated while maintaining the no-slip condition (i.e., and assuming that the state
-  # of the ball does not correspond to slipping). We check this by seeing whether contact forces exist that can realize
-  # the desired acceleration on the ball.
+  # Constructs a known, good configuration for testing the no-slip controller. This configuration should
+  # ensure that the no-slip controller can pass.
+  def ConstructKnownGoodConfiguration(self):
+    all_plant = self.controller.robot_and_ball_plant
+    all_context = self.controller.robot_and_ball_context
+    nq = self.controller.nq_ball() + self.controller.nq_robot()
+    q = np.zeros([nq])
+
+    # Set q for the ball: it will lie exactly on the ground.
+    r = 0.1   # Ball radius.
+    q_ball = np.array([1, 0, 0, 0, 0, 0, r])
+    all_plant.SetPositionsInArray(self.controller.ball_instance, q_ball, q)
+
+    # Set q for the box: it will correspond to a rotation about x and some
+    # translation.
+    sqrt2_2 = math.sqrt(2)/2.0
+    q_box = np.array([sqrt2_2, -sqrt2_2, 0, 0, 0, 0, .215])
+    all_plant.SetPositionsInArray(self.controller.robot_instance, q_box, q)
+
+    # v is zero.
+    nv = self.controller.nv_ball() + self.controller.nv_robot()
+    v = np.zeros([nv])
+
+    # Construct the desired acceleration.
+    vdot_ball_des = np.reshape(np.array([0, -1/r, 0, -1, 0, 0]), [-1, 1])
+
+    return [q, v, vdot_ball_des]
+
+  # Checks that the ball can be accelerated while maintaining the no-slip condition between the ball and the ground
+  # using a known, good configuration.
+  def test_NoSlipAccelerationWithKnownGoodConfiguration(self):
+      # Construct the weighting matrix.
+      nv = self.controller.nv_ball() + self.controller.nv_robot()
+      v = np.zeros([nv])
+      dummy_ball_v = np.array([1, 1, 1, 1, 1, 1])
+      self.controller.robot_and_ball_plant.SetVelocitiesInArray(self.controller.ball_instance, dummy_ball_v, v)
+      P = np.zeros([6, nv])
+      vball_index = 0
+      for i in range(nv):
+          if abs(v[i]) > 0.5:
+              P[vball_index, i] = v[i]
+              vball_index += 1
+
+      # Check a known, good configuration.
+      q, v, vdot_ball_des = self.ConstructKnownGoodConfiguration()
+      contacts = self.controller.FindContacts(q)
+      N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
+      nc = N.shape[0]
+      assert nc == 2
+      [Z, Zdot_v] = self.SetZAndZdot(N, S, T, Ndot_v, Sdot_v, Tdot_v)
+
+      # Get the contact index for the ball and the ground.
+      ball_ground_contact_index = self.controller.GetBallGroundContactIndex(q, contacts)
+      S_ground = S[ball_ground_contact_index, :]
+      T_ground = T[ball_ground_contact_index, :]
+      Sdot_v_ground = Sdot_v[ball_ground_contact_index]
+      Tdot_v_ground = Tdot_v[ball_ground_contact_index]
+
+      # Get external forces and inertia matrix.
+      all_plant = self.controller.robot_and_ball_plant
+      all_context = self.controller.robot_and_ball_context
+      all_plant.SetPositions(all_context, q)
+      all_plant.SetVelocities(all_context, v)
+      M = all_plant.CalcMassMatrixViaInverseDynamics(all_context)
+      iM = np.linalg.inv(M)
+      link_wrenches = MultibodyForces(all_plant)
+      all_plant.CalcForceElementsContribution(all_context, link_wrenches)
+      fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
+      fext = np.reshape(fext, [len(v), 1])
+
+      # Verify that the no-slip controller arrives at the same objective (or better).
+      P_star = self.controller.ConstructBallVelocityWeightingMatrix()
+      B = self.controller.ConstructRobotActuationMatrix()
+      u, fz = self.controller.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des[-3:], Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
+      vdot = iM.dot(fext + B.dot(u) + Z.T.dot(fz))
+
+      # Verify that the desired linear acceleration was achieved.
+      self.assertAlmostEqual(np.linalg.norm(P_star.dot(vdot) - vdot_ball_des[-3:]), 0, places=4)
+
+      # Verify that the desired spatial acceleration was achieved.
+      self.assertAlmostEqual(np.linalg.norm(P.dot(vdot) - vdot_ball_des), 0, places=3)
+
+
+  # Checks that the ball can be accelerated while maintaining the no-slip condition between the ball and the ground.
+  # We check this by seeing whether contact forces exist that can realize the desired acceleration on the ball.
   def test_NoSlipAcceleration(self):
     # Construct the weighting matrix.
     nv = self.controller.nv_ball() + self.controller.nv_robot()
@@ -662,49 +744,6 @@ class ControllerTest(unittest.TestCase):
     zero_accel_tol = 1e-6
     complementarity_tol = 1e-6
 
-    # TODO: test this with actual contact.
-    '''
-    # First test a simple known configuration that should pass.
-    # 1. Set the state arbitrarily.
-    logging.info('About to test a known configuration that should pass.')
-    q, v = self.SetStates(0)
-
-    # 2. Hand craft the Jacobians for "point of contact" in the middle of the
-    # ball.
-    nc = 1
-    N = np.zeros([nc, len(v)])
-    S = np.zeros([nc, len(v)])
-    T = np.zeros([nc, len(v)])
-    # Allow ball to be pushed along +x, +y, and +z.
-    N[0, 9] = 1
-    S[0, 10] = 1
-    T[0, 11] = 1
-    Ndot_v = np.zeros([nc, 1])
-    Sdot_v = Ndot_v
-    Tdot_v = Ndot_v
-    [Z, Zdot_v] = self.SetZAndZdot(N, S, T, Ndot_v, Sdot_v, Tdot_v)
-
-    # 3. Set the ball acceleration to something that should be easy to achieve.
-    vdot_ball_des = np.reshape(np.array([0, 0, 0, 1, 1, 1]), [-1, 1])
-    logging.debug('desired ball acceleration (angular/linear): ' + str(vdot_ball_des))
-
-    # 4. Solve the QP.
-    [fz, Z, iM, fext] = self.ComputeContactForces(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v, P, vdot_ball_des, check_no_slip=False)
-    logging.debug('contact force magnitudes along contact normals: ' + str(fz[0:nc]))
-    logging.debug('contact force magnitudes along first contact tangents: ' + str(fz[nc:nc*2]))
-    logging.debug('contact force magnitudes along second contact tangents: ' + str(fz[-nc:]))
-
-    # Compute the value at the objective function.
-    vdot = iM.dot(fext + Z.T.dot(fz))
-    vdot_ball = P.dot(vdot)
-    logging.debug('actual ball acceleration: ' + str(vdot_ball))
-
-    # If the objective function value is zero, the acceleration of the ball
-    # is realizable without slip.
-    fval = np.linalg.norm(vdot_ball - vdot_ball_des)
-    self.assertLess(fval, zero_accel_tol)
-    '''
-
     # Advance time, finding a point at which contact is desired *and* where
     # the robot is contacting the ball.
     dt = 1e-3
@@ -719,7 +758,7 @@ class ControllerTest(unittest.TestCase):
       # Look for contact.
       q, v = self.SetStates(t)
       contacts = self.controller.FindContacts(q)
-      if not self.controller.IsRobotContactingBall(contacts):
+      if not self.controller.IsRobotContactingBall(q, contacts):
         t += dt
         continue
 
@@ -744,7 +783,7 @@ class ControllerTest(unittest.TestCase):
       self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
       # Solve the QP without control forces.
-      fz_no_control, Z, iM, fext = self.ComputeContactForcesWithoutControl(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v)
+      fz_no_control, Z, Zdot_v, iM, fext = self.ComputeContactForcesWithoutControl(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v)
 
       # Solve the QP.
       fz, Z, iM, fext = self.ComputeContactForces(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v, P, vdot_ball_des, enforce_no_slip=False)
@@ -752,14 +791,23 @@ class ControllerTest(unittest.TestCase):
       logging.debug('contact force magnitudes along first contact tangents: ' + str(fz[nc:nc*2]))
       logging.debug('contact force magnitudes along second contact tangents: ' + str(fz[-nc:]))
 
-      # Verify that the no-separation controller arrives at the same objective (or better).
+      # Get the contact index for the ball and the ground.
+      ball_ground_contact_index = self.controller.GetBallGroundContactIndex(q, contacts)
+      S_ground = S[ball_ground_contact_index, :]
+      T_ground = T[ball_ground_contact_index, :]
+      Sdot_v_ground = Sdot_v[ball_ground_contact_index]
+      Tdot_v_ground = Tdot_v[ball_ground_contact_index]
+
+      # Verify that the no-slip controller arrives at the same objective (or better).
       P_star = self.controller.ConstructBallVelocityWeightingMatrix()
       B = self.controller.ConstructRobotActuationMatrix()
       fz_star, Z, iM, fext = self.ComputeContactForces(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v,
           P_star, vdot_ball_des[-3:], enforce_no_slip=False)
       vdot_compute_contact_forces = iM.dot(fext + Z.T.dot(fz_star))
-      u, fz_no_separate = self.controller.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des[-3:], Z, N, Ndot_v)
-      vdot_controller = iM.dot(fext + B.dot(u) + Z.T.dot(fz_no_separate))
+      #u, fz_no_separate = self.controller.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des[-3:], Z, N, Ndot_v)
+      u, fz_no_slip = self.controller.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des[-3:], Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
+      #vdot_controller = iM.dot(fext + B.dot(u) + Z.T.dot(fz_no_separate))
+      vdot_controller = iM.dot(fext + B.dot(u) + Z.T.dot(fz_no_slip))
       self.assertLessEqual(np.linalg.norm(P_star.dot(vdot_controller) - vdot_ball_des[-3:]),
                            np.linalg.norm(P_star.dot(vdot_compute_contact_forces) - vdot_ball_des[-3:]))
 
@@ -824,7 +872,7 @@ class ControllerTest(unittest.TestCase):
       # Look for contact.
       q, v = self.SetStates(t)
       contacts = self.controller.FindContacts(q)
-      if not self.controller.IsRobotContactingBall(contacts):
+      if not self.controller.IsRobotContactingBall(q, contacts):
         t += dt
         continue
 
@@ -850,7 +898,7 @@ class ControllerTest(unittest.TestCase):
       self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
       # Run the no-slip controller.
-      dummy, Z, iM, fext = self.ComputeContactForcesWithoutControl(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v)
+      dummy, Z, Zdot_v, iM, fext = self.ComputeContactForcesWithoutControl(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v)
       P = self.controller.ConstructBallVelocityWeightingMatrix()
       B = self.controller.ConstructRobotActuationMatrix()
       u, fz = self.controller.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des, Z, N, Ndot_v)
@@ -889,7 +937,7 @@ class ControllerTest(unittest.TestCase):
         # Look for contact.
         q, v = self.SetStates(t)
         contacts = self.controller.FindContacts(q)
-        if self.controller.IsRobotContactingBall(contacts):
+        if self.controller.IsRobotContactingBall(q, contacts):
           logging.info('  -- TestContactAndContactIntendedOutputsCorrect() - desired time identified: ' + str(t))
           break
 
@@ -970,7 +1018,7 @@ class ControllerTest(unittest.TestCase):
         # Look for contact.
         q, v = self.SetStates(t)
         contacts = self.controller.FindContacts(q)
-        if self.controller.IsRobotContactingBall(contacts):
+        if self.controller.IsRobotContactingBall(q, contacts):
           logging.info('-- TestAccelerationFromLearnedDynamicsControlCorrect() - desired time identified: ' + str(t))
           break
 
@@ -1026,7 +1074,7 @@ class ControllerTest(unittest.TestCase):
         # Look for contact.
         q, v = self.SetStates(t)
         contacts = self.controller.FindContacts(q)
-        if self.controller.IsRobotContactingBall(contacts):
+        if self.controller.IsRobotContactingBall(q, contacts):
           logging.info('-- test_FullyActuatedAccelerationCorrect() - desired time identified: ' + str(t))
           break
 
@@ -1079,7 +1127,7 @@ class ControllerTest(unittest.TestCase):
         # Look for contact.
         q, v = self.SetStates(t)
         contacts = self.controller.FindContacts(q)
-        if not self.controller.IsRobotContactingBall(contacts):
+        if not self.controller.IsRobotContactingBall(q, contacts):
           logging.debug('-- TestNoContactButContactIntendedOutputsCorrect() - desired time identified: ' + str(t))
           break
 
@@ -1151,7 +1199,7 @@ class ControllerTest(unittest.TestCase):
         # Look for contact.
         q, v = self.SetStates(t)
         contacts = self.controller.FindContacts(q)
-        if self.controller.IsRobotContactingBall(contacts):
+        if self.controller.IsRobotContactingBall(q, contacts):
           break
 
       # No contact desired or contact between robot and ball not found.
