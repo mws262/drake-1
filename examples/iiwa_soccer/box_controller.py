@@ -1,5 +1,6 @@
 # TODO: turn this system into an actual discrete system (estimated time required: 30m)
 import math
+import scipy.optimize
 import numpy as np
 import logging
 from manipulation_plan import ManipulationPlan
@@ -11,7 +12,7 @@ CreateArrowOutputAllocCallback, ArrowVisualization)
 from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
-  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, robot_instance, ball_instance, fully_actuated=False, controller_type='NoSeparation'):
+  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, robot_instance, ball_instance, fully_actuated=False, controller_type='BlackBoxDynamics'):
     LeafSystem.__init__(self)
 
     # Saves whether the entire system will be actuated.
@@ -795,6 +796,32 @@ class BoxController(LeafSystem):
 
     return [u, fz]
 
+  # Computes the motor torques for ComputeActuationForContactDesiredAndContacting() that minimize deviation from the
+  # desired acceleration using no dynamics information and a gradient-based optimization strategy.
+  # This controller uses the simulator to compute contact forces, rather than attempting to predict the contact forces
+  # that the simulator will generate.
+  def ComputeOptimalContactControlMotorTorques(self, controller_context, q, v, vdot_ball_des):
+
+      P = self.ConstructBallVelocityWeightingMatrix()
+      nu = self.ConstructRobotActuationMatrix().shape[1]
+
+      # Get the current system positions and velocities.
+      nv = len(v)
+
+      # The objective function.
+      def objective_function(u):
+        vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u)
+        delta = P.dot(vdot_approx) - vdot_ball_des
+        return np.linalg.norm(delta)
+
+      result = scipy.optimize.minimize(objective_function, np.random.normal(np.zeros([nu])))
+      logging.info('scipy.optimize success? ' + str(result.success))
+      logging.info('scipy.optimize message: ' +  result.message)
+      logging.info('scipy.optimize result: ' + str(result.x))
+      u_best = result.x
+
+      return u_best
+
   # Computes the motor torques for ComputeActuationForContactDesiredAndContacting()
   # using the no-slip contact model. Specifically, this function optimizes:
   # argmin vdot_sub_des 1/2 * (vdot_sub_des - P * vdot)' * W *
@@ -872,13 +899,24 @@ class BoxController(LeafSystem):
 
     # Get the actuation forces and the contact forces.
     u = np.reshape(z[0:nu], [-1, 1])
-    f_contact = np.reshape(z[nu:nprimal], [-1, 1])
+    fz = np.reshape(z[nu:nprimal], [-1, 1])
+
+    # Determine the friction coefficient for each point of contact.
+    for i in range(nc):
+        fs = fz[i+nc]
+        ft = fz[i+nc*2]
+        tan_force = math.sqrt(fs*fs + ft*ft)
+        logging.info('Forces for contact ' + str(i) + ' normal: ' + str(fz[i]) + '  tangent: ' + str(tan_force))
+        if tan_force < 1e-8:
+            logging.info('Friction coefficient for contact ' + str(i) + ' unknown')
+        else:
+            logging.info('Friction coefficient for contact ' + str(i) + ' = ' + str(tan_force/fz[i]))
 
     # Get the normal forces and ensure that they are not tensile.
-    f_contact_n = f_contact[0:nc]
+    f_contact_n = fz[0:nc]
     assert np.min(f_contact_n) >= -1e-8
 
-    return [u, f_contact]
+    return [u, fz]
 
   # Computes the approximate acceleration from a q, a v, and a u.
   def ComputeApproximateAcceleration(self, controller_context, q, v, u, dt=-1):
@@ -1063,9 +1101,8 @@ class BoxController(LeafSystem):
       u, f_contact = self.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
     if self.controller_type == 'NoSeparation':
       u, f_contact = self.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des, Z, N, Ndot_v)
-    if self.controller_type == 'BlackboxDynamics':
-      u = self.ComputeOptimalContactControlMotorTorquesDerivativeFree(controller_context, vdot_ball_des)
-      return u
+    if self.controller_type == 'BlackBoxDynamics':
+      u = self.ComputeOptimalContactControlMotorTorques(controller_context, q, v, vdot_ball_des)
 
     # Compute the generalized contact forces.
     f_contact_generalized = None

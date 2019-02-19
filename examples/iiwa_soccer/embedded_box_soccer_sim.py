@@ -55,6 +55,7 @@ class EmbeddedSim:
 
     # Finalize the plants.
     all_plant.Finalize(scene_graph)
+    all_plant.set_penetration_allowance(1e-8)
     assert all_plant.num_actuators() == 0
     assert all_plant.geometry_source_is_registered()
 
@@ -67,8 +68,10 @@ class EmbeddedSim:
       scene_graph.get_source_pose_port(all_plant.get_source_id()))
 
     # Export useful ports.
-    robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
-    ball_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(ball_instance_id))
+    robot_continuous_state_output = mbw_builder.ExportOutput(
+        all_plant.get_continuous_state_output_port(robot_instance_id))
+    ball_continuous_state_output = mbw_builder.ExportOutput(
+        all_plant.get_continuous_state_output_port(ball_instance_id))
     generalized_force_input = mbw_builder.ExportInput(all_plant.get_applied_generalized_force_input_port())
 
     # Add the "MultibodyWorld" to the diagram.
@@ -96,7 +99,6 @@ class EmbeddedSim:
     diagram = builder.Build()
 
     return [ control_input, diagram, all_plant, mbw, self.robot_instance, self.ball_instance ]
-
 
   def ApplyControls(self, Bu):
       control_context = self.diagram.GetMutableSubsystemContext(self.control_input, self.context)

@@ -357,7 +357,7 @@ class BoxControllerEvaluator:
         return [Z, Zdot_v]
 
 
-    def EvaluateAccelerationTrackingPerformance(self):
+    def EvaluateAccelerationTrackingPerformanceNoSlip(self):
         # Get the weighting and actuation matrices.
         P = self.controller.ConstructBallVelocityWeightingMatrix()
         B = self.controller.ConstructRobotActuationMatrix()
@@ -383,7 +383,7 @@ class BoxControllerEvaluator:
             contacts = self.controller.FindContacts(q)
 
             # Verify that the robot is contacting the ball.
-            if (not self.controller.IsRobotContactingBall(contacts)):
+            if (not self.controller.IsRobotContactingBall(q, contacts)):
                 logging.warning('Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.')
                 t += dt
                 continue
@@ -406,8 +406,15 @@ class BoxControllerEvaluator:
             [N, S, T, Ndot_v, Sdot_v, Tdot_v] = self.controller.ConstructJacobians(contacts, q, v)
             [Z, Zdot_v] = self.SetZAndZdot(N, S, T, Ndot_v, Sdot_v, Tdot_v)
 
+            # Get the contact index for the ball and the ground.
+            ball_ground_contact_index = self.controller.GetBallGroundContactIndex(q, contacts)
+            S_ground = S[ball_ground_contact_index, :]
+            T_ground = T[ball_ground_contact_index, :]
+            Sdot_v_ground = Sdot_v[ball_ground_contact_index]
+            Tdot_v_ground = Tdot_v[ball_ground_contact_index]
+
             # Get the motor torques.
-            [u, fz] = self.controller.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des, Z, N, Ndot_v)
+            [u, fz] = self.controller.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
             u = np.reshape(u, [-1, 1])
             fz = np.reshape(fz, [-1, 1])
 
@@ -472,7 +479,7 @@ def main():
     bce = BoxControllerEvaluator(args.plan_path, args.time_step)
     #bce.EvaluateSlipPerturbation()
     #bce.EvaluateContactTrackingPerformance()
-    bce.EvaluateAccelerationTrackingPerformance()
+    bce.EvaluateAccelerationTrackingPerformanceNoSlip()
 
 if __name__ == "__main__":
     main()

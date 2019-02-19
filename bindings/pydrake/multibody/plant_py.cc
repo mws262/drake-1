@@ -60,6 +60,9 @@ PYBIND11_MODULE(plant, m) {
     // Forwarded methods from `MultibodyTree`.
     cls  // BR
         .def(py::init<double>(), py::arg("time_step") = 0.)
+        .def("set_penetration_allowance", &Class::set_penetration_allowance,
+            py::arg("penetration_allowance"),
+            doc.MultibodyPlant.set_penetration_allowance.doc)
         .def(
             "num_bodies", &Class::num_bodies, doc.MultibodyPlant.num_bodies.doc)
         .def(

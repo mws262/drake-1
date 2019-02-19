@@ -89,9 +89,8 @@ class ControllerTest(unittest.TestCase):
     return [q, v]
 
   # This function outputs contact information.
-  def PrintContacts(self, t):
+  def PrintContacts(self, q):
     # Get contacts.
-    q, v = self.SetStates(t)
     contacts = self.controller.FindContacts(q)
 
     # Get the inspector.
@@ -303,14 +302,12 @@ class ControllerTest(unittest.TestCase):
   # desired acceleration using no dynamics information and a gradient-free optimization strategy.
   # This controller uses the simulator to compute contact forces, rather than attempting to predict the contact forces
   # that the simulator will generate.
-  def ComputeOptimalContactControlMotorTorquesDerivativeFree(self, controller_context, vdot_ball_des):
+  def ComputeOptimalContactControlMotorTorquesDerivativeFree(self, controller_context, q, v, vdot_ball_des):
 
     P = self.controller.ConstructBallVelocityWeightingMatrix()
     nu = self.controller.ConstructRobotActuationMatrix().shape[1]
 
     # Get the current system positions and velocities.
-    q = self.controller.get_q_all(controller_context)
-    v = self.controller.get_v_all(controller_context)
     nv = len(v)
 
     # The objective function.
@@ -319,16 +316,23 @@ class ControllerTest(unittest.TestCase):
       delta = P.dot(vdot_approx) - vdot_ball_des
       return np.linalg.norm(delta)
 
+    '''
     # Do CMA-ES.
-    sigma = 100.0
-    u_best = np.zeros(nu)
+    sigma = 0.1
+    u_best = np.array([0, 0, 0, -2.3675, 0, 0])
     fbest = objective_function(u_best)
     for i in range(1):
-      es = cma.CMAEvolutionStrategy(np.random.randn(nu) * 100, sigma)
+      es = cma.CMAEvolutionStrategy(u_best, sigma)
       es.optimize(objective_function)
       if es.result.fbest < fbest:
         fbest = es.result.fbest
         u_best = es.result.xbest
+    '''
+
+    res = scipy.optimize.minimize(objective_function, np.random.normal(np.zeros([nu])))
+    print res.success
+    print res.message
+    u_best = res.x
 
     return u_best
 
@@ -650,7 +654,7 @@ class ControllerTest(unittest.TestCase):
     # Set q for the box: it will correspond to a rotation about x and some
     # translation.
     sqrt2_2 = math.sqrt(2)/2.0
-    q_box = np.array([sqrt2_2, -sqrt2_2, 0, 0, 0, 0, .215])
+    q_box = np.array([sqrt2_2, -sqrt2_2, 0, 0, 0, 0, .2185])
     all_plant.SetPositionsInArray(self.controller.robot_instance, q_box, q)
 
     # v is zero.
@@ -679,6 +683,7 @@ class ControllerTest(unittest.TestCase):
 
       # Check a known, good configuration.
       q, v, vdot_ball_des = self.ConstructKnownGoodConfiguration()
+      self.PrintContacts(q)
       contacts = self.controller.FindContacts(q)
       N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
       nc = N.shape[0]
@@ -708,6 +713,8 @@ class ControllerTest(unittest.TestCase):
       P_star = self.controller.ConstructBallVelocityWeightingMatrix()
       B = self.controller.ConstructRobotActuationMatrix()
       u, fz = self.controller.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des[-3:], Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
+      logging.info('computed actuator forces: ' + str(u))
+      logging.info('computed contact forces: ' + str(fz))
       vdot = iM.dot(fext + B.dot(u) + Z.T.dot(fz))
 
       # Verify that the desired linear acceleration was achieved.
@@ -716,6 +723,14 @@ class ControllerTest(unittest.TestCase):
       # Verify that the desired spatial acceleration was achieved.
       self.assertAlmostEqual(np.linalg.norm(P.dot(vdot) - vdot_ball_des), 0, places=3)
 
+      # Determine the control forces using the learned dynamics controller.
+      u = self.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, q, v, vdot_ball_des[-3:])
+      #u = np.array([0, 0, 0, -2.3675, 0, 0])
+
+      # Check the desired spatial acceleration in the embedded simulation.
+      vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
+      logging.info('approximate vdot: ' + str(vdot_approx))
+      self.assertAlmostEqual(np.linalg.norm(P_star.dot(vdot_approx) - vdot_ball_des[-3:]), 0, places=1)
 
   # Checks that the ball can be accelerated while maintaining the no-slip condition between the ball and the ground.
   # We check this by seeing whether contact forces exist that can realize the desired acceleration on the ball.
@@ -763,7 +778,7 @@ class ControllerTest(unittest.TestCase):
         continue
 
       logging.info('-- TestNoSlipAcceleration() - identified testable time/state at t=' + str(t))
-      self.PrintContacts(t)
+      self.PrintContacts(q)
 
       # Get the desired acceleration.
       vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
@@ -878,7 +893,7 @@ class ControllerTest(unittest.TestCase):
 
       logging.info('-- test_NoSeparationControllerContactForcesConsistent() - identified testable time/state at '
                    't=' + str(t))
-      self.PrintContacts(t)
+      self.PrintContacts(q)
 
       # Get the desired acceleration.
       vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
@@ -916,81 +931,6 @@ class ControllerTest(unittest.TestCase):
       self.assertAlmostEqual(Nvdot.max(), 0)
 
       t += dt
-
-  # Check control outputs for when contact is intended and robot and ball are indeed in contact and verifies that slip
-  # is not caused *using the embedded simulation*.
-  def test_ContactAndContactIntendedOutputsDoNotCauseSlip(self):
-    # Get the plan.
-    plan = self.controller.plan
-
-    # Get the robot/ball plant and the correpsonding context from the controller.
-    all_plant = self.controller.robot_and_ball_plant
-    robot_and_ball_context = self.controller.robot_and_ball_context
-
-    # Advance time, finding a point at which contact is desired *and* where
-    # the robot is contacting the ball.
-    dt = 1e-3
-    t = 0.0
-    t_final = plan.end_time()
-    while True:
-      if plan.IsContactDesired(t):
-        # Look for contact.
-        q, v = self.SetStates(t)
-        contacts = self.controller.FindContacts(q)
-        if self.controller.IsRobotContactingBall(q, contacts):
-          logging.info('  -- TestContactAndContactIntendedOutputsCorrect() - desired time identified: ' + str(t))
-          break
-
-      # No contact desired or contact was found.
-      t += dt
-      assert t <= t_final
-
-    # This test will compute the control forces on the robot and the contact
-    # forces on the ball. The computed contact forces on the ball will be used
-    # to integrate the ball velocity forward in time. The control and computed
-    # contact forces on the robot will be used to integrate the robot velocity
-    # forward in time as well. We'll then examine the contact point and ensure
-    # that its velocity remains sufficiently near zero.
-
-    # Clear the velocity so that the contact velocity at the contact point need
-    # not compensate for nonzero initial velocity.
-    v[:] = np.zeros([len(v)])
-    all_plant.SetPositions(robot_and_ball_context, q)
-    all_plant.SetVelocities(robot_and_ball_context, v)
-    N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
-    zero_velocity_tol = 1e-3
-    Nv = N.dot(v)
-    Sv = S.dot(v)
-    Tv = T.dot(v)
-    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
-    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
-    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
-
-    # Determine the predicted forces due to contact.
-    u = self.controller.ComputeActuationForContactDesiredAndContacting(self.controller_context, contacts)
-
-    # Use the controller output to determine the generalized acceleration of the
-    # robot and the ball.
-    M = all_plant.CalcMassMatrixViaInverseDynamics(robot_and_ball_context)
-    link_wrenches = MultibodyForces(self.all_plant)
-    fext = -all_plant.CalcInverseDynamics(
-      robot_and_ball_context, np.zeros([len(v)]), link_wrenches)
-
-    # Get the robot actuation matrix.
-    B = self.controller.ConstructRobotActuationMatrix()
-
-    # Integrate the velocity forward in time.
-    dt = 1e-6
-    vdot = np.reshape(self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u, dt=dt), -1)
-    vnew = v + dt * vdot
-
-    # Get the velocity at the point of contacts.
-    Nv = N.dot(vnew)
-    Sv = S.dot(vnew)
-    Tv = T.dot(vnew)
-    self.assertLess(np.linalg.norm(Nv), zero_velocity_tol)
-    self.assertLess(np.linalg.norm(Sv), zero_velocity_tol)
-    self.assertLess(np.linalg.norm(Tv), zero_velocity_tol)
 
   @unittest.expectedFailure
   # Check control outputs for when contact is intended and robot and ball are
@@ -1036,7 +976,7 @@ class ControllerTest(unittest.TestCase):
     vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])[-3:]
 
     # Determine the control forces using the learned dynamics controller.
-    u = self.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, vdot_ball_des)
+    u = self.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, q, v, vdot_ball_des)
 
     # Get the approximate velocity.
     vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
@@ -1213,7 +1153,7 @@ class ControllerTest(unittest.TestCase):
     # Construct the Jacobian matrices using the controller function.
     [N, S, T, Ndot_v, Sdot_v, Tdot_v] = self.controller.ConstructJacobians(contacts, q, v)
 
-    self.PrintContacts(t)
+    self.PrintContacts(q)
     # Set a time step.
     dt = 1e-5
 
@@ -1358,7 +1298,7 @@ class ControllerTest(unittest.TestCase):
         N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
 
         # Output all contacting bodies
-        self.PrintContacts(t)
+        self.PrintContacts(q)
 
         # Verify that the velocity at the contact point is approximately zero.
         zero_velocity_tol = 1e-12
@@ -1393,7 +1333,7 @@ class ControllerTest(unittest.TestCase):
         N, S, T, Ndot, Sdot, Tdot = self.controller.ConstructJacobians(contacts, q, v)
 
         # Output all contacting bodies
-        self.PrintContacts(t)
+        self.PrintContacts(q)
 
         # Verify that the velocity at the contact points are approximately zero.
         zero_velocity_tol = 1e-10
