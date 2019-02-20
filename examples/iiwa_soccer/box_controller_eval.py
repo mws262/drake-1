@@ -392,7 +392,7 @@ class BoxControllerEvaluator:
             vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-3:]
             vdot_ball_des = np.reshape(vdot_ball_des, [-1, 1])
 
-            # Get quantities necessary to compute motor torques.
+            # Get quantities necessary to compute motor forces.
             all_plant = self.controller.robot_and_ball_plant
             all_context = self.controller.robot_and_ball_context
             all_plant.SetPositions(all_context, q)
@@ -413,8 +413,8 @@ class BoxControllerEvaluator:
             Sdot_v_ground = Sdot_v[ball_ground_contact_index]
             Tdot_v_ground = Tdot_v[ball_ground_contact_index]
 
-            # Get the motor torques.
-            [u, fz] = self.controller.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
+            # Get the motor forces.
+            [u, fz] = self.controller.ComputeContactControlMotorForcesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
             u = np.reshape(u, [-1, 1])
             fz = np.reshape(fz, [-1, 1])
 
