@@ -356,7 +356,6 @@ class BoxControllerEvaluator:
 
         return [Z, Zdot_v]
 
-
     def EvaluateAccelerationTrackingPerformanceNoSlip(self):
         # Get the weighting and actuation matrices.
         P = self.controller.ConstructBallVelocityWeightingMatrix()
@@ -367,7 +366,7 @@ class BoxControllerEvaluator:
         t_final = plan.end_time()
 
         # Open file for writing.
-        handle = open('ball_acceleration_tracking.dat', 'w')
+        handle = open('ball_acceleration_tracking_noslip.dat', 'w')
 
         # Advance time, finding a point at which contact is desired.
         dt = 1e-3
@@ -421,19 +420,16 @@ class BoxControllerEvaluator:
             # Compute the actual ball acceleration.
             vdot = iM.dot(fext + Z.T.dot(fz) + B.dot(u))
 
-            # Compute the difference between the two.
-            vdot_ball_delta = P.dot(vdot) - vdot_ball_des
-
-            # Output the relative difference.
+            # Now simulate the ball and compute the approximate vdot.
+            vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
+            vdot_ball_delta = P.dot(vdot_approx) - vdot_ball_des
             handle.write(str(np.linalg.norm(vdot_ball_delta) / np.linalg.norm(vdot_ball_des)))
             handle.write('\t')
 
-            # Now simulate the ball and compute the real vdot.
-            vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
-            vdot_ball_delta = P.dot(vdot_approx) - vdot_ball_des
-            #handle.write(str(np.reshape(vdot_ball_des, -1)) + '\t')
-            #handle.write(str(np.reshape(P.dot(vdot_approx), -1)))
-            handle.write(str(np.linalg.norm(vdot_ball_delta) / np.linalg.norm(vdot_ball_des)))
+            # Output the desired box acceleration vs. the approximate one.
+            vdot_box_des = plan.GetRobotQVAndVdot(self.controller_context.get_time())[-6:]
+            vdot_box_delta = all_plant.GetVelocitiesFromArray(self.controller.robot_instance, vdot_approx) - vdot_box_des
+            handle.write(str(np.linalg.norm(vdot_box_delta) / np.linalg.norm(vdot_box_des)))
             handle.write('\n')
 
             # Update dt.
@@ -441,6 +437,80 @@ class BoxControllerEvaluator:
 
         # Close the file.
         handle.close()
+
+    def EvaluateAccelerationTrackingPerformanceBlackBox(self):
+        # Get the weighting and actuation matrices.
+        P = self.controller.ConstructBallVelocityWeightingMatrix()
+        B = self.controller.ConstructRobotActuationMatrix()
+
+        # Get the plan.
+        plan = self.controller.plan
+        t_final = plan.end_time()
+
+        # Open file for writing.
+        handle = open('ball_acceleration_tracking_blackbox.dat', 'w')
+
+        # Advance time, finding a point at which contact is desired.
+        dt = 1e-3
+        t = 0.0
+        while t <= t_final:
+            # Determine whether the plan indicates contact is desired.
+            if not plan.IsContactDesired(t):
+                t += dt
+                continue
+
+            # Get the contacts.
+            q, v = self.SetStates(t)
+            contacts = self.controller.FindContacts(q)
+
+            # Verify that the robot is contacting the ball.
+            if (not self.controller.IsRobotContactingBall(q, contacts)):
+                logging.warning('Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.')
+                t += dt
+                continue
+
+            # Determine the desired ball acceleration.
+            vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-3:]
+            vdot_ball_des = np.reshape(vdot_ball_des, [-1, 1])
+
+            # Set positions and velocities.
+            all_plant = self.controller.robot_and_ball_plant
+            all_context = self.controller.robot_and_ball_context
+            all_plant.SetPositions(all_context, q)
+            all_plant.SetVelocities(all_context, v)
+
+            # Get the motor torques.
+            u = np.reshape(self.controller.ComputeOptimalContactControlMotorTorques(self.controller_context, q, v, vdot_ball_des), [-1, 1])
+
+            # Now simulate the ball and compute the approximate vdot.
+            vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
+            vdot_ball_delta = P.dot(vdot_approx) - vdot_ball_des
+            print P.dot(vdot_approx)
+            print vdot_ball_des
+            handle.write(str(np.linalg.norm(vdot_ball_delta) / np.linalg.norm(vdot_ball_des)))
+            handle.write('\t')
+
+            # Output the desired box acceleration vs. the approximate one.
+            vdot_box_des = plan.GetRobotQVAndVdot(self.controller_context.get_time())[-6:]
+            vdot_box_delta = all_plant.GetVelocitiesFromArray(self.controller.robot_instance, vdot_approx) - vdot_box_des
+            handle.write(str(np.linalg.norm(vdot_box_delta) / np.linalg.norm(vdot_box_des)))
+            handle.write('\n')
+            assert False
+
+            # Update dt.
+            t += dt
+
+        # Close the file.
+        handle.close()
+
+# Attempts to parse a string as a Boolean value.
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -450,14 +520,6 @@ def main():
              "discrete updates and period equal to this time_step. "
              "If 0, the plant is modeled as a continuous system.")
     parser.add_argument(
-        "--kp", type=float, default=60.0,
-        help="Cartesian Kp for impedance control. Gets used for all xyz "
-             "directions.")
-    parser.add_argument(
-        "--kd", type=float, default=30.0,
-        help="Cartesian kd for impedance control. Gets used for all xyz "
-             "directions.")
-    parser.add_argument(
         "--log", default='none',
         help='Logging type: "none", "info", "warning", "debug"')
     parser.add_argument(
@@ -465,21 +527,21 @@ def main():
         help='Path to the plan')
     args = parser.parse_args()
 
-    # Gains in Cartesian-land.
-    robot_cart_kp = np.ones([3, 1]) * args.kp
-    robot_cart_kd = np.ones([3, 1]) * args.kd
-
-    # Joint gains for the robot.
-    nv_robot = 6
-    robot_gv_kp = np.ones([nv_robot, 1]) * 10
-    robot_gv_ki = np.ones([nv_robot, 1]) * 0.1
-    robot_gv_kd = np.ones([nv_robot, 1]) * 1.0
+    # Set the logging level.
+    if args.log.upper() != 'NONE':
+        numeric_level = getattr(logging, args.log.upper(), None)
+        if not isinstance(numeric_level, int):
+            raise ValueError('Invalid log level: %s' % args.log)
+        logging.basicConfig(level=numeric_level)
+    else:
+        logging.disable(logging.CRITICAL)
 
     # Construct and run the evaluator.
     bce = BoxControllerEvaluator(args.plan_path, args.time_step)
     #bce.EvaluateSlipPerturbation()
     #bce.EvaluateContactTrackingPerformance()
-    bce.EvaluateAccelerationTrackingPerformanceNoSlip()
+    #bce.EvaluateAccelerationTrackingPerformanceNoSlip()
+    bce.EvaluateAccelerationTrackingPerformanceBlackBox()
 
 if __name__ == "__main__":
     main()
