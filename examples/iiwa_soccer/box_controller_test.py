@@ -230,7 +230,7 @@ class ControllerTest(unittest.TestCase):
     B = self.ConstructRobotActuationMatrix()
     P = self.ConstructBallVelocityWeightingMatrix()
 
-    # Primal variables are motor torques and accelerations.
+    # Primal variables are motor forces and accelerations.
     nv, nu = B.shape
     nprimal = nu + nv
 
@@ -298,44 +298,6 @@ class ControllerTest(unittest.TestCase):
 
     return u
 
-  # Computes the motor torques for ComputeActuationForContactDesiredAndContacting() that minimize deviation from the
-  # desired acceleration using no dynamics information and a gradient-free optimization strategy.
-  # This controller uses the simulator to compute contact forces, rather than attempting to predict the contact forces
-  # that the simulator will generate.
-  def ComputeOptimalContactControlMotorTorquesDerivativeFree(self, controller_context, q, v, vdot_ball_des):
-
-    P = self.controller.ConstructBallVelocityWeightingMatrix()
-    nu = self.controller.ConstructRobotActuationMatrix().shape[1]
-
-    # Get the current system positions and velocities.
-    nv = len(v)
-
-    # The objective function.
-    def objective_function(u):
-      vdot_approx = self.controller.ComputeApproximateAcceleration(controller_context, q, v, u)
-      delta = P.dot(vdot_approx) - vdot_ball_des
-      return np.linalg.norm(delta)
-
-    '''
-    # Do CMA-ES.
-    sigma = 0.1
-    u_best = np.array([0, 0, 0, -2.3675, 0, 0])
-    fbest = objective_function(u_best)
-    for i in range(1):
-      es = cma.CMAEvolutionStrategy(u_best, sigma)
-      es.optimize(objective_function)
-      if es.result.fbest < fbest:
-        fbest = es.result.fbest
-        u_best = es.result.xbest
-    '''
-
-    res = scipy.optimize.minimize(objective_function, np.random.normal(np.zeros([nu])))
-    print res.success
-    print res.message
-    u_best = res.x
-
-    return u_best
-
   # Computes the applied forces when the ball is fully actuated (version that
   # solves a QP). This is a function for debugging purposes. It shows that the
   # optimization criterion that we use is a reasonable one; see the unit test
@@ -374,7 +336,7 @@ class ControllerTest(unittest.TestCase):
         P[vball_index, i] = v[i]
         vball_index += 1
 
-    # Primal variables are motor torques and accelerations.
+    # Primal variables are motor forces and accelerations.
     nu = nv
     nprimal = nu + nv
 
@@ -470,22 +432,6 @@ class ControllerTest(unittest.TestCase):
 
     return u
 
-  # Function for constructing Z and Zdot_v from N, S, T, etc.
-  def SetZAndZdot(self, N, S, T, Ndot_v, Sdot_v, Tdot_v):
-    nc = N.shape[0]
-
-    # Set Z and Zdot_v
-    Z = np.zeros([N.shape[0] * 3, N.shape[1]])
-    Z[0:nc,:] = N
-    Z[nc:2*nc,:] = S
-    Z[-nc:,:] = T
-    Zdot_v = np.zeros([nc * 3])
-    Zdot_v[0:nc] = Ndot_v[:,0]
-    Zdot_v[nc:2*nc] = Sdot_v[:, 0]
-    Zdot_v[-nc:] = Tdot_v[:, 0]
-
-    return [Z, Zdot_v]
-
   # Computes the contact forces under the no-slip solution *without also trying to minimize the deviation from the
   # desired acceleration.*
   def ComputeContactForcesWithoutControl(self, q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v):
@@ -522,7 +468,7 @@ class ControllerTest(unittest.TestCase):
       # The gradient is: ([N; 0] * inv(M) * f + [Ndot_v; 0])
 
       # Form the 'Z' matrix.
-      [Z, Zdot_v] = self.SetZAndZdot(N, S, T, Ndot_v, Sdot_v, Tdot_v)
+      [Z, Zdot_v] = self.controller.SetZAndZdot_v(N, S, T, Ndot_v, Sdot_v, Tdot_v)
 
       # Augment the N terms.
       nc = N.shape[0]
@@ -564,7 +510,6 @@ class ControllerTest(unittest.TestCase):
       fz = np.reshape(prog.GetSolution(vars), [-1, 1])
       return [fz, Z, Zdot_v, iM, fext]
 
-
   # Computes the contact force solution for test_NoSlipAcceleration (i.e., while also minimizing the deviation from
   # the desired acceleration). Compare to ComputeContactForcesWithoutControl().
   def ComputeContactForces(self, q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v, P, vdot_ball_des, enforce_no_slip=False):
@@ -599,7 +544,7 @@ class ControllerTest(unittest.TestCase):
       # The Hessian matrix is: 1/2 * Z * inv(M) * P' * P * inv(M) * Z
 
       # Form the 'Z' matrix.
-      [Z, Zdot_v] = self.SetZAndZdot(N, S, T, Ndot_v, Sdot_v, Tdot_v)
+      [Z, Zdot_v] = self.controller.SetZAndZdot_v(N, S, T, Ndot_v, Sdot_v, Tdot_v)
 
       # Compute the Hessian.
       H = Z.dot(iM).dot(P.T).dot(P).dot(iM).dot(Z.T)
@@ -661,10 +606,11 @@ class ControllerTest(unittest.TestCase):
     nv = self.controller.nv_ball() + self.controller.nv_robot()
     v = np.zeros([nv])
 
-    # Construct the desired acceleration.
+    # Construct the desired accelerations.
     vdot_ball_des = np.reshape(np.array([0, -1/r, 0, -1, 0, 0]), [-1, 1])
+    vdot_box_des = np.reshape(np.array([0, 0, 0, -2, 0, 0]), [-1, 1]) 
 
-    return [q, v, vdot_ball_des]
+    return [q, v, vdot_ball_des, vdot_box_des]
 
   # Checks that the ball can be accelerated while maintaining the no-slip condition between the ball and the ground
   # using a known, good configuration.
@@ -682,13 +628,13 @@ class ControllerTest(unittest.TestCase):
               vball_index += 1
 
       # Check a known, good configuration.
-      q, v, vdot_ball_des = self.ConstructKnownGoodConfiguration()
+      q, v, vdot_ball_des, vdot_box_des = self.ConstructKnownGoodConfiguration()
       self.PrintContacts(q)
       contacts = self.controller.FindContacts(q)
       N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
       nc = N.shape[0]
       assert nc == 2
-      [Z, Zdot_v] = self.SetZAndZdot(N, S, T, Ndot_v, Sdot_v, Tdot_v)
+      [Z, Zdot_v] = self.controller.SetZAndZdot_v(N, S, T, Ndot_v, Sdot_v, Tdot_v)
 
       # Get the contact index for the ball and the ground.
       ball_ground_contact_index = self.controller.GetBallGroundContactIndex(q, contacts)
@@ -712,7 +658,7 @@ class ControllerTest(unittest.TestCase):
       # Verify that the no-slip controller arrives at the same objective (or better).
       P_star = self.controller.ConstructBallVelocityWeightingMatrix()
       B = self.controller.ConstructRobotActuationMatrix()
-      u, fz = self.controller.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des[-3:], Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
+      u, fz = self.controller.ComputeContactControlMotorForcesNoSlip(iM, fext, vdot_ball_des[-3:], Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
       logging.info('computed actuator forces: ' + str(u))
       logging.info('computed contact forces: ' + str(fz))
       vdot = iM.dot(fext + B.dot(u) + Z.T.dot(fz))
@@ -723,9 +669,8 @@ class ControllerTest(unittest.TestCase):
       # Verify that the desired spatial acceleration was achieved.
       self.assertAlmostEqual(np.linalg.norm(P.dot(vdot) - vdot_ball_des), 0, places=3)
 
-      # Determine the control forces using the learned dynamics controller.
-      u = self.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, q, v, vdot_ball_des[-3:])
-      #u = np.array([0, 0, 0, -2.3675, 0, 0])
+      # Determine the control forces using the black box controller.
+      u = self.controller.ComputeOptimalContactControlMotorForces(self.controller_context, q, v, vdot_ball_des[-3:], vdot_box_des)
 
       # Check the desired spatial acceleration in the embedded simulation.
       vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
@@ -819,8 +764,8 @@ class ControllerTest(unittest.TestCase):
       fz_star, Z, iM, fext = self.ComputeContactForces(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v,
           P_star, vdot_ball_des[-3:], enforce_no_slip=False)
       vdot_compute_contact_forces = iM.dot(fext + Z.T.dot(fz_star))
-      #u, fz_no_separate = self.controller.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des[-3:], Z, N, Ndot_v)
-      u, fz_no_slip = self.controller.ComputeContactControlMotorTorquesNoSlip(iM, fext, vdot_ball_des[-3:], Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
+      #u, fz_no_separate = self.controller.ComputeContactControlMotorForcesNoSeparation(iM, fext, vdot_ball_des[-3:], Z, N, Ndot_v)
+      u, fz_no_slip = self.controller.ComputeContactControlMotorForcesNoSlip(iM, fext, vdot_ball_des[-3:], Z, Zdot_v, N, Ndot_v, S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
       #vdot_controller = iM.dot(fext + B.dot(u) + Z.T.dot(fz_no_separate))
       vdot_controller = iM.dot(fext + B.dot(u) + Z.T.dot(fz_no_slip))
       self.assertLessEqual(np.linalg.norm(P_star.dot(vdot_controller) - vdot_ball_des[-3:]),
@@ -903,6 +848,11 @@ class ControllerTest(unittest.TestCase):
       # Get the Jacobians.
       N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
       nc = N.shape[0]
+      ball_ground_contact_index = self.controller.GetBallGroundContactIndex(q, contacts)
+      S_ground = S[ball_ground_contact_index, :]
+      T_ground = T[ball_ground_contact_index, :]
+      Sdot_v_ground = Sdot_v[ball_ground_contact_index]
+      Tdot_v_ground = Tdot_v[ball_ground_contact_index]
 
       # Verify that the velocities in each direction of the contact frame are zero.
       Nv = N.dot(v)
@@ -916,7 +866,8 @@ class ControllerTest(unittest.TestCase):
       dummy, Z, Zdot_v, iM, fext = self.ComputeContactForcesWithoutControl(q, v, N, S, T, Ndot_v, Sdot_v, Tdot_v)
       P = self.controller.ConstructBallVelocityWeightingMatrix()
       B = self.controller.ConstructRobotActuationMatrix()
-      u, fz = self.controller.ComputeContactControlMotorTorquesNoSeparation(iM, fext, vdot_ball_des, Z, N, Ndot_v)
+      u, fz = self.controller.ComputeContactControlMotorForcesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v,
+          S_ground, Sdot_v_ground, T_ground, Tdot_v_ground)
       vdot = iM.dot(fext + B.dot(u) + Z.T.dot(fz))
 
       # Get the accelerations of the ball along the directions of the ball contact normals.
@@ -975,8 +926,8 @@ class ControllerTest(unittest.TestCase):
     vdot_ball_des = plan.GetBallQVAndVdot(self.controller_context.get_time())[-self.controller.nv_ball():]
     vdot_ball_des = np.reshape(vdot_ball_des, [self.controller.nv_ball(), 1])[-3:]
 
-    # Determine the control forces using the learned dynamics controller.
-    u = self.ComputeOptimalContactControlMotorTorquesDerivativeFree(self.controller_context, q, v, vdot_ball_des)
+    # Determine the control forces using the black box controller.
+    u = self.ComputeOptimalContactControlMotorForces(self.controller_context, q, v, vdot_ball_des)
 
     # Get the approximate velocity.
     vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
