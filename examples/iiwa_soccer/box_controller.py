@@ -733,13 +733,15 @@ class BoxController(LeafSystem):
           vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u)
           delta = P.dot(vdot_approx) - vdot_ball_des
           vdot_approx_box = self.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, vdot_approx)
-          return np.linalg.norm(delta)#np.linalg.norm(vdot_approx_box - vdot_box_des)
+          return np.linalg.norm(delta) + 1e-6*np.linalg.norm(u) + 1e6*u[1]*u[1] + 1e6*u[0]*u[0] + 1e6*u[4]*u[4]#np.linalg.norm(vdot_approx_box - vdot_box_des)
 
-      #result = scipy.optimize.minimize(objective_function, np.random.normal(np.zeros([nu])))
-      result = scipy.optimize.minimize(objective_function, np.array([0, 0, 0, -2.7, 0, 0]))
+      print 'Warning: remove the non-random start for scipy.optimize.minimize'
+      result = scipy.optimize.minimize(objective_function, np.random.normal(np.zeros([nu])))
+      #result = scipy.optimize.minimize(objective_function, np.array([0, 0, 0, -2.7, 0, 0]))
       logging.info('scipy.optimize success? ' + str(result.success))
       logging.info('scipy.optimize message: ' +  result.message)
       logging.info('scipy.optimize result: ' + str(result.x))
+      logging.info('function evaluation: ' + str(objective_function(result.x)))
       u_best = result.x
 
       vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u_best)
