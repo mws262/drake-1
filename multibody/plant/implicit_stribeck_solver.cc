@@ -681,7 +681,6 @@ ImplicitStribeckSolverResult ImplicitStribeckSolver<T>::SolveWithGuess(
     }
 
     CalcNormalForces(x, vn, Jn, dt, &fn, &Gn);
-    std::cout << "MBP normal forces: " << fn.transpose() << std::endl;
 
     // Update v_slip, t_hat, mus and ft as a function of vt and fn.
     CalcFrictionForces(vt, fn, &v_slip, &t_hat, &mu_vt, &ft);

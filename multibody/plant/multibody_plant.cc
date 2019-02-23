@@ -853,7 +853,6 @@ void MultibodyPlant<T>::set_penetration_allowance(
   const double damping = damping_ratio * time_scale / penetration_allowance;
 
   // Final parameters used in the penalty method:
-  std::cout << "MBP: Setting stiffness to: " << stiffness << std::endl;
   penalty_method_contact_parameters_.stiffness = stiffness;
   penalty_method_contact_parameters_.damping = damping;
   // The time scale can be requested to hint the integrator's time step.
@@ -1387,8 +1386,6 @@ ImplicitStribeckSolverResult MultibodyPlant<T>::SolveUsingSubStepping(
     info = implicit_stribeck_solver_->SolveWithGuess(dt_substep,
                                                      v0_substep);
 
-    std::cout << "MBP: generalized contact forces: " << implicit_stribeck_solver_->get_generalized_contact_forces().transpose() << std::endl;
-
     // Break the sub-stepping loop on failure and return the info result.
     if (info != ImplicitStribeckSolverResult::kSuccess) break;
 
@@ -1510,7 +1507,6 @@ void MultibodyPlant<T>::DoCalcDiscreteVariableUpdates(
                  [](const PenetrationAsPointPair<T>& pair) {
                    return pair.depth;
                  });
-  std::cout << "MBP penetration depths: " << phi0 << std::endl;
 
   // TODO(amcastro-tri): Consider using different penalty parameters at each
   // contact point.

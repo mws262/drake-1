@@ -17,9 +17,9 @@ ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
 class EmbeddedSim:
 
-  def __init__(self, dt):
+  def __init__(self, dt, penetration_allowance):
       self.delta_t = dt
-      self.control_input, self.diagram, self.all_plant, self.mbw, robot_instance, ball_instance = self.BuildBlockDiagram(dt)
+      self.control_input, self.diagram, self.all_plant, self.mbw, robot_instance, ball_instance = self.BuildBlockDiagram(dt, penetration_allowance)
 
       self.simulator = Simulator(self.diagram)
       self.simulator.set_publish_every_time_step(True)
@@ -28,7 +28,7 @@ class EmbeddedSim:
       self.context = self.simulator.get_mutable_context()
 
   # Constructs the necessary block diagram.
-  def BuildBlockDiagram(self, mbp_step_size):
+  def BuildBlockDiagram(self, mbp_step_size, penetration_allowance):
     # Construct DiagramBuilder objects for both "MultibodyWorld" and the total
     # diagram (comprising all systems).
     builder = DiagramBuilder()
@@ -55,7 +55,8 @@ class EmbeddedSim:
 
     # Finalize the plants.
     all_plant.Finalize(scene_graph)
-    all_plant.set_penetration_allowance(1e-8)
+    if penetration_allowance >= 0:
+        all_plant.set_penetration_allowance(penetration_allowance)
     assert all_plant.num_actuators() == 0
     assert all_plant.geometry_source_is_registered()
 

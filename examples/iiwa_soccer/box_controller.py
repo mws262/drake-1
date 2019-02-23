@@ -12,7 +12,7 @@ CreateArrowOutputAllocCallback, ArrowVisualization)
 from pydrake.solvers import mathematicalprogram
 
 class BoxController(LeafSystem):
-  def __init__(self, sim_dt, robot_type, all_plant, robot_plant, mbw, robot_instance, ball_instance, fully_actuated=False, controller_type='BlackBoxDynamics'):
+  def __init__(self, sim_dt, penetration_allowance, robot_type, all_plant, robot_plant, mbw, robot_instance, ball_instance, fully_actuated=False, controller_type='BlackBoxDynamics'):
       LeafSystem.__init__(self)
 
       # Saves whether the entire system will be actuated.
@@ -35,7 +35,7 @@ class BoxController(LeafSystem):
       self.mbw = mbw
 
       # Initialize the embedded sim.
-      self.embedded_sim = EmbeddedSim(sim_dt)
+      self.embedded_sim = EmbeddedSim(sim_dt, penetration_allowance)
 
       # Set the controller type.
       self.controller_type = controller_type
@@ -439,7 +439,7 @@ class BoxController(LeafSystem):
       self.robot_and_ball_plant.SetPositions(self.robot_and_ball_context, q)
 
   # Gets the signed distance between the ball and the ground.
-  def GetSignedDistanceFromBallToGround(self, context):
+  def GetSignedDistanceFromBallToGround(self):
       all_plant = self.robot_and_ball_plant
 
       # Get the ball body and foot bodies.
@@ -449,13 +449,6 @@ class BoxController(LeafSystem):
       # Make sorted pair to check.
       ball_world_pair = self.MakeSortedPair(ball_body, world_body)
 
-      # Get the current configuration of the robot and the foot.
-      q = self.get_q_all(context)
-
-      # Update the context to use configuration q1 in the query. This will modify
-      # the mbw context, used immediately below.
-      self.UpdateRobotAndBallConfigurationForGeometricQueries(q)
-
       # Evaluate scene graph's output port, getting a SceneGraph reference.
       query_object = self.robot_and_ball_plant.EvalAbstractInput(
         self.robot_and_ball_context, self.geometry_query_input_port.get_index()).get_value()
@@ -464,7 +457,7 @@ class BoxController(LeafSystem):
       # Get the closest points on the robot foot and the ball corresponding to q1
       # and v0.
       closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
-      assert len(closest_points) > 0
+      assert len(closest_points) == 3
 
       dist = 1e20
       for i in range(len(closest_points)):
@@ -482,7 +475,7 @@ class BoxController(LeafSystem):
       return dist
 
   # Gets the signed distance between the ball and the foot.
-  def GetSignedDistanceFromRobotToBall(self, context):
+  def GetSignedDistanceFromRobotToBall(self):
       all_plant = self.robot_and_ball_plant
 
       # Get the ball body and foot bodies.
@@ -493,13 +486,6 @@ class BoxController(LeafSystem):
       ball_foot_pairs = [0] * len(foot_bodies)
       for i in range(len(foot_bodies)):
           ball_foot_pairs[i] = self.MakeSortedPair(ball_body, foot_bodies[i])
-
-      # Get the current configuration of the robot and the foot.
-      q = self.get_q_all(context)
-
-      # Update the context to use configuration q1 in the query. This will modify
-      # the mbw context, used immediately below.
-      self.UpdateRobotAndBallConfigurationForGeometricQueries(q)
 
       # Evaluate scene graph's output port, getting a SceneGraph reference.
       query_object = self.robot_and_ball_plant.EvalAbstractInput(
@@ -697,32 +683,48 @@ class BoxController(LeafSystem):
 
       return B
 
-  # Constructs the matrix that zeros angular velocities for the ball (and
-  # does not change the linear velocities).
-  def ConstructBallVelocityWeightingMatrix(self):
+  # Constructs the matrix that weights certain velocities.
+  #  weighting_type: 'ball-linear' (everything but the ball linear velocities are given zero weight),
+  #                  'ball-full' (ball linear and angular velocities are specially weighted), or
+  #                  'full'      (robot and ball linear and angular velocities are weighted). 
+  # Returns a nv x nv-sized matrix, where nv is the number of velocity variables in the plant.
+  def ConstructVelocityWeightingMatrix(self, weighting_type='ball-linear'):
+      ball_radius = 0.1
+      box_length = 0.4
+      box_width = 0.4
+      box_depth = 0.04
+      box_radius = math.sqrt(box_length*box_length + box_width*box_width + box_depth*box_depth)
+
+      assert self.robot_and_ball_plant.num_velocities(self.robot_instance) == 6
+      if weighting_type == 'ball-linear':
+          ball_v = np.array([0, 0, 0, 1, 1, 1])
+          box_v = np.zeros(self.robot_and_ball_plant.num_velocities(self.robot_instance))
+      elif weighting_type == 'ball-full':
+          ball_v = np.array([ball_radius, ball_radius, ball_radius, 1, 1, 1])
+          box_v = np.zeros(self.robot_and_ball_plant.num_velocities(self.robot_instance))
+      elif weighting_type == 'full':
+          ball_v = np.array([ball_radius, ball_radius, ball_radius, 1, 1, 1])
+          box_v = np.array([box_radius, box_radius, box_radius, 1, 1, 1])
+      else:
+          assert False
+
       # Get the indices of generalized velocity that correspond to the ball.
       nv = self.nv_ball() + self.nv_robot()
       v = np.zeros([nv])
-      dummy_ball_v = np.array([0, 0, 0, 1, 1, 1])
-      self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, dummy_ball_v, v)
+      self.robot_and_ball_plant.SetVelocitiesInArray(self.ball_instance, ball_v, v)
+      self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, box_v, v)
 
       # Set the velocities weighting.
-      P = np.zeros([3, nv])
-      vball_index = 0
-      for i in range(nv):
-          if abs(v[i]) > 0.5:
-              P[vball_index, i] = v[i]
-              vball_index += 1
-
-      return P
+      return np.diag(v)
 
   # Computes the motor forces for ComputeActuationForContactDesiredAndContacting() that minimize deviation from the
   # desired acceleration using no dynamics information and a gradient-based optimization strategy.
   # This controller uses the simulator to compute contact forces, rather than attempting to predict the contact forces
   # that the simulator will generate.
-  def ComputeOptimalContactControlMotorForces(self, controller_context, q, v, vdot_ball_des, vdot_box_des):
+  def ComputeOptimalContactControlMotorForces(self, controller_context, q, v, vdot_des, weighting_type='ball-linear'):
+      vdot_des = np.reshape(vdot_des, [-1, 1])
 
-      P = self.ConstructBallVelocityWeightingMatrix()
+      P = self.ConstructVelocityWeightingMatrix(weighting_type)
       nu = self.ConstructRobotActuationMatrix().shape[1]
 
       # Get the current system positions and velocities.
@@ -731,13 +733,11 @@ class BoxController(LeafSystem):
       # The objective function.
       def objective_function(u):
           vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u)
-          delta = P.dot(vdot_approx) - vdot_ball_des
-          vdot_approx_box = self.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, vdot_approx)
-          return np.linalg.norm(delta) + 1e-6*np.linalg.norm(u) + 1e6*u[1]*u[1] + 1e6*u[0]*u[0] + 1e6*u[4]*u[4]#np.linalg.norm(vdot_approx_box - vdot_box_des)
+          delta = P.dot(vdot_approx - vdot_des)
+          return np.linalg.norm(delta)
 
-      print 'Warning: remove the non-random start for scipy.optimize.minimize'
-      result = scipy.optimize.minimize(objective_function, np.random.normal(np.zeros([nu])))
-      #result = scipy.optimize.minimize(objective_function, np.array([0, 0, 0, -2.7, 0, 0]))
+      #result = scipy.optimize.minimize(objective_function, np.random.normal(np.zeros([nu])))
+      result = scipy.optimize.minimize(objective_function, np.array([0, 0, 0, 0, 0, 0]))
       logging.info('scipy.optimize success? ' + str(result.success))
       logging.info('scipy.optimize message: ' +  result.message)
       logging.info('scipy.optimize result: ' + str(result.x))
@@ -745,11 +745,16 @@ class BoxController(LeafSystem):
       u_best = result.x
 
       vdot_approx = self.ComputeApproximateAcceleration(controller_context, q, v, u_best)
-      logging.info('ball desired acceleration: ' + str(vdot_ball_des))
-      logging.info('ball approximate acceleration: ' + str(P.dot(vdot_approx)))
-      logging.info('robot desired acceleration: ' + str(vdot_box_des))
-      vdot_approx_box = self.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, vdot_approx)
-      logging.info('robot actual acceleration: ' + str(vdot_approx_box))
+      logging.info('ball desired acceleration: ' +
+              str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_des)))
+      logging.info('ball approximate acceleration: ' +
+              str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.ball_instance, vdot_approx)))
+      logging.info('robot desired acceleration: ' +
+              str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, vdot_des)))
+      logging.info('robot approximate acceleration: ' +
+              str(self.robot_and_ball_plant.GetVelocitiesFromArray(self.robot_instance, vdot_approx)))
+      logging.info('P * approximate acceleration: ' +
+              str(P.dot(vdot_approx)))
 
       return u_best
 

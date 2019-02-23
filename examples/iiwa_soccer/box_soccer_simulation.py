@@ -19,7 +19,7 @@ ground_model_path = "drake/examples/iiwa_soccer/models/ground.sdf"
 arm_model_path = "drake/examples/iiwa_soccer/models/box.sdf"
 ball_model_path = "drake/examples/iiwa_soccer/models/soccer_ball.sdf"
 
-def BuildBlockDiagram(mbp_step_size, plan_path, fully_actuated):
+def BuildBlockDiagram(mbp_step_size, penetration_allowance, plan_path, fully_actuated):
 
   # Construct DiagramBuilder objects for both "MultibodyWorld" and the total
   # diagram (comprising all systems).
@@ -56,13 +56,18 @@ def BuildBlockDiagram(mbp_step_size, plan_path, fully_actuated):
   assert all_plant.num_actuators() == 0
   assert all_plant.geometry_source_is_registered()
 
+  # The penetration allowance must be set after plant finalization.
+  if penetration_allowance >= 0:
+      robot_plant.set_penetration_allowance(penetration_allowance)
+      all_plant.set_penetration_allowance(penetration_allowance)
+
   # Connect MBP and SceneGraph.
   mbw_builder.Connect(
-    scene_graph.get_query_output_port(),
-    all_plant.get_geometry_query_input_port())
+          scene_graph.get_query_output_port(),
+          all_plant.get_geometry_query_input_port())
   mbw_builder.Connect(
-    all_plant.get_geometry_poses_output_port(),
-    scene_graph.get_source_pose_port(all_plant.get_source_id()))
+          all_plant.get_geometry_poses_output_port(),
+          scene_graph.get_source_pose_port(all_plant.get_source_id()))
 
   # Export useful ports.
   robot_continuous_state_output = mbw_builder.ExportOutput(all_plant.get_continuous_state_output_port(robot_instance_id))
@@ -83,7 +88,7 @@ def BuildBlockDiagram(mbp_step_size, plan_path, fully_actuated):
   #############################################
 
   # Build the controller.
-  controller = builder.AddSystem(BoxController(mbp_step_size, 'box', all_plant, robot_plant, mbw, robot_instance_id, ball_instance_id, fully_actuated))
+  controller = builder.AddSystem(BoxController(mbp_step_size, penetration_allowance, 'box', all_plant, robot_plant, mbw, robot_instance_id, ball_instance_id, fully_actuated))
   controller.LoadPlans(plan_path)
   ConnectGenericArrowsToDrakeVisualizer(builder=builder, output_port=controller.ball_acceleration_visualization_output_port)
 
@@ -163,6 +168,9 @@ def main():
       help="If greater than zero, the plant is modeled as a system with "
            "discrete updates and period equal to this time_step. "
            "If 0, the plant is modeled as a continuous system.")
+  parser.add_argument(
+      "--penetration_allowance", type=float, default=1e-8,
+      help="The amount of interpenetration to allow in the simulation.")
   parser.add_argument(
       "--kp", type=float, default=60.0,
       help="Cartesian Kp for impedance control. Gets used for all xyz "
