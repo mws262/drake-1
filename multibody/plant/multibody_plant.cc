@@ -39,6 +39,7 @@ using systems::InputPort;
 using systems::OutputPort;
 using systems::State;
 
+using drake::multibody::constraint::SoftConstraintProblemData;
 using drake::multibody::MultibodyForces;
 using drake::multibody::MultibodyTree;
 using drake::multibody::PositionKinematicsCache;
@@ -1272,6 +1273,182 @@ VectorX<T> MultibodyPlant<T>::AssembleActuationInput(
   }
   DRAKE_ASSERT(u_offset == num_actuated_dofs());
   return actuation_input;
+}
+
+template <typename T>
+VectorX<T> MultibodyPlant<T>::CalcAccelerations(
+    const Context<T>& context, double dt) const {
+  const int nv = num_velocities();
+
+  // Allocate workspace. We might want to cache these to avoid allocations.
+  // Mass matrix.
+  MatrixX<T> M(nv, nv);
+  // Forces.
+  MultibodyForces<T> forces(internal_tree());
+  // Bodies' accelerations, ordered by BodyNodeIndex.
+  std::vector<SpatialAcceleration<T>> A_WB_array(internal_tree().num_bodies());
+
+  const internal::PositionKinematicsCache<T>& pc =
+      EvalPositionKinematics(context);
+  const internal::VelocityKinematicsCache<T>& vc =
+      EvalVelocityKinematics(context);
+
+  // Compute forces applied through force elements. This effectively resets
+  // the forces to zero and adds in contributions due to force elements.
+  internal_tree().CalcForceElementsContribution(context, pc, vc, &forces);
+
+  // If there is any input actuation, add it to the multibody forces.
+  AddJointActuationForces(context, &forces);
+  AddAppliedExternalSpatialForces(context, &forces);
+
+  // If there are any generalized forces applied, add them.
+  const BasicVector<T>* tau_applied =
+      this->EvalVectorInput(context, applied_generalized_force_input_port_);
+  if (tau_applied)
+    forces.mutable_generalized_forces() += tau_applied->get_value();
+
+  internal_tree().CalcMassMatrixViaInverseDynamics(context, &M);
+
+  // WARNING: to reduce memory foot-print, we use the input applied arrays also
+  // as output arrays. This means that both the array of applied body forces and
+  // the array of applied generalized forces get overwritten on output. This is
+  // not important in this case since we don't need their values anymore.
+  // Please see the documentation for CalcInverseDynamics() for details.
+
+  // With vdot = 0, this computes:
+  //   tau = C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W.
+  std::vector<SpatialForce<T>>& F_BBo_W_array = forces.mutable_body_forces();
+  VectorX<T>& tau_array = forces.mutable_generalized_forces();
+
+  internal_tree().CalcInverseDynamics(
+      context, pc, vc, VectorX<T>::Zero(nv),
+      F_BBo_W_array, tau_array,
+      &A_WB_array,
+      &F_BBo_W_array, /* Notice these arrays gets overwritten on output. */
+      &tau_array);
+
+  const Eigen::LDLT<MatrixX<T>> ldlt_M(M);
+  DRAKE_DEMAND(ldlt_M.info() == Eigen::ComputationInfo::Success);
+
+  // Compute contact forces.
+  if (num_collision_geometries() > 0) {
+    std::vector<PenetrationAsPointPair<T>> point_pairs =
+        CalcPointPairPenetrations(context);
+    const SoftConstraintProblemData<T> constraint_data =
+        CalcSoftConstraintProblemData(
+            context, ldlt_M, -tau_array, point_pairs, dt);
+    return ldlt_M.solve(ComputeContactForces(constraint_data, dt) - tau_array);
+  } else {
+    return ldlt_M.solve(-tau_array);
+  } 
+}
+
+template<typename T>
+template<typename U>
+std::enable_if_t<std::is_same<U, double>::value, VectorX<U>>
+    MultibodyPlant<T>::ComputeContactForces(
+        const SoftConstraintProblemData<U>& data, double dt) const {
+  // Set zeta to something dependent on dt.
+  const double zeta = 1.0 / dt;
+
+  // Solve the constraint problem.
+  VectorX<T> cf;
+  solver_.SolveConstraintProblem(data, zeta, dt, &cf);
+
+  // Compute the generalized contact forces.
+  VectorX<T> tau_cf;
+  solver_.ComputeGeneralizedForceFromConstraintForces(data, cf, &tau_cf);
+  return tau_cf;
+}
+
+template<typename T>
+template<typename U>
+std::enable_if_t<!std::is_same<U, double>::value, VectorX<U>>
+    MultibodyPlant<T>::ComputeContactForces(
+        const SoftConstraintProblemData<U>&, double) const {
+  throw std::runtime_error("Only supports type of double!");
+}
+
+template<typename T>
+SoftConstraintProblemData<T> MultibodyPlant<T>::CalcSoftConstraintProblemData(
+    const systems::Context<T>& context,
+    const Eigen::LDLT<MatrixX<T>>& ldlt_M,
+    const VectorX<T>& tau_ext,
+    const std::vector<PenetrationAsPointPair<T>>& point_pairs,
+    double dt) const {
+  const int nv = num_velocities();
+  const int num_contacts = point_pairs.size();
+
+  // Construct the problem data.
+  SoftConstraintProblemData<T> data(nv);
+
+  // Set the coefficients of friction.
+  data.mu.setOnes(num_contacts) *= 0.1;
+
+  // Set the stiffnesses along the contact normal and two tangent directions.
+  const double stiffness = 1e12;
+  data.Kn.setOnes(num_contacts) *= stiffness;
+  data.Kr.setZero(num_contacts);
+  data.Ks.setZero(num_contacts);
+
+  // Set the damping term along the contact normal and two tangent directions.
+  data.Bn.setZero(num_contacts);
+  data.Br.setOnes(num_contacts) *= 1e13 * std::pow(dt, 1.0/333);
+  data.Bs.setOnes(num_contacts) *= 1e13 * std::pow(dt, 1.0/333);
+
+  // Set the Jacobian matrices corresponding to the contact normal and the two
+  // tangent directions Jacobian.
+  std::vector<Matrix3<T>> R_WC_set;
+  MatrixX<T> Gn, Jt, Gr, Gs;
+  CalcNormalAndTangentContactJacobians(
+      context, point_pairs, &Gn, &Jt, &R_WC_set);
+  Gr.resize(num_contacts, nv);
+  Gs.resize(num_contacts, nv);
+  for (int i = 0; i < num_contacts; ++i) {
+    Gr.row(i) = Jt.row(2 * i);
+    Gs.row(i) = Jt.row(2 * i + 1);
+  }
+  data.Gn_mult = [Gn](const MatrixX<T>& X) -> MatrixX<T> { return Gn * X; };
+  data.Gn_transpose_mult = [Gn](const MatrixX<T>& X) -> MatrixX<T> {
+    return Gn.transpose() * X;
+  };
+  data.Gr_mult = [Gr](const MatrixX<T>& X) -> MatrixX<T> { return Gr * X; };
+  data.Gr_transpose_mult = [Gr](const MatrixX<T>& X) -> MatrixX<T> { 
+    return Gr.transpose() * X; };
+  data.Gs_mult = [Gs](const MatrixX<T>& X) -> MatrixX<T> { return Gs * X; };
+  data.Gs_transpose_mult = [Gs](const MatrixX<T>& X) -> MatrixX<T> { 
+    return Gs.transpose() * X;
+  };
+
+  // Construct phi's and phidot's.
+  VectorX<T> phi_n(num_contacts);
+  for (int i = 0; i < num_contacts; ++i) {
+    DRAKE_ASSERT(point_pairs[i].depth > 0);
+    phi_n[i] = -point_pairs[i].depth;
+  }
+  const VectorX<T> v = GetVelocities(context);
+  const VectorX<T> dotphi_n = Gn * v;
+  const VectorX<T> dotphi_r = Gr * v;
+  const VectorX<T> dotphi_s = Gs * v;
+
+  // Set the generalized inertia matrix inverse operator.
+  data.solve_inertia = [ldlt_M](const MatrixX<T>& B) -> MatrixX<T> {
+    return ldlt_M.solve(B);
+  };
+
+  // Set all "right hand side" terms (kN, kR, kS).
+  data.kN.resize(num_contacts);
+  data.kR.resize(num_contacts);
+  data.kS.resize(num_contacts);
+  data.kN = data.Kn.array() * phi_n.array() +
+      dt*(dt*data.Kn + data.Bn).array() *
+          (dotphi_n + dt * Gn * ldlt_M.solve(tau_ext)).array();
+  data.kR = dt * data.Br.array() *
+      (dotphi_r + dt * Gr * ldlt_M.solve(tau_ext)).array();
+  data.kS = dt * data.Bs.array() *
+      (dotphi_s + dt * Gs * ldlt_M.solve(tau_ext)).array();
+
+  return data;
 }
 
 template<typename T>

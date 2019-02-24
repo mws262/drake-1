@@ -15,6 +15,8 @@
 #include "drake/common/random.h"
 #include "drake/geometry/geometry_set.h"
 #include "drake/geometry/scene_graph.h"
+#include "drake/multibody/constraint/constraint_problem_data.h"
+#include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/coulomb_friction.h"
 #include "drake/multibody/plant/implicit_stribeck_solver.h"
@@ -2948,6 +2950,28 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       const systems::Context<T>& context,
       systems::ContinuousState<T>* derivatives) const override;
 
+  // Methods for computing contact forces using the method of Drumwright.
+  VectorX<T> CalcAccelerations(
+      const systems::Context<T>& context, double dt) const;
+  constraint::SoftConstraintProblemData<T> CalcSoftConstraintProblemData(
+      const systems::Context<T>& context,
+      const Eigen::LDLT<MatrixX<T>>& ldlt_M,
+      const VectorX<T>& tau_ext,
+      const std::vector<geometry::PenetrationAsPointPair<T>>& point_pairs,
+      double dt) const;
+
+  template <typename U = T>
+  std::enable_if_t<std::is_same<U, double>::value, VectorX<U>>
+      ComputeContactForces(
+          const constraint::SoftConstraintProblemData<U>& data,
+          double dt) const;
+
+  template <typename U = T>
+  std::enable_if_t<!std::is_same<U, double>::value, VectorX<U>>
+      ComputeContactForces(
+          const constraint::SoftConstraintProblemData<U>& data,
+          double dt) const;
+
   // If the plant is modeled as a discrete system with periodic updates (see
   // is_discrete()), this method computes the periodic updates of the state
   // using a semi-explicit Euler strategy, that is:
@@ -3145,6 +3169,9 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       const std::vector<geometry::PenetrationAsPointPair<T>>& point_pairs_set,
       MatrixX<T>* Jn, MatrixX<T>* Jt,
       std::vector<Matrix3<T>>* R_WC_set = nullptr) const;
+
+  // Solver for computing contact forces using the method of Drumwright.
+  constraint::ConstraintSolver<T> solver_;
 
   // The gravity field force element.
   optional<const UniformGravityFieldElement<T>*> gravity_field_;

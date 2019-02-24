@@ -166,6 +166,15 @@ void MobyLCPSolver<Eigen::AutoDiffScalar<drake::Vector1d>>::Solve(
       "while templatized as an AutoDiff");
 }
 
+template <>
+void MobyLCPSolver<Eigen::AutoDiffScalar<Eigen::VectorXd>>::Solve(
+    const MathematicalProgram&, const optional<Eigen::VectorXd>&,
+    const optional<SolverOptions>&, MathematicalProgramResult*) const {
+  DRAKE_ABORT_MSG(
+      "MobyLCPSolver cannot yet be used in a MathematicalProgram "
+      "while templatized as an AutoDiff");
+}
+
 // TODO(edrumwri): Break the following code out into a special
 // MobyLcpMathematicalProgram class.
 template <typename T>
@@ -1111,6 +1120,9 @@ bool MobyLCPSolver<T>::ProgramAttributesSatisfied(
 template class MobyLCPSolver<double>;
 template class
     drake::solvers::MobyLCPSolver<Eigen::AutoDiffScalar<drake::Vector1d>>;
+template class
+    drake::solvers::MobyLCPSolver<Eigen::AutoDiffScalar<VectorX<double>>>;
+
 
 }  // namespace solvers
 }  // namespace drake

@@ -626,27 +626,27 @@ class ControllerTest(unittest.TestCase):
           closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
 
           # Process the closest points.
-          for i in range(len(closest_points)):
-              geometry_A_id = closest_points[i].id_A
-              geometry_B_id = closest_points[i].id_B
+          for i in closest_points:
+              geometry_A_id = i.id_A
+              geometry_B_id = i.id_B
               frame_A_id = inspector.GetFrameId(geometry_A_id)
               frame_B_id = inspector.GetFrameId(geometry_B_id)
               cp_body_A = all_plant.GetBodyFromFrameId(frame_A_id)
               cp_body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+              if self.controller.MakeSortedPair(cp_body_A, cp_body_B) != body_pair:
+                  continue
               X_WA = all_plant.EvalBodyPoseInWorld(all_context, cp_body_A)
               X_WB = all_plant.EvalBodyPoseInWorld(all_context, cp_body_B)
-              closest_Aw = X_WA.multiply(closest_points[i].p_ACa)
-              closest_Bw = X_WB.multiply(closest_points[i].p_BCb)
+              closest_Aw = X_WA.multiply(i.p_ACa)
+              closest_Bw = X_WB.multiply(i.p_BCb)
               if cp_body_A.name() == 'ground_body':
                   closest_Aw[2] = 0
               if cp_body_B.name() == 'ground_body':
                   closest_Bw[2] = 0
-              if self.controller.MakeSortedPair(cp_body_A, cp_body_B) == body_pair:
-                  dist = closest_points[i].distance
+              dist = i.distance
+              if dist >= 0:
                   witness_W = 0.5 * (closest_Aw + closest_Bw)
                   n_W = closest_Aw - closest_Bw
-                  if dist < 0:
-                      n_W = -n_W
                   logging.debug('closest on A: ' + str(closest_Aw))
                   logging.debug('closest on B: ' + str(closest_Bw))
                   if np.linalg.norm(n_W) <= 1e-15:
@@ -656,6 +656,29 @@ class ControllerTest(unittest.TestCase):
                   if cp_body_A != body_A:
                       n_W = -n_W
                   return [ dist, n_W, witness_W ]
+
+          # Distance *must* be less than zero.
+          assert dist < 0
+
+          # Get the contact between the bodies.
+          contacts = self.controller.FindContacts(q_current)
+          for i in contacts:
+              geometry_A_id = i.id_A
+              geometry_B_id = i.id_B
+              frame_A_id = inspector.GetFrameId(geometry_A_id)
+              frame_B_id = inspector.GetFrameId(geometry_B_id)
+              contacting_body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+              contacting_body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+              if self.controller.MakeSortedPair(contacting_body_A, contacting_body_B) != body_pair:
+                  continue
+              witness_W = 0.5 * (i.p_WCa + i.p_WCb)
+              n_W = i.nhat_BA_W
+              if cp_body_A != body_A:
+                  n_W = -n_W
+              dist = -i.depth
+              assert dist < 0
+              return [ dist, n_W, witness_W ]
+
 
       # Get bodies.
       ball_body = self.controller.get_ball_from_robot_and_ball_plant()
@@ -806,7 +829,7 @@ class ControllerTest(unittest.TestCase):
 
       # Check a known, good configuration. The penalty method time scale tells how much the bodies should overlap.
       all_plant = self.controller.robot_and_ball_plant
-      q, v, vdot_des = self.ConstructKnownGoodConfiguration(overlap=2.5e-2)#self.penetration_allowance*500)
+      q, v, vdot_des = self.ConstructKnownGoodConfiguration(overlap=2.5e-10)#self.penetration_allowance*500)
       self.PrintContacts(q)
       contacts = self.controller.FindContacts(q)
       N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)
@@ -870,6 +893,9 @@ class ControllerTest(unittest.TestCase):
       logging.info('desired ball vdot: ' + str(vdot_ball_des))
       logging.info('approximate box vdot: ' + str(vdot_box_approx))
       logging.info('desired box vdot: ' + str(vdot_box_des))
+      logging.info('P (linear) * (vdot_des - vdot_approx) norm: ' +
+              str(np.linalg.norm(self.controller.ConstructVelocityWeightingMatrix('ball-linear').dot(vdot_des -
+                      vdot_approx))))
 
       self.assertAlmostEqual(np.linalg.norm(vdot_ball_des - vdot_ball_approx), 0, places=5)
       self.assertAlmostEqual(np.linalg.norm(vdot_box_des - vdot_box_approx), 0, places=5)
@@ -877,7 +903,7 @@ class ControllerTest(unittest.TestCase):
   # Checks that the ball can be accelerated according to the plan.
   def test_PlannedAccelerationTracking(self):
     # Construct the weighting matrix.
-    weighting_type = 'ball-linear'
+    weighting_type = 'full'
     P = self.controller.ConstructVelocityWeightingMatrix(weighting_type)
 
     # Get the plan.
@@ -905,7 +931,7 @@ class ControllerTest(unittest.TestCase):
 
       # Set the amount of overlap.
       # Note: This amount of overlap is not optimal, but seems to work well, particularly for small step sizes.
-      overlap = 2.5e-2
+      overlap = 1e-14#2.5e-2
       # Note: This *should* be the right amount of overlap, but it doesn't give the rigid contact result.
       #overlap = self.penetration_allowance
 
@@ -937,7 +963,7 @@ class ControllerTest(unittest.TestCase):
 
       # Determine the control forces using the black box controller.
       vdot_box_des = self.controller.plan.GetRobotQVAndVdot(t)[-6:]
-      vdot_des = np.zeros([len(v)])
+      vdot_des = np.zeros([len(v), 1])
       all_plant.SetVelocitiesInArray(self.controller.robot_instance, vdot_box_des, vdot_des)
       all_plant.SetVelocitiesInArray(self.controller.ball_instance, vdot_ball_des, vdot_des)
       u = self.controller.ComputeOptimalContactControlMotorForces(self.controller_context, q, v, vdot_des, weighting_type)
@@ -945,12 +971,16 @@ class ControllerTest(unittest.TestCase):
       # Check the desired spatial acceleration in the embedded simulation.
       vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
       logging.info('approximate vdot: ' + str(vdot_approx))
+      logging.info('P (full) * (vdot_des - vdot_approx) norm: ' +
+              str(np.linalg.norm(self.controller.ConstructVelocityWeightingMatrix('full').dot(vdot_des - vdot_approx))))
       self.assertAlmostEqual(np.linalg.norm(P.dot(vdot_approx - vdot_des)), 0, places=5)#, msg='Failed at t='+str(t))
 
       # Check the desired spatial acceleration for the box.
       vdot_box_approx = np.reshape(all_plant.GetVelocitiesFromArray(self.controller.robot_instance, vdot_approx), [-1, 1])
       logging.info('desired box spatial acceleration: ' + str(vdot_box_des))
       logging.info('approximate box spatial acceleration: ' + str(vdot_box_approx))
+
+
       #self.assertAlmostEqual(np.linalg.norm(vdot_box_approx - vdot_box_des), 0, delta=2e-1, msg='Failed at t='+str(t))
 
       t += dt
