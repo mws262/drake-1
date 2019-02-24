@@ -403,7 +403,7 @@ struct SoftConstraintProblemData {
   /// identical to the dimension of the generalized forces).
   std::function<MatrixX<T>(const MatrixX<T>&)> Gn_transpose_mult;
 
-  /// The ℝⁿᶜ vector Kn φn₀ + (h² Kn + h Bn)(φ̇n₀ + h (Gn M⁻¹ f + Ġn v₀))
+  /// The ℝⁿᶜ vector Kn φn₀ + (h Kn + Bn)(φ̇n₀ + h (Gn M⁻¹ f + Ġn v₀))
   VectorX<T> kN;
   /// @}
 
@@ -469,10 +469,10 @@ struct SoftConstraintProblemData {
   /// generalized forces.
   std::function<MatrixX<T>(const MatrixX<T>&)> Gs_transpose_mult;
 
-  /// The ℝⁿᶜ vector Kr φr₀ + (h² Kr + h Br)(φ̇r₀ + h (Gr M⁻¹ f + Ġr v₀))
+  /// The ℝⁿᶜ vector Kr φr₀ + (h Kr + Br)(φ̇r₀ + h (Gr M⁻¹ f + Ġr v₀))
   VectorX<T> kR;
 
-  /// The ℝⁿᶜ vector Ks φs₀ + (h² Ks + h Bs)(φ̇s₀ + h (Gs M⁻¹ f + Ġs v₀))
+  /// The ℝⁿᶜ vector Ks φs₀ + (h Ks + Bs)(φ̇s₀ + h (Gs M⁻¹ f + Ġs v₀))
   VectorX<T> kS;
 
   /// @}

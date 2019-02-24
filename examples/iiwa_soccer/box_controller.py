@@ -870,10 +870,12 @@ class BoxController(LeafSystem):
       # forward in time.
       B = self.ConstructRobotActuationMatrix()
       self.embedded_sim.ApplyControls(B.dot(u))
+      return self.embedded_sim.CalcAccelerations() 
       self.embedded_sim.Step()
 
       # Get the new system velocity.
       vnew = self.embedded_sim.GetPlantVelocities()
+
 
       # Compute the estimated acceleration.
       return np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))

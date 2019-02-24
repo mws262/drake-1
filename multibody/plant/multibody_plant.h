@@ -2855,6 +2855,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
     return internal_tree();
   }
 
+  /// Computes accelerations using the method of Drumwright.
+  VectorX<T> CalcAccelerations(
+      const systems::Context<T>& context, double dt) const;
+
  private:
   using MultibodyTreeSystem<T>::internal_tree;
 
@@ -2951,8 +2955,6 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       systems::ContinuousState<T>* derivatives) const override;
 
   // Methods for computing contact forces using the method of Drumwright.
-  VectorX<T> CalcAccelerations(
-      const systems::Context<T>& context, double dt) const;
   constraint::SoftConstraintProblemData<T> CalcSoftConstraintProblemData(
       const systems::Context<T>& context,
       const Eigen::LDLT<MatrixX<T>>& ldlt_M,

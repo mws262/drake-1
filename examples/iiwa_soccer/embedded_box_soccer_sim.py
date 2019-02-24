@@ -123,6 +123,11 @@ class EmbeddedSim:
       robot_and_ball_context = self.mbw.GetMutableSubsystemContext(self.all_plant, mbw_context)
       self.all_plant.SetVelocities(robot_and_ball_context, v)
 
+  def CalcAccelerations(self):
+      mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, self.context)
+      robot_and_ball_context = self.mbw.GetMutableSubsystemContext(self.all_plant, mbw_context)
+      return self.all_plant.CalcAccelerations(robot_and_ball_context, self.delta_t)
+
   def Step(self):
       self.simulator.Initialize()
       self.simulator.StepTo(self.context.get_time() + self.delta_t)

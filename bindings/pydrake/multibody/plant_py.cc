@@ -115,6 +115,11 @@ PYBIND11_MODULE(plant, m) {
             doc.MultibodyPlant.AddForceElement.doc);
     // Mathy bits
     cls  // BR
+        .def("CalcAccelerations", 
+            [](const Class* self, const Context<T>& context, double dt) {
+                return self->CalcAccelerations(context, dt);
+            }, py::arg("context"), py::arg("dt"),
+            doc.MultibodyPlant.CalcAccelerations.doc)
         .def("CalcPointsPositions",
             [](const Class* self, const Context<T>& context,
                 const Frame<T>& frame_B,

@@ -829,7 +829,7 @@ class ControllerTest(unittest.TestCase):
 
       # Check a known, good configuration. The penalty method time scale tells how much the bodies should overlap.
       all_plant = self.controller.robot_and_ball_plant
-      q, v, vdot_des = self.ConstructKnownGoodConfiguration(overlap=2.5e-10)#self.penetration_allowance*500)
+      q, v, vdot_des = self.ConstructKnownGoodConfiguration(overlap=1e-14)#self.penetration_allowance*500)
       self.PrintContacts(q)
       contacts = self.controller.FindContacts(q)
       N, S, T, Ndot_v, Sdot_v, Tdot_v = self.controller.ConstructJacobians(contacts, q, v)

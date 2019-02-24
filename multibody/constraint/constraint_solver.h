@@ -2752,6 +2752,10 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   const int nr = Gr.rows();
   const int ns = Gs.rows();
   const int nprimal = nc + nr + ns + nu;
+  if (nprimal + nb == 0) {
+    cf->resize(0);
+    return;
+  }
 
   // TODO: Leverage operators in place of this.
   // Compute necessary quantities.
@@ -2804,8 +2808,6 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   const MatrixX<T> H = H_base + E_plus.transpose() * E_plus +
       F_plus.transpose() * F_plus;
 
-  std::cout << "Hessian: " << std::endl << H << std::endl;
-
   // Compute the vector components that will be dotted with lambda_star to yield
   // the gradient vector of the objective function.
   const VectorX<T> grad = E_plus.transpose() * d + F_plus.transpose() * e;
@@ -2855,137 +2857,31 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   for (int i = 0; i < nu; ++i)
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(nc + nr + ns + i));
 
-  std::cout << "Hessian: " << std::endl << H << std::endl;
-  std::cout << "gradient: " << grad.transpose() << std::endl;
-  std::cout << "A: " << std::endl << A << std::endl;
-  std::cout << "q: " << q.transpose() << std::endl;
-
   // Add the Lorentz cone constraints.
   if (nc > 0) {
-      if (ns == 0) {
-        MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
-       for (int i = 0; i < nc; ++i) {
-       A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
-       A_mu(i, i + nc) = -1.0;
-       A_mu(i + nc, i + nc) = 1.0;
-     }
-    std::cout << "A(mu): " << std::endl << A_mu << std::endl; 
-     math_program.AddLinearConstraint(
-         A_mu, VectorX<T>::Zero(nc * 2), VectorX<T>::Ones(nc * 2) * inf,
-         lambda_hat);
-      } else {
-     for (int i = 0; i < nc; ++i) {
-       math_program.AddLorentzConeConstraint(
-           Vector3<symbolic::Expression>(problem_data.mu[i] * lambda_hat(i),
-                                         +lambda_hat(i + nc),
-                                         +lambda_hat(i + nc + nr)));
-     }
+    if (ns == 0) {
+      MatrixX<T> A_mu = MatrixX<T>::Zero(nc * 2, nprimal);
+      for (int i = 0; i < nc; ++i) {
+        A_mu(i, i) = A_mu(i + nc, i) = problem_data.mu[i];
+        A_mu(i, i + nc) = -1.0;
+        A_mu(i + nc, i + nc) = 1.0;
+      }
+      std::cout << "A(mu): " << std::endl << A_mu << std::endl;
+      math_program.AddLinearConstraint(A_mu, VectorX<T>::Zero(nc * 2),
+                                       VectorX<T>::Ones(nc * 2) * inf,
+                                       lambda_hat);
+    } else {
+      for (int i = 0; i < nc; ++i) {
+        math_program.AddLorentzConeConstraint(Vector3<symbolic::Expression>(
+            problem_data.mu[i] * lambda_hat(i), +lambda_hat(i + nc),
+            +lambda_hat(i + nc + nr)));
+      }
     }
   }
 
-  const VectorX<T> lambda_hat_sol = SolveMathematicalProgram(math_program, lambda_hat);
-/*
-  // TODO: Replace this with the MathematicalProgram framework.
-  // To solve the QP using the Moby LCP solver, we have to replace variables
-  // that can take on negative values (lambda_r, lambda_s) with lambda_r+,
-  // lambda_r-, lambda_s+, lambda_s-.
-  const int nprimal_lcp = nc + nu + nr * 2 + ns * 2;
-  
-  // First update the Hessian. The Hessian will go from 3 x 3 = 9 blocks to
-  // 4 x 4 = 16 blocks.
-  // | B1 B2 B3 |    |  B1  B2 -B2  B3 |
-  // | B4 B5 B6 | -> |  B4  B5 -B5  B6 |
-  // | B7 B8 B9 |    | -B4 -B5  B5 -B6 |
-  //                 |  B7  B8 -B8  B9 |
-  const Eigen::Ref<const MatrixX<T>> B1 = H.block(0, 0, nc, nc);
-  const Eigen::Ref<const MatrixX<T>> B2 = H.block(0, nc, nc, nr + ns);
-  const Eigen::Ref<const MatrixX<T>> B3 = H.block(0, nc + nr + ns, nc, nu);
-  const Eigen::Ref<const MatrixX<T>> B4 = H.block(nc, 0, nr + ns, nc);
-  const Eigen::Ref<const MatrixX<T>> B5 = H.block(nc, nc, nr + ns, nr + ns);
-  const Eigen::Ref<const MatrixX<T>> B6 =
-      H.block(nc, nc + nr + ns, nr + ns, nu);
-  const Eigen::Ref<const MatrixX<T>> B7 = H.block(nc + nr + ns, 0, nu, nc);
-  const Eigen::Ref<const MatrixX<T>> B8 =
-      H.block(nc + nr + ns, nc, nu, nr + ns);
-  const Eigen::Ref<const MatrixX<T>> B9 = H.block(
-      nc + nr + ns, nc + nr + ns, nu, nu);
-  MatrixX<T> H_lcp(nprimal_lcp, nprimal_lcp);
-  H_lcp.block(0, 0, nc, nc) = B1;
-  H_lcp.block(0, nc, nc, nr + ns) = B2;
-  H_lcp.block(0, nc + nr + ns, nc, nr + ns) = -B2;
-  H_lcp.block(0, nc + 2 * nr + 2 * ns, nc, nu) = B3;
-  H_lcp.block(nc, 0, nr + ns, nc) = B4;
-  H_lcp.block(nc, nc, nr + ns, nr + ns) = B5;
-  H_lcp.block(nc, nc + nr + ns, nr + ns, nr + ns) = -B5;
-  H_lcp.block(nc, nc + nr * 2 + ns * 2, nr + ns, nu) = B6;
-  H_lcp.block(nc + nr + ns, 0, nr + ns, nc) = -B4;
-  H_lcp.block(nc + nr + ns, nc, nr + ns, nr + ns) = -B5;
-  H_lcp.block(nc + nr + ns, nc + nr + ns, nr + ns, nr + ns) = B5;
-  H_lcp.block(nc + nr + ns, nc + nr * 2 + ns * 2, nr + ns, nu) = -B6;
-  H_lcp.block(nc + nr * 2 + ns * 2, 0, nu, nc) = B7;
-  H_lcp.block(nc + nr * 2 + ns * 2, nc, nu, nr + ns) = B8;
-  H_lcp.block(nc + nr * 2 + ns * 2, nc + nr + ns, nu, nr + ns) = -B8;
-  H_lcp.block(nc + nr * 2 + ns * 2, nc + nr * 2 + ns * 2, nu, nu) = B9;
-  const double eps = std::numeric_limits<double>::epsilon();
-  DRAKE_DEMAND((H_lcp - H_lcp.transpose()).norm() < eps);
+  const VectorX<T> lambda_hat_sol = SolveMathematicalProgram(
+    math_program, lambda_hat);
 
-  // Now update the gradient vector.
-  const Eigen::Ref<const VectorX<T>> seg1 = grad.head(nc);
-  const Eigen::Ref<const VectorX<T>> seg2 = grad.segment(nc, nr + ns);
-  const Eigen::Ref<const VectorX<T>> seg3 = grad.tail(nu);
-  VectorX<T> grad_lcp(nprimal_lcp);
-  grad_lcp.head(nc) = seg1;
-  grad_lcp.segment(nc, nr + ns) = seg2;
-  grad_lcp.segment(nc + nr + ns, nr + ns) = -seg2;
-  grad_lcp.tail(nu) = seg3;
-  std::cout << "grad lcp: " << grad_lcp.transpose() << std::endl;
-
-  // Now update A from 3 blocks to 4 blocks.
-  // | B10 B11 B12 | -> | B10 B11 -B11 B12 |
-  MatrixX<T> A_lcp(naffine_true + nc, nprimal_lcp);
-  const Eigen::Ref<const MatrixX<T>> B10 = A.block(0, 0, naffine_true, nc);
-  const Eigen::Ref<const MatrixX<T>> B11 = A.block(0, nc, naffine_true, nr + ns);
-  const Eigen::Ref<const MatrixX<T>> B12 = A.block(0, nc + nr + ns, naffine_true, nu);
-  A_lcp.block(0, 0, naffine_true, nc) = B10;
-  A_lcp.block(0, nc, naffine_true, nr + ns) = B11;
-  A_lcp.block(0, nc + nr + ns, naffine_true, nr + ns) = -B11;
-  A_lcp.block(0, nc + nr * 2 + ns * 2, naffine_true, nu) = B12;
-  A_lcp.bottomRows(nc).setZero();
-  for (int i = 0; i < nc; ++i) {
-    A_lcp(i + naffine_true, i) = problem_data.mu[i];
-    A_lcp(i + naffine_true, i + nr) = -1.0;
-    A_lcp(i + naffine_true, i + nr + ns) = -1.0;
-    A_lcp(i + naffine_true, i + nr * 2 + ns) = -1.0;
-    A_lcp(i + naffine_true, i + nr * 2 + ns * 2) = -1.0;
-  }
-
-  // Form the LCP.
-  const int ndual = naffine_true + nc;  // Affine constraints + friction pyramid.
-  MatrixX<T> MM = MatrixX<T>::Ones(nprimal_lcp + ndual, nprimal_lcp + ndual) *
-      std::numeric_limits<double>::quiet_NaN();
-  VectorX<T> qq = VectorX<T>::Ones(nprimal_lcp + ndual) *
-      std::numeric_limits<double>::quiet_NaN();
-  MM.topLeftCorner(nprimal_lcp, nprimal_lcp) = H_lcp;
-  MM.topRightCorner(nprimal_lcp, ndual) = -A_lcp.transpose();
-  MM.bottomLeftCorner(ndual, nprimal_lcp) = A_lcp;
-  MM.bottomRightCorner(ndual, ndual).setZero();
-  qq.head(nprimal_lcp) = grad_lcp;
-  qq.segment(nprimal_lcp, naffine_true) = -q;
-  qq.tail(nc).setZero();
-
-  std::cout << "M: " << std::endl << MM << std::endl;
-  std::cout << "q: " << qq.transpose() << std::endl;
-  std::cout << "(post normalized):" << std::endl;
-
-  // Solve the LCP.
-  VectorX<T> zz;
-  std::cout << "M: " << std::endl << MM << std::endl;
-  std::cout << "q: " << qq.transpose() << std::endl;
-//  bool success = lcp_.SolveLcpLemkeRegularized(MM, qq, &zz);
-  lcp_.SolveLcpLemke(MM, qq, &zz);
-  std::cout << "z: " << zz.transpose() << std::endl;
-//  DRAKE_DEMAND(success);
-*/
   // Determine the bilateral constraint forces.
   const VectorX<T> lambda_b = C_solve(c + D * Gstar.transpose() *
       lambda_hat_sol);

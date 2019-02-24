@@ -1441,11 +1441,11 @@ SoftConstraintProblemData<T> MultibodyPlant<T>::CalcSoftConstraintProblemData(
   data.kR.resize(num_contacts);
   data.kS.resize(num_contacts);
   data.kN = data.Kn.array() * phi_n.array() +
-      dt*(dt*data.Kn + data.Bn).array() *
+      (dt*data.Kn + data.Bn).array() *
           (dotphi_n + dt * Gn * ldlt_M.solve(tau_ext)).array();
-  data.kR = dt * data.Br.array() *
+  data.kR = data.Br.array() *
       (dotphi_r + dt * Gr * ldlt_M.solve(tau_ext)).array();
-  data.kS = dt * data.Bs.array() *
+  data.kS = data.Bs.array() *
       (dotphi_s + dt * Gs * ldlt_M.solve(tau_ext)).array();
 
   return data;
