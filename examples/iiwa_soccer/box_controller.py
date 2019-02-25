@@ -870,12 +870,11 @@ class BoxController(LeafSystem):
       # forward in time.
       B = self.ConstructRobotActuationMatrix()
       self.embedded_sim.ApplyControls(B.dot(u))
-      return self.embedded_sim.CalcAccelerations() 
+      #return self.embedded_sim.CalcAccelerations() 
       self.embedded_sim.Step()
 
       # Get the new system velocity.
       vnew = self.embedded_sim.GetPlantVelocities()
-
 
       # Compute the estimated acceleration.
       return np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
@@ -947,10 +946,6 @@ class BoxController(LeafSystem):
       fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
       fext = np.reshape(fext, [len(v), 1])
 
-      # Get the desired ball *linear* acceleration.
-      vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-3:]
-      vdot_ball_des = np.reshape(vdot_ball_des, [-1, 1])
-
       # Get the Jacobians at the point of contact: N, S, T, and construct Z and
       # Zdot_v.
       nc = len(contacts)
@@ -973,6 +968,35 @@ class BoxController(LeafSystem):
       Zdot_v[nc:2*nc] = Sdot_v[:, 0]
       Zdot_v[-nc:] = Tdot_v[:, 0]
 
+      # Get the desired accelerations.
+      t = controller_context.get_time()
+      vdot_des = np.zeros([nv, 1])
+      vdot_ball_des = self.plan.GetBallQVAndVdot(t)[-6:]
+      vdot_box_des = self.plan.GetRobotQVAndVdot(t)[-6:]
+
+      # Feed error feedback gains in for the robot.
+      nq_robot = all_plant.num_positions(self.robot_instance)
+      q_box = all_plant.GetPositionsFromArray(self.robot_instance, q)
+      q_box_des = self.plan.GetRobotQVAndVdot(t)[0:nq_robot]
+      nv_robot = all_plant.num_velocities(self.robot_instance)
+      v_box = all_plant.GetVelocitiesFromArray(self.robot_instance, v)
+      v_box_des = self.plan.GetRobotQVAndVdot(t)[nq_robot:nq_robot+nv_robot]
+
+      # Modify the desired accelerations using error feedback gains.
+      kp = 1e-5
+      kd = 1e-4
+      dt = 1.0/self.control_freq
+      deltaq = np.zeros([all_plant.num_positions(), 1])
+      all_plant.SetPositionsInArray(self.robot_instance, q_box_des - q_box, deltaq)
+      deltav = all_plant.MapQDotToVelocity(all_context, deltaq)
+      deltav_box_des = all_plant.GetVelocitiesFromArray(self.robot_instance, deltav)
+      vdot_box_des += kp/(dt*dt) * deltav_box_des
+      vdot_box_des += kd/dt * (v_box_des - v_box)
+
+      # Set the desired acceleration now.
+      all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, vdot_des)
+      all_plant.SetVelocitiesInArray(self.robot_instance, vdot_box_des, vdot_des)
+
       # Compute forces without applying any tangential forces.
       if self.controller_type == 'NoSlip':
           u, f_contact = self.ComputeContactControlMotorForcesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v,
@@ -980,7 +1004,7 @@ class BoxController(LeafSystem):
       if self.controller_type == 'NoSeparation':
           u, f_contact = self.ComputeContactControlMotorForcesNoSeparation(iM, fext, vdot_ball_des, Z, N, Ndot_v)
       if self.controller_type == 'BlackBoxDynamics':
-          u = self.ComputeOptimalContactControlMotorForces(controller_context, q, v, vdot_ball_des)
+          u = self.ComputeOptimalContactControlMotorForces(controller_context, q, v, vdot_des, weighting_type='full')
 
       # Compute the generalized contact forces.
       f_contact_generalized = None

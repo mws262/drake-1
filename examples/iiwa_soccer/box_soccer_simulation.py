@@ -196,7 +196,7 @@ def main():
   else:
       logging.disable(logging.CRITICAL)
 
-  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.step_size, args.plan_path, args.fully_actuated)
+  controller, diagram, all_plant, robot_plant, mbw, robot_instance, ball_instance, robot_continuous_state_output = BuildBlockDiagram(args.step_size, args.penetration_allowance, args.plan_path, args.fully_actuated)
 
   simulator = Simulator(diagram)
   simulator.set_publish_every_time_step(True)
