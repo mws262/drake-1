@@ -38,7 +38,7 @@ void EvalOutputHelper(const LcmSubscriberSystem& sub, Context<double>* context,
     } else {
       DRAKE_DEMAND(false);
     }
-    context->get_mutable_state().CopyFrom(*tmp_state);
+    context->get_mutable_state().SetFrom(*tmp_state);
   }
   sub.CalcOutput(*context, output);
 }
@@ -81,7 +81,7 @@ void TestSubscriber(drake::lcm::DrakeMockLcm* lcm,
   // way to read messages.
   auto new_context = dut->CreateDefaultContext();
   dut->CopyLatestMessageInto(&new_context->get_mutable_state());
-  const auto& new_y = dut->get_output_port().EvalEigenVector(*new_context);
+  const auto& new_y = dut->get_output_port().Eval(*new_context);
   for (int i = 0; i < kDim; ++i) {
     EXPECT_EQ(new_y[i], i);
   }

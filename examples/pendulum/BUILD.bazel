@@ -109,6 +109,7 @@ drake_cc_binary(
         "//common:is_approx_equal_abstol",
         "//geometry:geometry_visualization",
         "//lcm",
+        "//solvers:solve",
         "//systems/analysis:simulator",
         "//systems/controllers:pid_controlled_system",
         "//systems/framework",
@@ -122,9 +123,12 @@ drake_cc_binary(
     name = "print_symbolic_dynamics",
     srcs = ["print_symbolic_dynamics.cc"],
     add_test_rule = 1,
+    data = [":models"],
     deps = [
         ":pendulum_plant",
         "//common:symbolic",
+        "//multibody/parsing",
+        "//multibody/plant",
     ],
 )
 

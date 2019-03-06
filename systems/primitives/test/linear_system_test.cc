@@ -28,7 +28,6 @@ class LinearSystemTest : public AffineLinearSystemTest {
     dut_->set_name("test_linear_system");
     context_ = dut_->CreateDefaultContext();
     input_vector_ = make_unique<BasicVector<double>>(2 /* size */);
-    system_output_ = dut_->AllocateOutput();
     state_ = &context_->get_mutable_continuous_state();
     derivatives_ = dut_->AllocateTimeDerivatives();
   }
@@ -78,11 +77,8 @@ TEST_F(LinearSystemTest, Output) {
   Eigen::Vector2d x(0.8, -22.1);
   state_->SetFromVector(x);
 
-  dut_->CalcOutput(*context_, system_output_.get());
-
   Eigen::VectorXd expected_output = C_ * x + D_ * u;
-
-  EXPECT_EQ(expected_output, system_output_->get_vector_data(0)->get_value());
+  EXPECT_EQ(expected_output, dut_->get_output_port().Eval(*context_));
 }
 
 // Tests converting to different scalar types.
@@ -183,24 +179,6 @@ class TestLinearizeFromAffine : public ::testing::Test {
 
   std::unique_ptr<AffineSystem<double>> continuous_system_;
   std::unique_ptr<AffineSystem<double>> discrete_system_;
-};
-
-// An AffineSystem augmented with an abstract input port.
-class AffineSystemAugmentedWithAbstractInput : public AffineSystem<double> {
- public:
-  AffineSystemAugmentedWithAbstractInput(
-      const Eigen::Ref<const Eigen::MatrixXd>& A,
-      const Eigen::Ref<const Eigen::MatrixXd>& B,
-      const Eigen::Ref<const Eigen::VectorXd>& f0,
-      const Eigen::Ref<const Eigen::MatrixXd>& C,
-      const Eigen::Ref<const Eigen::MatrixXd>& D,
-      const Eigen::Ref<const Eigen::VectorXd>& y0,
-      double time_period = 0.0) :
-      AffineSystem(A, B, f0, C, D, y0, time_period) {
-    this->DeclareAbstractInputPort(
-        "dummy",
-        Value<std::vector<double>>() /* Arbitrary data type */);
-  }
 };
 
 // Test that linearizing a continuous-time affine system returns the original
@@ -354,7 +332,7 @@ class EmptyStateSystemWithAbstractInput final : public LeafSystem<T> {
         "dummy", Value<std::vector<double>>() /* Arbitrary data type */);
   }
 
-  /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  // Scalar-converting copy constructor. See @ref system_scalar_conversion.
   template <typename U>
   explicit EmptyStateSystemWithAbstractInput(
       const EmptyStateSystemWithAbstractInput<U>&)
@@ -695,8 +673,8 @@ class MimoSystem final : public LeafSystem<T> {
 
   void DoCalcTimeDerivatives(const Context<T>& context,
                              ContinuousState<T>* derivatives) const final {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     derivatives->SetFromVector(A_ * x + B0_ * u0 + B1_ * u1);
@@ -706,8 +684,8 @@ class MimoSystem final : public LeafSystem<T> {
       const Context<T>& context,
       const std::vector<const DiscreteUpdateEvent<T>*>&,
       DiscreteValues<T>* discrete_state) const final {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     discrete_state->get_mutable_vector(0).SetFromVector(A_ * x + B0_ * u0 +
@@ -715,16 +693,16 @@ class MimoSystem final : public LeafSystem<T> {
   }
 
   void CalcOutput0(const Context<T>& context, BasicVector<T>* output) const {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     output->SetFromVector(C0_ * x + D00_ * u0 + D01_ * u1);
   }
 
   void CalcOutput1(const Context<T>& context, BasicVector<T>* output) const {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     output->SetFromVector(C1_ * x + D10_ * u0 + D11_ * u1);

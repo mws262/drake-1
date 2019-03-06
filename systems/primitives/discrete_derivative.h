@@ -79,14 +79,6 @@ class DiscreteDerivative final : public LeafSystem<T> {
     set_input_history(&context->get_mutable_state(), u, u);
   }
 
-  DRAKE_DEPRECATED(
-      "Use set_input_history(context, u) instead.  Will be deleted "
-      "after 2/15/2019.")
-  void set_state(const Eigen::Ref<const VectorX<T>>& u,
-                 systems::Context<T>* context) const {
-    set_input_history(context, u);
-  }
-
   const systems::InputPort<T>& get_input_port() const {
     return System<T>::get_input_port(0);
   }
@@ -97,12 +89,11 @@ class DiscreteDerivative final : public LeafSystem<T> {
 
   double time_step() const { return time_step_; }
 
- protected:
+ private:
   optional<bool> DoHasDirectFeedthrough(int, int) const {
     return false;
   }
 
- private:
   void DoCalcDiscreteVariableUpdates(
       const Context<T>& context,
       const std::vector<const DiscreteUpdateEvent<T>*>&,

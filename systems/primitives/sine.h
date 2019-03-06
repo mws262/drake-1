@@ -104,7 +104,7 @@ class Sine final : public LeafSystem<T> {
   /// Returns the phase vector constant.
   const Eigen::VectorXd& phase_vector() const;
 
- protected:
+ private:
   void CalcValueOutput(const Context<T>& context,
                        BasicVector<T>* output) const;
   void CalcFirstDerivativeOutput(const Context<T>& context,
@@ -280,7 +280,7 @@ void Sine<T>::CalcArg(
     *arg = frequency_.array() * time_vec.array() + phase_.array();
   } else {
     Eigen::VectorBlock<const VectorX<T>> input =
-        this->EvalEigenVectorInput(context, 0);
+        this->get_input_port(0).Eval(context);
     *arg = frequency_.array() * input.array() + phase_.array();
   }
 }

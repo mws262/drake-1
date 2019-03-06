@@ -40,13 +40,13 @@ GTEST_TEST(JacoLcmTest, JacoCommandPassthroughTest) {
     -10, -20, -30, -40, -50, -60, -70};
 
   context->FixInputPort(
-      0, std::make_unique<systems::Value<lcmt_jaco_command>>(command));
+      0, std::make_unique<Value<lcmt_jaco_command>>(command));
 
   std::unique_ptr<systems::DiscreteValues<double>> update =
       diagram->AllocateDiscreteVariables();
   update->SetFrom(context->get_mutable_discrete_state());
   diagram->CalcDiscreteVariableUpdates(*context, update.get());
-  context->get_mutable_discrete_state().CopyFrom(*update);
+  context->get_mutable_discrete_state().SetFrom(*update);
   diagram->CalcOutput(*context, output.get());
 
   lcmt_jaco_command command_out =
@@ -110,13 +110,13 @@ GTEST_TEST(JacoLcmTest, JacoStatusPassthroughTest) {
   }
 
   context->FixInputPort(
-      0, std::make_unique<systems::Value<lcmt_jaco_status>>(status));
+      0, std::make_unique<Value<lcmt_jaco_status>>(status));
 
   std::unique_ptr<systems::DiscreteValues<double>> update =
       diagram->AllocateDiscreteVariables();
   update->SetFrom(context->get_mutable_discrete_state());
   diagram->CalcDiscreteVariableUpdates(*context, update.get());
-  context->get_mutable_discrete_state().CopyFrom(*update);
+  context->get_mutable_discrete_state().SetFrom(*update);
   diagram->CalcOutput(*context, output.get());
 
   lcmt_jaco_status status_out =

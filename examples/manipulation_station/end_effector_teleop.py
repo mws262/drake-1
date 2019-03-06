@@ -11,7 +11,7 @@ from pydrake.common import FindResourceOrThrow
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface)
 from pydrake.geometry import ConnectDrakeVisualizer
-from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
+from pydrake.multibody.plant import MultibodyPlant
 from pydrake.manipulation.simple_ui import SchunkWsgButtons
 from pydrake.manipulation.planner import (
     DifferentialInverseKinematicsParameters, DoDifferentialInverseKinematics)
@@ -287,7 +287,8 @@ else:
                            station.GetOutputPort("pose_bundle"))
     if args.meshcat:
         meshcat = builder.AddSystem(MeshcatVisualizer(
-            station.get_scene_graph(), zmq_url=args.meshcat))
+            station.get_scene_graph(), zmq_url=args.meshcat,
+            open_browser=args.open_browser))
         builder.Connect(station.GetOutputPort("pose_bundle"),
                         meshcat.get_input_port(0))
 
@@ -337,7 +338,7 @@ station_context.FixInputPort(station.GetInputPort(
     "iiwa_feedforward_torque").get_index(), np.zeros(7))
 
 q0 = station.GetOutputPort("iiwa_position_measured").Eval(
-    station_context).get_value()
+    station_context)
 differential_ik.parameters.set_nominal_joint_position(q0)
 
 teleop.SetPose(differential_ik.ForwardKinematics(q0))
@@ -345,7 +346,7 @@ filter.set_initial_output_value(
     diagram.GetMutableSubsystemContext(
         filter, simulator.get_mutable_context()),
     teleop.get_output_port(0).Eval(diagram.GetMutableSubsystemContext(
-        teleop, simulator.get_mutable_context())).get_value())
+        teleop, simulator.get_mutable_context())))
 differential_ik.SetPositions(diagram.GetMutableSubsystemContext(
     differential_ik, simulator.get_mutable_context()), q0)
 

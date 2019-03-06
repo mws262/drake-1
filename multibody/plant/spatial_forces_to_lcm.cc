@@ -4,13 +4,13 @@
 
 #include "drake/lcmt_spatial_forces_for_viz.hpp"
 #include "drake/multibody/plant/spatial_force_output.h"
-#include "drake/systems/framework/value.h"
+#include "drake/common/value.h"
 
 namespace drake {
 namespace multibody {
 
 using systems::Context;
-using systems::Value;
+using drake::Value;
 
 template <typename T>
 SpatialForcesToLcmSystem<T>::SpatialForcesToLcmSystem(

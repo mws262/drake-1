@@ -16,10 +16,6 @@ namespace lcm {
 using drake::lcm::DrakeLcmInterface;
 using drake::lcm::DrakeLcm;
 
-namespace {
-const int kPortIndex = 0;
-}  // namespace
-
 // TODO(jwnimmer-tri) The "serializer xor translator" disjoint implementations
 // within the method bodies below are not ideal, because of the code smell, and
 // because it is likely confusing for users.  We should take further steps to
@@ -33,7 +29,9 @@ LcmPublisherSystem::LcmPublisherSystem(
     const LcmAndVectorBaseTranslator* translator,
     std::unique_ptr<const LcmAndVectorBaseTranslator> owned_translator,
     std::unique_ptr<SerializerInterface> serializer,
-    DrakeLcmInterface* lcm, double publish_period)
+    DrakeLcmInterface* lcm,
+    const TriggerTypeSet& publish_triggers,
+    double publish_period)
     : channel_(channel),
       translator_(owned_translator ? owned_translator.get() : translator),
       owned_translator_(std::move(owned_translator)),
@@ -43,11 +41,21 @@ LcmPublisherSystem::LcmPublisherSystem(
   DRAKE_DEMAND((translator_ != nullptr) != (serializer_.get() != nullptr));
   DRAKE_DEMAND(lcm_);
   DRAKE_DEMAND(publish_period >= 0.0);
+  DRAKE_DEMAND(!publish_triggers.empty());
+
+  // Check that publish_triggers does not contain an unsupported trigger.
+  for (const auto& trigger : publish_triggers) {
+      DRAKE_THROW_UNLESS((trigger == TriggerType::kForced) ||
+        (trigger == TriggerType::kPeriodic) ||
+        (trigger == TriggerType::kPerStep));
+  }
 
   // Declare a forced publish so that any time Publish(.) is called on this
   // system (or a Diagram containing it), a message is emitted.
-  this->DeclareForcedPublishEvent(
-    &LcmPublisherSystem::PublishInputAsLcmMessage);
+  if (publish_triggers.find(TriggerType::kForced) != publish_triggers.end()) {
+    this->DeclareForcedPublishEvent(
+      &LcmPublisherSystem::PublishInputAsLcmMessage);
+  }
 
   if (translator_ != nullptr) {
     // If the translator provides a specific storage type (i.e., if it returns
@@ -67,29 +75,47 @@ LcmPublisherSystem::LcmPublisherSystem(
   }
 
   set_name(make_name(channel_));
-
-  if (publish_period > 0.0) {
-    this->disable_internal_per_step_publish_events_ = true;
+  if (publish_triggers.find(TriggerType::kPeriodic) != publish_triggers.end()) {
+    DRAKE_THROW_UNLESS(publish_period > 0.0);
     const double offset = 0.0;
     this->DeclarePeriodicPublishEvent(
         publish_period, offset,
         &LcmPublisherSystem::PublishInputAsLcmMessage);
   } else {
-    this->DeclarePerStepEvent(
-        systems::PublishEvent<double>([this](
-            const systems::Context<double>& context,
-            const systems::PublishEvent<double>&) {
-          // TODO(edrumwri) Remove this code once set_publish_period(.) has
-          // been removed; it exists so that one does not get both a per-step
-          // publish and a periodic publish if a user constructs the publisher
-          // the "old" way (construction followed by set_publish_period()).
-          if (this->disable_internal_per_step_publish_events_)
-            return;
+    // publish_period > 0 without TriggerType::kPeriodic has no meaning and is
+    // likely a mistake.
+    DRAKE_THROW_UNLESS(publish_period == 0.0);
+  }
 
-          this->PublishInputAsLcmMessage(context);
-        }));
+  if (publish_triggers.find(TriggerType::kPerStep) != publish_triggers.end()) {
+    this->DeclarePerStepEvent(
+    systems::PublishEvent<double>([this](
+        const systems::Context<double>& context,
+        const systems::PublishEvent<double>&) {
+      // TODO(edrumwri) Remove this code once set_publish_period(.) has
+      // been removed; it exists so that one does not get both a per-step
+      // publish and a periodic publish if a user constructs the publisher
+      // the "old" way (construction followed by set_publish_period()).
+      if (this->disable_internal_per_step_publish_events_)
+        return;
+
+      this->PublishInputAsLcmMessage(context);
+    }));
   }
 }
+
+LcmPublisherSystem::LcmPublisherSystem(
+    const std::string& channel,
+    const LcmAndVectorBaseTranslator* translator,
+    std::unique_ptr<const LcmAndVectorBaseTranslator> owned_translator,
+    std::unique_ptr<SerializerInterface> serializer,
+    DrakeLcmInterface* lcm, double publish_period)
+    : LcmPublisherSystem(channel, translator, std::move(owned_translator),
+      std::move(serializer), lcm,
+      (publish_period > 0.0) ?
+      TriggerTypeSet({TriggerType::kForced, TriggerType::kPeriodic}) :
+      TriggerTypeSet({TriggerType::kForced, TriggerType::kPerStep}),
+      publish_period) {}
 
 LcmPublisherSystem::LcmPublisherSystem(
     const std::string& channel, std::unique_ptr<SerializerInterface> serializer,
@@ -97,6 +123,14 @@ LcmPublisherSystem::LcmPublisherSystem(
     double publish_period)
     : LcmPublisherSystem(channel, nullptr, nullptr, std::move(serializer),
                          lcm, publish_period) {}
+
+LcmPublisherSystem::LcmPublisherSystem(
+    const std::string& channel, std::unique_ptr<SerializerInterface> serializer,
+    drake::lcm::DrakeLcmInterface* lcm,
+    const TriggerTypeSet& publish_triggers,
+    double publish_period)
+    : LcmPublisherSystem(channel, nullptr, nullptr, std::move(serializer),
+                         lcm, publish_triggers, publish_period) {}
 
 LcmPublisherSystem::LcmPublisherSystem(
     const std::string& channel,
@@ -164,15 +198,11 @@ EventStatus LcmPublisherSystem::PublishInputAsLcmMessage(
   // Converts the input into LCM message bytes.
   std::vector<uint8_t> message_bytes;
   if (translator_ != nullptr) {
-    const VectorBase<double>* const input_vector =
-        this->EvalVectorInput(context, kPortIndex);
-    DRAKE_ASSERT(input_vector != nullptr);
-    translator_->Serialize(context.get_time(), *input_vector, &message_bytes);
+    const auto& input = get_input_port().Eval<BasicVector<double>>(context);
+    translator_->Serialize(context.get_time(), input, &message_bytes);
   } else {
-    const AbstractValue* const input_value =
-        this->EvalAbstractInput(context, kPortIndex);
-    DRAKE_ASSERT(input_value != nullptr);
-    serializer_->Serialize(*input_value, &message_bytes);
+    const AbstractValue& input = get_input_port().Eval<AbstractValue>(context);
+    serializer_->Serialize(input, &message_bytes);
   }
 
   // Publishes onto the specified LCM channel.

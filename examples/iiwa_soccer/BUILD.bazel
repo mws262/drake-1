@@ -144,8 +144,6 @@ drake_cc_binary(
         "//examples/kuka_iiwa_arm:iiwa_lcm",
         "//geometry:geometry_visualization",
         "//lcm",
-        "//manipulation/util:sim_diagram_builder",
-        "//manipulation/util:world_sim_tree_builder",
         "//multibody:rigid_body_tree_construction",
         "//multibody/multibody_tree/multibody_plant",
         "//multibody/multibody_tree/parsing:multibody_plant_sdf_parser",
@@ -156,6 +154,7 @@ drake_cc_binary(
     ],
 )
 
+'''
 drake_cc_binary(
     name = "kuka_soccer_simulation",
     srcs = ["kuka_soccer_simulation.cc"],
@@ -182,6 +181,7 @@ drake_cc_binary(
         "@lcmtypes_bot2_core",
     ],
 )
+'''
 
 # Python examples
 

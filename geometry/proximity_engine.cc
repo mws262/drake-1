@@ -272,7 +272,7 @@ struct CollisionData {
 };
 
 // An internal functor to support DistanceFromPointCallback() and
-// ComputeNearphaseDistance(). It computes the signed distance to a query
+// ComputeNarrowPhaseDistance(). It computes the signed distance to a query
 // point from a supported geometry. Each overload to the call operator
 // reports the signed distance (encoded as SignedDistanceToPoint) between the
 // functor's stored query point and the given geometry argument.
@@ -457,11 +457,11 @@ void DistancePairGeometry::operator()(const fcl::Boxd* box_A,
 
 // Helps DistanceCallback(). Do it in closed forms for sphere-sphere or
 // sphere-box. Otherwise, use FCL GJK/EPA.
-void ComputeNearphaseDistance(const fcl::CollisionObjectd* a,
-                              const fcl::CollisionObjectd* b,
-                              const std::vector<GeometryId>& geometry_map,
-                              const fcl::DistanceRequestd& request,
-                              fcl::DistanceResultd* result) {
+void ComputeNarrowPhaseDistance(const fcl::CollisionObjectd* a,
+                                const fcl::CollisionObjectd* b,
+                                const std::vector<GeometryId>& geometry_map,
+                                const fcl::DistanceRequestd& request,
+                                fcl::DistanceResultd* result) {
   const fcl::CollisionGeometryd* a_geometry = a->collisionGeometry().get();
   const fcl::CollisionGeometryd* b_geometry = b->collisionGeometry().get();
   const RigidTransformd X_WA(a->getTransform());
@@ -525,54 +525,45 @@ bool DistanceCallback(fcl::CollisionObjectd* fcl_object_A_ptr,
                       fcl::CollisionObjectd* fcl_object_B_ptr,
                       // NOLINTNEXTLINE
                       void* callback_data, double&) {
-  // NOTE: Although this function *takes* non-const pointers to satisfy the
-  // fcl api, it should not exploit the non-constness to modify the collision
-  // objects. We insure this by immediately assigning to a const version and
-  // not directly using the provided parameters.
-  const fcl::CollisionObjectd& fcl_object_A = *fcl_object_A_ptr;
-  const fcl::CollisionObjectd& fcl_object_B = *fcl_object_B_ptr;
-
-  auto& collision_data = *static_cast<DistanceData*>(callback_data);
+  auto& distance_data = *static_cast<DistanceData*>(callback_data);
+  const std::vector<GeometryId>& geometry_map = distance_data.geometry_map;
+  // We want to pass object_A and object_B to the narrowphase distance in a
+  // specific order. This way the broadphase distance is free to give us
+  // either (A,B) or (B,A), and the narrowphase distance will always give the
+  // same result.
+  const GeometryId orig_id_A = EncodedData(*fcl_object_A_ptr).id(geometry_map);
+  const GeometryId orig_id_B = EncodedData(*fcl_object_B_ptr).id(geometry_map);
+  const bool swap_AB = (orig_id_B < orig_id_A);
+  const GeometryId id_A = swap_AB ? orig_id_B : orig_id_A;
+  const GeometryId id_B = swap_AB ? orig_id_A : orig_id_B;
+  // NOTE: Although this function *takes* pointers to non-const objects to
+  // satisfy the fcl api, it should not exploit the non-constness to modify
+  // the collision objects. We ensure this by a reference to a const version
+  // and not directly use the provided pointers afterwards.
+  const fcl::CollisionObjectd& fcl_object_A =
+      *(swap_AB ? fcl_object_B_ptr : fcl_object_A_ptr);
+  const fcl::CollisionObjectd& fcl_object_B =
+      *(swap_AB ? fcl_object_A_ptr : fcl_object_B_ptr);
 
   // Extract the collision filter keys from the fcl collision objects. These
   // keys will also be used to map the fcl collision object back to the Drake
   // GeometryId for colliding geometries.
-  EncodedData encoding_A(fcl_object_A);
-  EncodedData encoding_B(fcl_object_B);
+  const EncodedData encoding_A(fcl_object_A);
+  const EncodedData encoding_B(fcl_object_B);
 
-  const bool can_collide = collision_data.collision_filter.CanCollideWith(
+  const bool can_collide = distance_data.collision_filter.CanCollideWith(
       encoding_A.encoded_data(), encoding_B.encoded_data());
 
   if (can_collide) {
-    // Unpack the callback data
-    auto& distance_data = *static_cast<DistanceData*>(callback_data);
-    const fcl::DistanceRequestd& request = distance_data.request;
-    const std::vector<GeometryId>& geometry_map = distance_data.geometry_map;
-
     fcl::DistanceResultd result;
-
-    ComputeNearphaseDistance(&fcl_object_A, &fcl_object_B,
-                             geometry_map, request, &result);
-
-    SignedDistancePair<double> nearest_pair;
-    nearest_pair.id_A = EncodedData(fcl_object_A).id(geometry_map);
-    nearest_pair.id_B = EncodedData(fcl_object_B).id(geometry_map);
-
-    // Note: The result of FCL's distance query is in the *world* frame, the
-    // SignedDistancePair reports in geometry frame.
-    nearest_pair.p_ACa =
+    ComputeNarrowPhaseDistance(&fcl_object_A, &fcl_object_B, geometry_map,
+                               distance_data.request, &result);
+    const Vector3d p_ACa =
         fcl_object_A.getTransform().inverse() * result.nearest_points[0];
-    nearest_pair.p_BCb =
+    const Vector3d p_BCb =
         fcl_object_B.getTransform().inverse() * result.nearest_points[1];
-    nearest_pair.distance = result.min_distance;
-    // Guarantee fixed ordering of pair (A, B). Swap the ids and points on
-    // surfaces and then flip the normal.
-    if (nearest_pair.id_B < nearest_pair.id_A) {
-      std::swap(nearest_pair.id_A, nearest_pair.id_B);
-      std::swap(nearest_pair.p_ACa, nearest_pair.p_BCb);
-    }
-
-    distance_data.nearest_pairs->emplace_back(std::move(nearest_pair));
+    distance_data.nearest_pairs->emplace_back(id_A, id_B, p_ACa, p_BCb,
+                                              result.min_distance);
   }
 
   // Returning true would tell the broadphase manager to terminate early. Since
@@ -779,64 +770,72 @@ bool SingleCollisionCallback(fcl::CollisionObjectd* fcl_object_A_ptr,
   const bool can_collide = collision_data.collision_filter.CanCollideWith(
       encoding_A.encoded_data(), encoding_B.encoded_data());
 
-  if (can_collide) {
-    // Unpack the callback data
-    const fcl::CollisionRequestd& request = collision_data.request;
+  // NOTE: Here and below, false is returned regardless of whether collision
+  // is detected or not because true tells the broadphase manager to terminate.
+  // Since we want *all* collisions, we return false.
+  if (!can_collide) return false;
 
-    // This callback only works for a single contact, this confirms a request
-    // hasn't been made for more contacts.
-    DRAKE_ASSERT(request.num_max_contacts == 1);
-    fcl::CollisionResultd result;
+  // Unpack the callback data
+  const fcl::CollisionRequestd& request = collision_data.request;
 
-    // Perform nearphase collision detection
-    fcl::collide(&fcl_object_A, &fcl_object_B, request, result);
+  // This callback only works for a single contact, this confirms a request
+  // hasn't been made for more contacts.
+  DRAKE_ASSERT(request.num_max_contacts == 1);
+  fcl::CollisionResultd result;
 
-    // Process the contact points
-    if (result.isCollision()) {
-      // NOTE: This assumes that the request is configured to use a single
-      // contact.
-      const fcl::Contactd& contact = result.getContact(0);
-      //  By convention, Drake requires the contact normal to point out of B and
-      //  into A. FCL uses the opposite convention.
-      Vector3d drake_normal = -contact.normal;
+  // Perform nearphase collision detection
+  fcl::collide(&fcl_object_A, &fcl_object_B, request, result);
 
-      // Signed distance is negative when penetration depth is positive.
-      double depth = contact.penetration_depth;
+  if (!result.isCollision()) return false;
 
-      // FCL returns a single contact point centered between the two penetrating
-      // surfaces. PenetrationAsPointPair expects
-      // two, one on the surface of body A (Ac) and one on the surface of body B
-      // (Bc). Choose points along the line defined by the contact point and
-      // normal, equidistant to the contact point. Recall that signed_distance
-      // is strictly non-positive, so signed_distance * drake_normal points out
-      // of A and into B.
-      Vector3d p_WAc = contact.pos - 0.5 * depth * drake_normal;
-      Vector3d p_WBc = contact.pos + 0.5 * depth * drake_normal;
+  // Process the contact points
+  // NOTE: This assumes that the request is configured to use a single
+  // contact.
+  const fcl::Contactd& contact = result.getContact(0);
 
-      PenetrationAsPointPair<double> penetration;
-      penetration.depth = depth;
-      // The engine doesn't know geometry ids; it returns engine indices. The
-      // caller must map engine indices to geometry ids.
-      const std::vector<GeometryId>& geometry_map = collision_data.geometry_map;
-      penetration.id_A = encoding_A.id(geometry_map);
-      penetration.id_B = encoding_B.id(geometry_map);
-      penetration.p_WCa = p_WAc;
-      penetration.p_WCb = p_WBc;
-      penetration.nhat_BA_W = drake_normal;
-      // Guarantee fixed ordering of pair (A, B). Swap the ids and points on
-      // surfaces and then flip the normal.
-      if (penetration.id_B < penetration.id_A) {
-        std::swap(penetration.id_A, penetration.id_B);
-        std::swap(penetration.p_WCa, penetration.p_WCb);
-        penetration.nhat_BA_W = -penetration.nhat_BA_W;
-      }
-      collision_data.contacts->emplace_back(std::move(penetration));
-    }
+  // Signed distance is negative when penetration depth is positive.
+  const double depth = contact.penetration_depth;
+
+  // TODO(SeanCurtis-TRI): Remove this test when FCL issue 375 is fixed.
+  // FCL returns osculation as contact but doesn't guarantee a non-zero
+  // normal. Drake isn't really in a position to define that normal from the
+  // geometry or contact results so, if the geometry is sufficiently close
+  // to osculation, we consider the geometries to be non-penetrating.
+  if (depth <= std::numeric_limits<double>::epsilon()) return false;
+
+  // By convention, Drake requires the contact normal to point out of B
+  // and into A. FCL uses the opposite convention.
+  Vector3d drake_normal = -contact.normal;
+
+  // FCL returns a single contact point centered between the two
+  // penetrating surfaces. PenetrationAsPointPair expects
+  // two, one on the surface of body A (Ac) and one on the surface of body
+  // B (Bc). Choose points along the line defined by the contact point and
+  // normal, equidistant to the contact point. Recall that signed_distance
+  // is strictly non-positive, so signed_distance * drake_normal points
+  // out of A and into B.
+  Vector3d p_WAc = contact.pos - 0.5 * depth * drake_normal;
+  Vector3d p_WBc = contact.pos + 0.5 * depth * drake_normal;
+
+  PenetrationAsPointPair<double> penetration;
+  penetration.depth = depth;
+  // The engine doesn't know geometry ids; it returns engine indices. The
+  // caller must map engine indices to geometry ids.
+  const std::vector<GeometryId>& geometry_map = collision_data.geometry_map;
+  penetration.id_A = encoding_A.id(geometry_map);
+  penetration.id_B = encoding_B.id(geometry_map);
+  penetration.p_WCa = p_WAc;
+  penetration.p_WCb = p_WBc;
+  penetration.nhat_BA_W = drake_normal;
+  // Guarantee fixed ordering of pair (A, B). Swap the ids and points on
+  // surfaces and then flip the normal.
+  if (penetration.id_B < penetration.id_A) {
+    std::swap(penetration.id_A, penetration.id_B);
+    std::swap(penetration.p_WCa, penetration.p_WCb);
+    penetration.nhat_BA_W = -penetration.nhat_BA_W;
   }
+  collision_data.contacts->emplace_back(std::move(penetration));
 
-  // Returning true would tell the broadphase manager to terminate early. Since
-  // we want to find all the collisions present in the model's current
-  // configuration, we return false.
   return false;
 }
 

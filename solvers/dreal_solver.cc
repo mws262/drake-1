@@ -523,17 +523,12 @@ void ExtractQuadraticCosts(const MathematicalProgram& prog,
 
 }  // namespace
 
-void DrealSolver::Solve(const MathematicalProgram& prog,
-                        const optional<Eigen::VectorXd>& initial_guess,
-                        const optional<SolverOptions>& solver_options,
-                        MathematicalProgramResult* result) const {
-  *result = {};
-  result->set_decision_variable_index(prog.decision_variable_index());
+void DrealSolver::DoSolve(
+    const MathematicalProgram& prog,
+    const Eigen::VectorXd& initial_guess,
+    const SolverOptions& merged_options,
+    MathematicalProgramResult* result) const {
   unused(initial_guess);
-  if (!AreProgramAttributesSatisfied(prog)) {
-    throw std::invalid_argument(
-        "dReal's capability doesn't satisfy the requirement of the program.");
-  }
 
   // 1. Extracts the constraints from @p prog and constructs an equivalent
   // symbolic formula.
@@ -556,15 +551,11 @@ void DrealSolver::Solve(const MathematicalProgram& prog,
   // TODO(soonho): Support other dReal options. For now, we only support
   // "--preicision" and "--local-optimization".
 
-  SolverOptions merged_solver_options =
-      solver_options.has_value() ? solver_options.value() : SolverOptions();
-  merged_solver_options.Merge(prog.solver_options());
-
   const double precision{GetOptionWithDefaultValue(
-      merged_solver_options, "precision", 0.001 /* default */)};
+      merged_options, "precision", 0.001 /* default */)};
   const LocalOptimization local_optimization{
       GetOptionWithDefaultValue<int>(
-          merged_solver_options, "use_local_optimization", 1 /* default */) > 0
+          merged_options, "use_local_optimization", 1 /* default */) > 0
           ? LocalOptimization::kUse
           : LocalOptimization::kNotUse};
   optional<IntervalBox> dreal_result;
@@ -579,15 +570,14 @@ void DrealSolver::Solve(const MathematicalProgram& prog,
         constraints, precision, local_optimization);
   }
 
-  // 4. Sets up SolverResult and SolutionResult.
+  // 4. Sets MathematicalProgramResult.
   result->set_solution_result(SolutionResult::kUnknownError);
-  result->set_solver_id(id());
   if (dreal_result) {
     // 4.1. delta-SAT case.
     const int num_vars{prog.num_vars()};
     Eigen::VectorXd solution_vector(num_vars);
     // dReal returns an interval box instead of a point as a solution. We pick
-    // the mid-point from a returned box and assign it to the SolverResult.
+    // the mid-point from a returned box and assign it to the result.
     for (const auto& item : *dreal_result) {
       const symbolic::Variable& var{item.first};
       const double v{item.second.mid()};
@@ -601,12 +591,5 @@ void DrealSolver::Solve(const MathematicalProgram& prog,
   }
 }
 
-SolutionResult DrealSolver::Solve(MathematicalProgram& prog) const {
-  MathematicalProgramResult result;
-  Solve(prog, {}, {}, &result);
-  const SolverResult solver_result = result.ConvertToSolverResult();
-  prog.SetSolverResult(solver_result);
-  return result.get_solution_result();
-}
 }  // namespace solvers
 }  // namespace drake

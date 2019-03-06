@@ -184,6 +184,7 @@ drake_pybind_library(
     cc_deps = [
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake:symbolic_types_pybind",
+        "//bindings/pydrake/common:deprecation_pybind",
     ],
     cc_srcs = ["trajectory_optimization_py.cc"],
     package_info = PACKAGE_INFO,
@@ -369,6 +370,7 @@ drake_py_unittest(
         ":framework_py",
         ":primitives_py",
         ":test_util_py",
+        "//bindings/pydrake/common/test_utilities",
     ],
 )
 
@@ -449,6 +451,7 @@ drake_py_unittest(
     name = "trajectory_optimization_test",
     deps = [
         ":trajectory_optimization_py",
+        "//bindings/pydrake/common/test_utilities",
         "//bindings/pydrake/examples:pendulum_py",
     ],
 )

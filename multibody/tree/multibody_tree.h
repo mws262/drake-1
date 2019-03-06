@@ -39,11 +39,12 @@ template <typename T> class JointActuator;
 template <typename T> class ForceElement;
 template <typename T> class UniformGravityFieldElement;
 
-/// Enumeration that distinguishes between flavors of Jacobians based
-/// on the variable with respect to which they are taken.
+/// Enumeration that indicates whether the Jacobian is partial differentiation
+/// with respect to q̇ (time-derivatives of generalized positions) or
+/// with respect to v (generalized velocities).
 enum class JacobianWrtVariable {
-  kQDot,  /// J = ∂V/∂q̇
-  kV      /// J = ∂V/∂v
+  kQDot,  ///< J = ∂V/∂q̇
+  kV      ///< J = ∂V/∂v
 };
 
 /// @cond
@@ -1027,47 +1028,16 @@ class MultibodyTree {
   /// those vectors which apply to a single model instance only.
   /// @{
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call SetActuationInArray(). Will be deleted after 2/7/19.")
-  void set_actuation_vector(
-      ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& u_instance,
-      EigenPtr<VectorX<T>> u) const;
-#endif
-
   /// See MultibodyPlant method.
   void SetActuationInArray(
       ModelInstanceIndex model_instance,
       const Eigen::Ref<const VectorX<T>>& u_instance,
       EigenPtr<VectorX<T>> u) const;
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call GetPositionsFromArray(). Will be removed after "
-                   "2/7/19.")
-  VectorX<T> get_positions_from_array(
-      ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& q) const {
-    return GetPositionsFromArray(model_instance, q);
-  }
-#endif
-
   /// See MultibodyPlant method.
   VectorX<T> GetPositionsFromArray(
       ModelInstanceIndex model_instance,
       const Eigen::Ref<const VectorX<T>>& q) const;
-
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call SetPositionsInArray(). Will be removed after 2/7/19.")
-  void set_positions_in_array(
-      ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& model_q,
-      EigenPtr<VectorX<T>> q_array) const {
-    SetPositionsInArray(model_instance, model_q, q_array);
-  }
-#endif
 
   /// See MultibodyPlant method.
   void SetPositionsInArray(
@@ -1075,32 +1045,10 @@ class MultibodyTree {
       const Eigen::Ref<const VectorX<T>>& q_instance,
       EigenPtr<VectorX<T>> q) const;
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call GetVelocitiesFromArray(). Will be removed after"
-                   " 2/7/19.")
-  VectorX<T> get_velocities_from_array(
-      ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& v_array) const {
-    return GetVelocitiesFromArray(model_instance, v_array);
-  }
-#endif
-
   /// See MultibodyPlant method.
   VectorX<T> GetVelocitiesFromArray(
       ModelInstanceIndex model_instance,
       const Eigen::Ref<const VectorX<T>>& v) const;
-
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call SetVelocitiesInArray(). Will be removed after 2/7/19.")
-  void set_velocities_in_array(
-      ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& model_v,
-      EigenPtr<VectorX<T>> v_array) const {
-    SetVelocitiesInArray(model_instance, model_v, v_array);
-  }
-#endif
 
   /// Sets the vector of generalized velocities for `model_instance` in
   /// `v` using `v_instance`, leaving all other elements in the array
@@ -1157,16 +1105,6 @@ class MultibodyTree {
                       systems::State<T>* state,
                       RandomGenerator* generator) const;
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call GetPositionsAndVelocities(). Will be removed after "
-                   "2/7/19.")
-  Eigen::VectorBlock<const VectorX<T>> get_multibody_state_vector(
-      const systems::Context<T>& context) const {
-    return GetPositionsAndVelocities(context);
-  }
-#endif
-
   /// Returns a const Eigen vector reference containing the vector
   /// `[q; v]` of the model with `q` the vector of generalized positions and
   /// `v` the vector of generalized velocities.
@@ -1176,17 +1114,6 @@ class MultibodyTree {
   /// for a multibody model.
   Eigen::VectorBlock<const VectorX<T>> GetPositionsAndVelocities(
       const systems::Context<T>& context) const;
-
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call GetPositionsAndVelocities(). Will be removed after "
-                   "2/7/19.")
-  VectorX<T> get_multibody_state_vector(
-      const systems::Context<T>& context,
-      ModelInstanceIndex model_instance) const {
-    return GetPositionsAndVelocities(context, model_instance);
-  }
-#endif
 
   /// Returns a Eigen vector containing the multibody state `x = [q; v]`
   /// of the model with `q` the vector of generalized positions and `v` the
@@ -1198,16 +1125,6 @@ class MultibodyTree {
   VectorX<T> GetPositionsAndVelocities(
       const systems::Context<T>& context,
       ModelInstanceIndex model_instance) const;
-
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call GetMutablePositionsAndVelocities(). Will be removed"
-                   " after 2/7/19.")
-  Eigen::VectorBlock<VectorX<T>> get_mutable_multibody_state_vector(
-  systems::Context<T>* context) const {
-    return GetMutablePositionsAndVelocities(context);
-  }
-#endif
 
   /// Returns a mutable Eigen vector containing the vector `[q; v]`
   /// of the model with `q` the vector of generalized positions and `v` the
@@ -1226,19 +1143,6 @@ class MultibodyTree {
     return GetMutablePositionsAndVelocities(*context,
                                             &context->get_mutable_state());
   }
-
-
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(edrumwri) Remove this method after 2/7/19 (3 months).
-  DRAKE_DEPRECATED("Call SetPositionsAndVelocities(). Will be removed after "
-                   "2/7/19.")
-  void set_multibody_state_vector(
-      ModelInstanceIndex model_instance,
-      const Eigen::Ref<const VectorX<T>>& instance_state,
-      systems::Context<T>* context) const {
-    SetPositionsAndVelocities(model_instance, instance_state, context);
-  }
-#endif
 
   /// Sets `context` to store the vector `[q; v]`
   /// with `q` the vector of generalized positions and `v` the vector
@@ -1281,9 +1185,10 @@ class MultibodyTree {
       const Body<T>& body,
       const Vector3<symbolic::Expression>& position);
 
-  /// See MultibodyPlant::SetFreeBodyRandomRotationDistributionToUniform.
-  void SetFreeBodyRandomRotationDistributionToUniformOrThrow(
-      const Body<T>& body);
+  /// See MultibodyPlant::SetFreeBodyRandomRotationDistribution.
+  void SetFreeBodyRandomRotationDistributionOrThrow(
+      const Body<T>& body,
+      const Eigen::Quaternion<symbolic::Expression>& rotation);
 
   /// @name Kinematic computations
   /// Kinematics computations are concerned with the motion of bodies in the
@@ -1380,6 +1285,21 @@ class MultibodyTree {
       const Frame<T>& frame_B, const Eigen::Ref<const Vector3<T>>& p_BP,
       const Frame<T>& frame_A, const Frame<T>& frame_E,
       EigenPtr<MatrixX<T>> Jw_ABp_E) const;
+
+  /// See MultibodyPlant method.
+  void CalcJacobianAngularVelocity(const systems::Context<T>& context,
+                                   JacobianWrtVariable with_respect_to,
+                                   const Frame<T>& frame_B,
+                                   const Frame<T>& frame_A,
+                                   const Frame<T>& frame_E,
+                                   EigenPtr<MatrixX<T>> Js_w_AB_E) const;
+
+  /// See MultibodyPlant method.
+  void CalcJacobianTranslationalVelocity(
+      const systems::Context<T>& context,
+      JacobianWrtVariable with_respect_to, const Frame<T>& frame_B,
+      const Eigen::Ref<const Vector3<T>>& p_BoBp_B, const Frame<T>& frame_A,
+      const Frame<T>& frame_E, EigenPtr<MatrixX<T>> Js_v_ABp_E) const;
 
   /// @}
   // End of multibody Jacobian methods section.
@@ -2138,12 +2058,12 @@ class MultibodyTree {
   // frame Fq with origin at a point Q are given by:
   //   w_WFq = Jr_WFq⋅v
   //   v_WFq = Jt_WFq⋅v
-  // when computed in terms of generalized velocities (from_qdot = false) or
-  // by:
+  // when computed in terms of generalized velocities
+  // (with_respect_to = JacobianWrtVariable::kV) or by:
   //   w_WFq = Jr_WFq⋅q̇
   //   v_WFq = Jt_WFq⋅q̇
   // when computed in terms of the time derivatives of the generalized
-  // positions (from_qdot = true).
+  // positions (with_respect_to = JacobianWrtVariable::kQDot).
   //
   // This method provides the option to specify whether angular and/or
   // translational terms need to be computed, however the caller must at least
@@ -2158,13 +2078,14 @@ class MultibodyTree {
   // origin at a point Q is the same as that of frame F, for any point Q.
   // That is, w_WFq = w_WF for any point Q. With this in mind, Jr_WFq is
   // defined so that:
-  //   w_WFq = w_WF = Jr_WFq⋅v (or = Jr_WFq⋅q̇ if from_qdot = true).
-  // and therefore Jr_WFq is a matrix with 3 rows and nv columns (or nq
-  // columns when from_qdot = true), with nv and nq the
-  // number of generalized velocities and positions, respectively. If not
-  // nullptr on input, matrix Jr_WFq **must** have the documented size or this
-  // method throws a std::runtime_error exception.
-  //
+  //   w_WFq = w_WF = Jr_WFq⋅v  if with_respect_to = JacobianWrtVariable::kV
+  //   w_WFq = w_WF = Jr_WFq⋅q̇  if with_respect_to = JacobianWrtVariable::kQDot
+  // and therefore Jr_WFq is a matrix with 3 rows and
+  // nv columns if with_respect_to = JacobianWrtVariable::kV or
+  // nq columns if with_respect_to = JacobianWrtVariable::kQDot, where nv and nq
+  // are the number of generalized velocities and positions, respectively.
+  // If not nullptr on input, matrix Jr_WFq **must** have the documented size
+  // or this method throws a std::runtime_error exception.
   //
   //               Format of the Jacobian matrix Jt_WFq
   //
@@ -2172,14 +2093,14 @@ class MultibodyTree {
   // v_WFq = [v_WFq1; v_WFq2; ...] of size 3⋅np, with np the number of
   // points in the input list. Then the translational velocities Jacobian is
   // defined such that:
-  //   v_WFq = Jt_WFq⋅v, when from_qdot = false
-  // or by:
-  //   v_WFq = Jt_WFq⋅q̇, when from_qdot = true
+  //   v_WFq = Jt_WFq⋅v, if with_respect_to = JacobianWrtVariable::kV
+  //   v_WFq = Jt_WFq⋅q̇, if with_respect_to = JacobianWrtVariable::kQDot
   //
-  // Therefore Jt_WFq is a matrix with 3⋅np rows and nv columns (from_qdot =
-  // false) or nq columns (from_qdot = true). If not
-  // nullptr on input, matrix Jt_WFq **must** have the required size or this
-  // method throws a std::runtime_error exception.
+  // Therefore Jt_WFq is a matrix with 3⋅np rows and
+  // nv columns if with_respect_to = JacobianWrtVariable::kV or
+  // nq columns if with_respect_to = JacobianWrtVariable::kQDot
+  // If not nullptr on input, matrix Jt_WFq **must** have the required size or
+  // this method throws a std::runtime_error exception.
   //
   // This helper throws std::runtime_error when:
   // - The number of rows in p_WQ_list does not equal three. That is, p_WQ_list
@@ -2187,15 +2108,15 @@ class MultibodyTree {
   // - Jr_WFq and Jt_WFq are both nullptr (caller must request at least one
   //   Jacobian).
   // - The number of columns of Jr_WFq and/or Jt_WFq does not equal
-  //   num_velocities() (from_qdot = false) or num_positions() (from_qdot =
-  //   true).
+  //   num_velocities() if with_respect_to = JacobianWrtVariable::kV or
+  //   num_positions()  if with_respect_to = JacobianWrtVariable::kQDot.
   // - The number of rows of Jr_WFq does not equal 3.
   // - The number of rows of Jt_WFq does not equal 3⋅np.
   void CalcFrameJacobianExpressedInWorld(
       const systems::Context<T>& context,
       const Frame<T>& frame_F,
       const Eigen::Ref<const MatrixX<T>>& p_WQ_list,
-      bool from_qdot,
+      JacobianWrtVariable with_respect_to,
       EigenPtr<MatrixX<T>> Jr_WFq, EigenPtr<MatrixX<T>> Jt_WFq) const;
 
   // Implementation for CalcMassMatrixViaInverseDynamics().

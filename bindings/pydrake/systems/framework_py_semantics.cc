@@ -4,6 +4,7 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/drake_optional_pybind.h"
 #include "drake/bindings/pydrake/common/drake_variant_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
@@ -26,6 +27,28 @@ namespace drake {
 namespace pydrake {
 
 using pysystems::DefClone;
+
+namespace {
+// Given an InputPort or OutputPort as self, return self.Eval(context).  In
+// python, always returns either a numpy.ndarray (when vector-valued) or the
+// unwrapped T in a Value<T> (when abstract-valued).
+template <typename SomeObject, typename T>
+py::object DoEval(const SomeObject* self, const systems::Context<T>& context) {
+  switch (self->get_data_type()) {
+    case systems::kVectorValued: {
+      const VectorX<T> eigen_copy = self->Eval(context);
+      return py::cast(eigen_copy);
+    }
+    case systems::kAbstractValued: {
+      const auto& abstract = self->template Eval<AbstractValue>(context);
+      // TODO(#9398): Figure out why `py_reference` is necessary.
+      py::object value_ref = py::cast(&abstract, py_reference);
+      return value_ref.attr("get_value")();
+    }
+  }
+  DRAKE_UNREACHABLE();
+}
+}  // namespace
 
 void DefineFrameworkPySemantics(py::module m) {
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
@@ -53,7 +76,10 @@ void DefineFrameworkPySemantics(py::module m) {
   BindTypeSafeIndex<AbstractParameterIndex>(m, "AbstractParameterIndex");
 
   py::class_<FixedInputPortValue>(
-      m, "FixedInputPortValue", doc.FixedInputPortValue.doc);
+      m, "FixedInputPortValue", doc.FixedInputPortValue.doc)
+      .def("GetMutableData", &FixedInputPortValue::GetMutableData,
+          // TODO(#9398): Why is `py_reference` necessary?
+          py_reference_internal, doc.FixedInputPortValue.GetMutableData.doc);
 
   using AbstractValuePtrList = vector<unique_ptr<AbstractValue>>;
   // N.B. `AbstractValues` provides the ability to reference non-owned values,
@@ -70,8 +96,18 @@ void DefineFrameworkPySemantics(py::module m) {
           doc.AbstractValues.get_value.doc)
       .def("get_mutable_value", &AbstractValues::get_mutable_value,
           py_reference_internal, doc.AbstractValues.get_mutable_value.doc)
-      .def("CopyFrom", &AbstractValues::CopyFrom,
-          doc.AbstractValues.CopyFrom.doc);
+      .def("CopyFrom",
+          [](AbstractValues* self, const AbstractValues& other) {
+            WarnDeprecated(
+                "Use SetFrom instead of CopyFrom. "
+                "This method will be removed on 2019-06-01.");
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+            self->CopyFrom(other);
+#pragma GCC diagnostic pop
+          },
+          doc.AbstractValues.CopyFrom.doc)
+      .def("SetFrom", &AbstractValues::SetFrom, doc.AbstractValues.SetFrom.doc);
 
   {
     using Class = TriggerType;
@@ -135,6 +171,8 @@ void DefineFrameworkPySemantics(py::module m) {
         .def("get_continuous_state_vector",
             &Context<T>::get_continuous_state_vector, py_reference_internal,
             doc.Context.get_continuous_state_vector.doc)
+        .def("SetContinuousState", &Context<T>::SetContinuousState,
+            doc.Context.SetContinuousState.doc)
         .def("get_mutable_continuous_state_vector",
             &Context<T>::get_mutable_continuous_state_vector,
             py_reference_internal,
@@ -258,25 +296,34 @@ void DefineFrameworkPySemantics(py::module m) {
 
     DefineTemplateClassWithDefault<OutputPort<T>>(
         m, "OutputPort", GetPyParam<T>(), doc.OutputPort.doc)
-        .def("size", &OutputPort<T>::size, doc.OutputPortBase.size.doc)
+        .def("size", &OutputPort<T>::size, doc.PortBase.size.doc)
+        .def("get_data_type", &OutputPort<T>::get_data_type,
+            doc.PortBase.get_data_type.doc)
         .def("get_index", &OutputPort<T>::get_index,
             doc.OutputPortBase.get_index.doc)
-        .def("EvalAbstract", &OutputPort<T>::EvalAbstract,
-            doc.OutputPort.EvalAbstract.doc, py_reference_internal)
         .def("Eval",
             [](const OutputPort<T>* self, const Context<T>& context) {
-              // Use type-erased signature to get value.
-              // TODO(eric.cousineau): Figure out why `py_reference` is
-              // necessary below (#9398).
-              py::object value_ref =
-                  py::cast(&self->EvalAbstract(context), py_reference);
-              return value_ref.attr("get_value")();
+              return DoEval(self, context);
             },
             doc.OutputPort.Eval.doc)
+        .def("EvalAbstract",
+            [](const OutputPort<T>* self, const Context<T>& c) {
+              const auto& abstract = self->template Eval<AbstractValue>(c);
+              // TODO(#9398): Figure out why `py_reference` is necessary.
+              return py::cast(&abstract, py_reference);
+            },
+            py::arg("context"),
+            "(Advanced.) Returns the value of this output port, typed "
+            "as an AbstractValue. Most users should call Eval() instead. "
+            "This method is only needed when the result will be passed "
+            "into some other API that only accepts an AbstractValue.",
+            py_reference_internal)
         .def("EvalBasicVector",
-            static_cast<const BasicVector<T>& (
-                OutputPort<T>::*)(const Context<T>&)const>(
-                &OutputPort<T>::Eval),
+            [](const OutputPort<T>* self, const Context<T>& c) {
+              const auto& basic = self->template Eval<BasicVector<T>>(c);
+              // TODO(#9398): Figure out why `py_reference` is necessary.
+              return py::cast(&basic, py_reference);
+            },
             py::arg("context"),
             "(Advanced.) Returns the value of this output port, typed "
             "as a BasicVector. Most users should call Eval() instead. "
@@ -296,11 +343,41 @@ void DefineFrameworkPySemantics(py::module m) {
 
     DefineTemplateClassWithDefault<InputPort<T>>(
         m, "InputPort", GetPyParam<T>(), doc.InputPort.doc)
-        .def("size", &InputPort<T>::size, doc.InputPortBase.size.doc)
+        .def("size", &InputPort<T>::size, doc.PortBase.size.doc)
         .def("get_data_type", &InputPort<T>::get_data_type,
-            doc.InputPortBase.get_data_type.doc)
+            doc.PortBase.get_data_type.doc)
         .def("get_index", &InputPort<T>::get_index,
-            doc.InputPortBase.get_index.doc);
+            doc.InputPortBase.get_index.doc)
+        .def("Eval",
+            [](const InputPort<T>* self, const Context<T>& context) {
+              return DoEval(self, context);
+              DRAKE_UNREACHABLE();
+            },
+            doc.InputPort.Eval.doc)
+        .def("EvalAbstract",
+            [](const InputPort<T>* self, const Context<T>& c) {
+              const auto& abstract = self->template Eval<AbstractValue>(c);
+              // TODO(#9398): Figure out why `py_reference` is necessary.
+              return py::cast(&abstract, py_reference);
+            },
+            py::arg("context"),
+            "(Advanced.) Returns the value of this input port, typed "
+            "as an AbstractValue. Most users should call Eval() instead. "
+            "This method is only needed when the result will be passed "
+            "into some other API that only accepts an AbstractValue.",
+            py_reference_internal)
+        .def("EvalBasicVector",
+            [](const InputPort<T>* self, const Context<T>& c) {
+              const auto& basic = self->template Eval<BasicVector<T>>(c);
+              // TODO(#9398): Figure out why `py_reference` is necessary.
+              return py::cast(&basic, py_reference);
+            },
+            py::arg("context"),
+            "(Advanced.) Returns the value of this input port, typed "
+            "as a BasicVector. Most users should call Eval() instead. "
+            "This method is only needed when the result will be passed "
+            "into some other API that only accepts a BasicVector.",
+            py_reference_internal);
 
     // Parameters.
     auto parameters = DefineTemplateClassWithDefault<Parameters<T>>(
@@ -366,7 +443,11 @@ void DefineFrameworkPySemantics(py::module m) {
             // Keep alive, ownership: `value` keeps `self` alive.
             py::keep_alive<2, 1>(), py::arg("abstract_params"),
             doc.Parameters.set_abstract_parameters.doc)
-        .def("SetFrom", &Parameters<T>::SetFrom, doc.Parameters.SetFrom.doc);
+        .def("SetFrom",
+            [](Parameters<T>* self, const Parameters<double>& other) {
+              self->SetFrom(other);
+            },
+            doc.Parameters.SetFrom.doc);
 
     // State.
     DefineTemplateClassWithDefault<State<T>>(

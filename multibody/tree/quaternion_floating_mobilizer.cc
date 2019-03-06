@@ -4,7 +4,6 @@
 
 #include "drake/common/eigen_types.h"
 #include "drake/math/quaternion.h"
-#include "drake/math/random_rotation.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/tree/multibody_tree.h"
 
@@ -97,16 +96,14 @@ void QuaternionFloatingMobilizer<T>::set_random_position_distribution(
 
 template <typename T>
 void QuaternionFloatingMobilizer<
-    T>::set_random_quaternion_distribution_to_uniform() {
+    T>::set_random_quaternion_distribution(
+        const Eigen::Quaternion<symbolic::Expression>& q_FM) {
   Vector<symbolic::Expression, kNq> positions;
   if (this->get_random_state_distribution()) {
     positions = this->get_random_state_distribution()->template head<kNq>();
   } else {
     positions = get_zero_position().template cast<symbolic::Expression>();
   }
-  RandomGenerator generator;
-  auto q_FM =
-      math::UniformlyRandomQuaternion<symbolic::Expression>(&generator);
   positions[0] = q_FM.w();
   positions.template segment<3>(1) = q_FM.vec();
   MobilizerBase::set_random_position_distribution(positions);
@@ -291,11 +288,25 @@ template <typename T>
 Eigen::Matrix<T, 3, 4>
 QuaternionFloatingMobilizer<T>::QuaternionRateToAngularVelocityMatrix(
     const Quaternion<T>& q_FM) {
+  const T q_norm = q_FM.norm();
+  // The input quaternion might not be normalized. We refer to the normalized
+  // quaternion as q_FM_tilde. This is retrieved as a Vector4 with its storage
+  // order consistent with the storage order in a MultibodyPlant context. That
+  // is, scalar component first followed by the vector component. See developers
+  // notes in the implementation for get_quaternion().
+  const Vector4<T> q_FM_tilde =
+      Vector4<T>(q_FM.w(), q_FM.x(), q_FM.y(), q_FM.z()) / q_norm;
+
+  // Gradient of the normalized quaternion with respect to the unnormalized
+  // generalized coordinates:
+  const Matrix4<T> dqnorm_dq =
+      (Matrix4<T>::Identity() - q_FM_tilde * q_FM_tilde.transpose()) / q_norm;
+
   // With L given by CalcLMatrix we have:
-  // N⁺(q) = L(2 q_FM)ᵀ
-  return CalcLMatrix(
-             {2.0 * q_FM.w(), 2.0 * q_FM.x(), 2.0 * q_FM.y(), 2.0 * q_FM.z()})
-      .transpose();
+  // N⁺(q_tilde) = L(2 q_FM_tilde)ᵀ
+  return CalcLMatrix({2.0 * q_FM_tilde[0], 2.0 * q_FM_tilde[1],
+                      2.0 * q_FM_tilde[2], 2.0 * q_FM_tilde[3]})
+      .transpose() * dqnorm_dq;
 }
 
 template <typename T>

@@ -26,7 +26,6 @@ using T = double;
 using lcm::DrakeLcm;
 using lcm::DrakeLcmInterface;
 using pysystems::pylcm::BindCppSerializers;
-using systems::AbstractValue;
 using systems::lcm::LcmMessageToTimeInterface;
 using systems::lcm::SerializerInterface;
 
@@ -195,7 +194,7 @@ PYBIND11_MODULE(lcm, m) {
             py::arg("channel"), py::arg("serializer"), py::arg("lcm"),
             py::arg("publish_period") = 0.0,
             // Keep alive: `self` keeps `DrakeLcmInterface` alive.
-            py::keep_alive<1, 3>(), doc.LcmPublisherSystem.ctor.doc)
+            py::keep_alive<1, 3>(), doc.LcmPublisherSystem.ctor.doc_4args)
         .def("set_publish_period",
             [](Class* self, double period) {
               WarnDeprecated("set_publish_period() is deprecated");

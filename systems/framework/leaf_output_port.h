@@ -8,11 +8,11 @@
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/framework_common.h"
 #include "drake/systems/framework/output_port.h"
 #include "drake/systems/framework/system_base.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
@@ -20,9 +20,9 @@ namespace systems {
 // TODO(sherm1) Output ports that simply expose existing Context objects
 // should not require a cache entry. Add provision for that to avoid the
 // unnecessary copying currently done by Eval() for those.
-/** Implements an output port whose value is managed by a cache entry in the
-same LeafSystem as the port. This is intended for internal use in implementing
-the DeclareOutputPort() variants in LeafSystem.
+/** (Advanced.) Implements an output port whose value is managed by a cache
+entry in the same LeafSystem as the port. This is intended for internal use in
+implementing the DeclareOutputPort() variants in LeafSystem.
 
 @tparam T The vector element type, which must be a valid Eigen scalar.
 
@@ -39,7 +39,7 @@ class LeafOutputPort final : public OutputPort<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(LeafOutputPort)
 
-  ~LeafOutputPort() override;
+  ~LeafOutputPort() final;
 
   // TODO(sherm1) These callbacks should not be specific to this class. Move
   // elsewhere, e.g. framework_common.h so they can be shared with cache entry.
@@ -59,8 +59,17 @@ class LeafOutputPort final : public OutputPort<T> {
   using CalcVectorCallback =
   std::function<void(const Context<T>&, BasicVector<T>*)>;
 
-  /** Constructs a cached output port. The `system` parameter must be the same
-  object as the `system_base` parameter. */
+  /** Returns the cache entry associated with this output port. */
+  const CacheEntry& cache_entry() const {
+    DRAKE_ASSERT(cache_entry_ != nullptr);
+    return *cache_entry_;
+  }
+
+ private:
+  friend class internal::FrameworkFactory;
+
+  // Constructs a cached output port. The `system` parameter must be the same
+  // object as the `system_base` parameter.
   LeafOutputPort(const System<T>* system, SystemBase* system_base,
                  std::string name, OutputPortIndex index,
                  DependencyTicket ticket, PortDataType data_type, int size,
@@ -71,13 +80,6 @@ class LeafOutputPort final : public OutputPort<T> {
     DRAKE_DEMAND(cache_entry != nullptr);
   }
 
-  /** Returns the cache entry associated with this output port. */
-  const CacheEntry& cache_entry() const {
-    DRAKE_ASSERT(cache_entry_ != nullptr);
-    return *cache_entry_;
-  }
-
- private:
   // Invokes the cache entry's allocation function.
   std::unique_ptr<AbstractValue> DoAllocate() const final {
     return cache_entry().Allocate();

@@ -54,6 +54,7 @@ class DummyController : public systems::LeafSystem<double> {
   DummyController() {
     this->DeclareVectorOutputPort("no_torque", BasicVector<double>(1),
       &DummyController::OutputTorque);
+/*
     std::function<std::vector<systems::ArrowVisualization>(
         const Context<double>&)> fpointer = &CreateTestArrowVector;
     arrow_output_ = this->DeclareAbstractOutputPort(
@@ -68,7 +69,7 @@ class DummyController : public systems::LeafSystem<double> {
   const systems::OutputPort<double>& get_arrow_output_port() const { 
       return this->get_output_port(arrow_output_); 
   }
-
+*/
  private:
   void OutputTorque(const Context<double>&, BasicVector<double>* output) const {
     output->SetZero();    
@@ -116,8 +117,8 @@ int do_main() {
   auto dummy_controller = builder.AddSystem<DummyController>();
   builder.Connect(dummy_controller->get_output_port(0),
                   acrobot.get_actuation_input_port());
-  ConnectGenericArrowsToDrakeVisualizer(
-      &builder, dummy_controller->get_arrow_output_port());
+//  ConnectGenericArrowsToDrakeVisualizer(
+//      &builder, dummy_controller->get_arrow_output_port());
 
   // Sanity check on the availability of the optional source id before using it.
   DRAKE_DEMAND(!!acrobot.get_source_id());

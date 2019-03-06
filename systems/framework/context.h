@@ -8,10 +8,10 @@
 #include "drake/common/drake_optional.h"
 #include "drake/common/drake_throw.h"
 #include "drake/common/pointer_cast.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/context_base.h"
 #include "drake/systems/framework/parameters.h"
 #include "drake/systems/framework/state.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
@@ -181,13 +181,6 @@ class Context : public ContextBase {
   /// Returns the number of vector-valued parameters.
   int num_numeric_parameter_groups() const {
     return parameters_->num_numeric_parameter_groups();
-  }
-
-  DRAKE_DEPRECATED(
-      "Use num_numeric_parameter_groups().  This method will be removed after "
-      "2/15/19.")
-  int num_numeric_parameters() const {
-    return num_numeric_parameter_groups();
   }
 
   /// Returns a const reference to the vector-valued parameter at @p index.
@@ -490,14 +483,16 @@ class Context : public ContextBase {
   // TODO(sherm1) Change the name of this method to be more inclusive since it
   //              also copies accuracy (now) and fixed input port values
   //              (pending above TODO).
-  void SetTimeStateAndParametersFrom(const Context<double>& source) {
+  template <typename U>
+  void SetTimeStateAndParametersFrom(const Context<U>& source) {
     ThrowIfNotRootContext(__func__, "Time");
     // A single change event for all these changes is faster than doing
     // each separately.
     const int64_t change_event = this->start_new_change_event();
 
     // These two both set the value and perform notifications.
-    PropagateTimeChange(this, T(source.get_time()), change_event);
+    const scalar_conversion::ValueConverter<T, U> converter;
+    PropagateTimeChange(this, converter(source.get_time()), change_event);
     PropagateAccuracyChange(this, source.get_accuracy(), change_event);
 
     // Notification is separate from the actual value change for bulk changes.
@@ -521,6 +516,10 @@ class Context : public ContextBase {
   /// modify the input port's value using the appropriate
   /// FixedInputPortValue method, which will ensure that invalidation
   /// notifications are delivered.
+  /// @note Calling this method on an already connected input port, i.e., an
+  /// input port that has previously been passed into a call to
+  /// DiagramBuilder::Connect(), causes FixedInputPortValue to override any
+  /// other value present on that port.
   FixedInputPortValue& FixInputPort(int index, const BasicVector<T>& vec) {
     return ContextBase::FixInputPort(
         index, std::make_unique<Value<BasicVector<T>>>(vec.Clone()));
@@ -528,6 +527,10 @@ class Context : public ContextBase {
 
   /// Same as above method but starts with an Eigen vector whose contents are
   /// used to initialize a BasicVector in the FixedInputPortValue.
+  /// @note Calling this method on an already connected input port, i.e., an
+  /// input port that has previously been passed into a call to
+  /// DiagramBuilder::Connect(), causes FixedInputPortValue to override any
+  /// other value present on that port.
   FixedInputPortValue& FixInputPort(
       int index, const Eigen::Ref<const VectorX<T>>& data) {
     return FixInputPort(index, BasicVector<T>(data));
@@ -537,6 +540,10 @@ class Context : public ContextBase {
   /// the vector is passed by unique_ptr instead of by const reference.  The
   /// caller must not retain any aliases to `vec`; within this method, `vec`
   /// is cloned and then deleted.
+  /// @note Calling this method on an already connected input port, i.e., an
+  /// input port that has previously been passed into a call to
+  /// DiagramBuilder::Connect(), causes FixedInputPortValue to override any
+  /// other value present on that port.
   /// @note This overload will become deprecated in the future, because it can
   /// mislead users to believe that they can retain an alias of `vec` to mutate
   /// the fixed value during a simulation.  Callers should prefer to use one of

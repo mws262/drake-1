@@ -2,7 +2,11 @@ from __future__ import print_function, absolute_import
 
 from pydrake.solvers import mathematicalprogram as mp
 from pydrake.solvers.gurobi import GurobiSolver
-from pydrake.solvers.mathematicalprogram import SolverType
+from pydrake.solvers.snopt import SnoptSolver
+from pydrake.solvers.mathematicalprogram import (
+    SolverOptions,
+    SolverType
+    )
 
 import unittest
 import warnings
@@ -10,9 +14,11 @@ import warnings
 import numpy as np
 
 import pydrake
-from pydrake.common.deprecation import DrakeDeprecationWarning
+from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.autodiffutils import AutoDiffXd
 import pydrake.symbolic as sym
+
+SNOPT_NO_GUROBI = SnoptSolver().available() and not GurobiSolver().available()
 
 
 class TestQP:
@@ -47,6 +53,53 @@ class TestMathematicalProgram(unittest.TestCase):
         vars_all = prog.decision_variables()
         self.assertEqual(vars_all.shape, (5,))
 
+    def test_program_attributes_and_solver_selection(self):
+        prog = mp.MathematicalProgram()
+        x = prog.NewContinuousVariables(2, "x")
+
+        # Add linear equality constraints; make sure the solver works.
+        prog.AddLinearConstraint(x[0] + x[1] == 0)
+        prog.AddLinearConstraint(2*x[0] - x[1] == 1)
+        solver_id = mp.ChooseBestSolver(prog)
+        self.assertEqual(solver_id.name(), "Linear system")
+        solver = mp.MakeSolver(solver_id)
+        self.assertEqual(solver.solver_id().name(), "Linear system")
+        self.assertTrue(solver.AreProgramAttributesSatisfied(prog))
+        result = solver.Solve(prog, None, None)
+        self.assertTrue(result.is_success())
+
+        # With an inequality constraint added, the "Linear system" solver
+        # doesn't work anymore.
+        prog.AddLinearConstraint(x[0] >= 0)
+        self.assertFalse(solver.AreProgramAttributesSatisfied(prog))
+        with self.assertRaises(ValueError):
+            solver.Solve(prog, None, None)
+
+        # A different solver will work, though.  We re-use the result object
+        # (as a mutable output argument), and make sure that it changes.
+        solver_id = mp.ChooseBestSolver(prog)
+        self.assertNotEqual(solver_id.name(), "Linear system")
+        solver = mp.MakeSolver(solver_id)
+        solver.Solve(prog, None, None, result)
+        self.assertTrue(result.is_success())
+        self.assertEqual(result.get_solver_id().name(), solver_id.name())
+
+    def test_module_level_solve_function_and_result_accessors(self):
+        qp = TestQP()
+        x_expected = np.array([1, 1])
+        result = mp.Solve(qp.prog)
+        self.assertTrue(result.is_success())
+        self.assertTrue(np.allclose(result.get_x_val(), x_expected))
+        self.assertEqual(result.get_solution_result(),
+                         mp.SolutionResult.kSolutionFound)
+        self.assertEqual(result.get_optimal_cost(), 3.0)
+        self.assertTrue(result.get_solver_id().name())
+        self.assertTrue(np.allclose(result.GetSolution(), x_expected))
+        self.assertEqual(result.GetSolution(qp.x[0]), 1.0)
+        self.assertTrue(np.allclose(result.GetSolution(qp.x), x_expected))
+
+    # TODO(jwnimmer-tri) MOSEK is also able to solve mixed integer programs;
+    # perhaps we should test both of them?
     @unittest.skipUnless(GurobiSolver().available(), "Requires Gurobi")
     def test_mixed_integer_optimization(self):
         prog = mp.MathematicalProgram()
@@ -56,18 +109,17 @@ class TestMathematicalProgram(unittest.TestCase):
         a = np.array([1.0, 2.0, 3.0])
         prog.AddLinearConstraint(a.dot(x) <= 4)
         prog.AddLinearConstraint(x[0] + x[1], 1, np.inf)
-        self.assertIsNone(prog.GetSolverId())
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
-        self.assertIsNotNone(prog.GetSolverId().name())
+        solver = GurobiSolver()
+        result = solver.Solve(prog, None, None)
+        self.assertTrue(result.is_success())
 
         # Test that we got the right solution for all x
         x_expected = np.array([1.0, 0.0, 1.0])
-        self.assertTrue(np.all(np.isclose(prog.GetSolution(x), x_expected)))
+        self.assertTrue(np.all(np.isclose(result.GetSolution(x), x_expected)))
 
         # Also test by asking for the value of each element of x
         for i in range(3):
-            self.assertAlmostEqual(prog.GetSolution(x[i]), x_expected[i])
+            self.assertAlmostEqual(result.GetSolution(x[i]), x_expected[i])
 
     def test_qp(self):
         prog = mp.MathematicalProgram()
@@ -80,11 +132,11 @@ class TestMathematicalProgram(unittest.TestCase):
                                    x_desired=np.zeros(2))
         prog.AddL2NormCost(A=np.eye(2), b=np.zeros(2), vars=x)
 
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
+        result = mp.Solve(prog)
+        self.assertTrue(result.is_success())
 
         x_expected = np.array([1, 1])
-        self.assertTrue(np.allclose(prog.GetSolution(x), x_expected))
+        self.assertTrue(np.allclose(result.GetSolution(x), x_expected))
 
     def test_symbolic_qp(self):
         prog = mp.MathematicalProgram()
@@ -92,11 +144,11 @@ class TestMathematicalProgram(unittest.TestCase):
         prog.AddConstraint(x[0], 1., 100.)
         prog.AddConstraint(x[1] >= 1)
         prog.AddQuadraticCost(x[0]**2 + x[1]**2)
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
+        result = mp.Solve(prog)
+        self.assertTrue(result.is_success())
 
         x_expected = np.array([1, 1])
-        self.assertTrue(np.allclose(prog.GetSolution(x), x_expected))
+        self.assertTrue(np.allclose(result.GetSolution(x), x_expected))
 
     def test_bindings(self):
         qp = TestQP()
@@ -165,17 +217,15 @@ class TestMathematicalProgram(unittest.TestCase):
             self.assertTrue(constraint.lower_bound(), 3)
             self.assertTrue(constraint.upper_bound(), 3)
 
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
+        result = mp.Solve(prog)
+        self.assertTrue(result.is_success())
 
         x_expected = np.array([1, 1])
-        self.assertTrue(np.allclose(prog.GetSolution(x), x_expected))
+        self.assertTrue(np.allclose(result.GetSolution(x), x_expected))
 
         # Test deprecated method.
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter('once', DrakeDeprecationWarning)
+        with catch_drake_warnings(expected_count=1):
             c = binding.constraint()
-            self.assertEqual(len(w), 1)
 
     def test_constraint_api(self):
         prog = mp.MathematicalProgram()
@@ -241,33 +291,34 @@ class TestMathematicalProgram(unittest.TestCase):
         constraints = qp.constraints
         constraint_values_expected = [1., 1., 2., 3.]
 
-        prog.Solve()
-        self.assertTrue(np.allclose(prog.GetSolution(x), x_expected))
+        with catch_drake_warnings(action='ignore'):
+            prog.Solve()
+            self.assertTrue(np.allclose(prog.GetSolution(x), x_expected))
 
-        enum = zip(constraints, constraint_values_expected)
-        for (constraint, value_expected) in enum:
-            value = prog.EvalBindingAtSolution(constraint)
-            self.assertTrue(np.allclose(value, value_expected))
+            enum = zip(constraints, constraint_values_expected)
+            for (constraint, value_expected) in enum:
+                value = prog.EvalBindingAtSolution(constraint)
+                self.assertTrue(np.allclose(value, value_expected))
 
-        enum = zip(costs, cost_values_expected)
-        for (cost, value_expected) in enum:
-            value = prog.EvalBindingAtSolution(cost)
-            self.assertTrue(np.allclose(value, value_expected))
+            enum = zip(costs, cost_values_expected)
+            for (cost, value_expected) in enum:
+                value = prog.EvalBindingAtSolution(cost)
+                self.assertTrue(np.allclose(value, value_expected))
 
-        # Existence check.
-        self.assertIsInstance(
-            prog.EvalBinding(costs[0], x_expected), np.ndarray)
-        self.assertIsInstance(
-            prog.EvalBindings(prog.GetAllConstraints(), x_expected),
-            np.ndarray)
+            # Existence check.
+            self.assertIsInstance(
+                prog.EvalBinding(costs[0], x_expected), np.ndarray)
+            self.assertIsInstance(
+                prog.EvalBindings(prog.GetAllConstraints(), x_expected),
+                np.ndarray)
 
-        # Bindings for `Eval`.
-        x_list = (float(1.), AutoDiffXd(1.), sym.Variable("x"))
-        T_y_list = (float, AutoDiffXd, sym.Expression)
-        evaluator = costs[0].evaluator()
-        for x_i, T_y_i in zip(x_list, T_y_list):
-            y_i = evaluator.Eval(x=[x_i, x_i])
-            self.assertIsInstance(y_i[0], T_y_i)
+            # Bindings for `Eval`.
+            x_list = (float(1.), AutoDiffXd(1.), sym.Variable("x"))
+            T_y_list = (float, AutoDiffXd, sym.Expression)
+            evaluator = costs[0].evaluator()
+            for x_i, T_y_i in zip(x_list, T_y_list):
+                y_i = evaluator.Eval(x=[x_i, x_i])
+                self.assertIsInstance(y_i[0], T_y_i)
 
     def test_matrix_variables(self):
         prog = mp.MathematicalProgram()
@@ -275,12 +326,12 @@ class TestMathematicalProgram(unittest.TestCase):
         for i in range(2):
             for j in range(2):
                 prog.AddLinearConstraint(x[i, j] == 2 * i + j)
-        prog.Solve()
-        xval = prog.GetSolution(x)
+        result = mp.Solve(prog)
+        xval = result.GetSolution(x)
         for i in range(2):
             for j in range(2):
                 self.assertAlmostEqual(xval[i, j], 2 * i + j)
-                self.assertEqual(xval[i, j], prog.GetSolution(x[i, j]))
+                self.assertEqual(xval[i, j], result.GetSolution(x[i, j]))
         # Just check spelling.
         y = prog.NewIndeterminates(2, 2, "y")
 
@@ -291,9 +342,9 @@ class TestMathematicalProgram(unittest.TestCase):
         prog.AddPositiveSemidefiniteConstraint(S)
         prog.AddPositiveSemidefiniteConstraint(S+S)
         prog.AddLinearCost(np.trace(S))
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
-        S = prog.GetSolution(S)
+        result = mp.Solve(prog)
+        self.assertTrue(result.is_success())
+        S = result.GetSolution(S)
         eigs = np.linalg.eigvals(S)
         tol = 1e-8
         self.assertTrue(np.all(eigs >= -tol))
@@ -316,29 +367,31 @@ class TestMathematicalProgram(unittest.TestCase):
         d = prog.NewContinuousVariables(2, "d")
         prog.AddSosConstraint(d[0]*x.dot(x))
         prog.AddSosConstraint(d[1]*x.dot(x), [sym.Monomial(x[0])])
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
+        result = mp.Solve(prog)
+        self.assertTrue(result.is_success())
 
         # Test SubstituteSolution(sym.Expression)
-        # TODO(eric.cousineau): Expose `SymbolicTestCase` so that other tests
-        # can use the assertion utilities.
-        self.assertEqual(
-            prog.SubstituteSolution(d[0] + d[1]).Evaluate(),
-            prog.GetSolution(d[0]) + prog.GetSolution(d[1]))
-        # Test SubstituteSolution(sym.Polynomial)
-        poly = d[0]*x.dot(x)
-        poly_sub_actual = prog.SubstituteSolution(
-            sym.Polynomial(poly, sym.Variables(x)))
-        poly_sub_expected = sym.Polynomial(
-            prog.SubstituteSolution(d[0])*x.dot(x), sym.Variables(x))
-        # TODO(soonho): At present, these must be converted to `Expression` to
-        # compare, because as `Polynomial`s the comparison fails with
-        # `0*x(0)^2` != `0`, which indicates that simplification is not
-        # happening somewhere.
-        self.assertTrue(
-            poly_sub_actual.ToExpression().EqualTo(
-                poly_sub_expected.ToExpression()),
-            "{} != {}".format(poly_sub_actual, poly_sub_expected))
+        with catch_drake_warnings(action='ignore'):
+            prog.Solve()
+            # TODO(eric.cousineau): Expose `SymbolicTestCase` so that other
+            # tests can use the assertion utilities.
+            self.assertEqual(
+                prog.SubstituteSolution(d[0] + d[1]).Evaluate(),
+                prog.GetSolution(d[0]) + prog.GetSolution(d[1]))
+            # Test SubstituteSolution(sym.Polynomial)
+            poly = d[0]*x.dot(x)
+            poly_sub_actual = prog.SubstituteSolution(
+                sym.Polynomial(poly, sym.Variables(x)))
+            poly_sub_expected = sym.Polynomial(
+                prog.SubstituteSolution(d[0])*x.dot(x), sym.Variables(x))
+            # TODO(soonho): At present, these must be converted to `Expression`
+            # to compare, because as `Polynomial`s the comparison fails with
+            # `0*x(0)^2` != `0`, which indicates that simplification is not
+            # happening somewhere.
+            self.assertTrue(
+                poly_sub_actual.ToExpression().EqualTo(
+                    poly_sub_expected.ToExpression()),
+                "{} != {}".format(poly_sub_actual, poly_sub_expected))
 
     def test_lcp(self):
         prog = mp.MathematicalProgram()
@@ -346,8 +399,8 @@ class TestMathematicalProgram(unittest.TestCase):
         M = np.array([[1, 3], [4, 1]])
         q = np.array([-16, -15])
         binding = prog.AddLinearComplementarityConstraint(M, q, x)
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
+        result = mp.Solve(prog)
+        self.assertTrue(result.is_success())
         self.assertIsInstance(binding.evaluator(),
                               mp.LinearComplementarityConstraint)
 
@@ -378,8 +431,8 @@ class TestMathematicalProgram(unittest.TestCase):
 
         prog.AddCost(cost, vars=x)
         prog.AddConstraint(constraint, lb=[0.], ub=[2.], vars=x)
-        prog.Solve()
-        self.assertAlmostEqual(prog.GetSolution(x)[0], 1.)
+        result = mp.Solve(prog)
+        self.assertAlmostEqual(result.GetSolution(x)[0], 1.)
 
     def test_addcost_symbolic(self):
         prog = mp.MathematicalProgram()
@@ -387,8 +440,8 @@ class TestMathematicalProgram(unittest.TestCase):
         prog.AddCost((x[0]-1.)**2)
         prog.AddConstraint(0 <= x[0])
         prog.AddConstraint(x[0] <= 2)
-        prog.Solve()
-        self.assertAlmostEqual(prog.GetSolution(x)[0], 1.)
+        result = mp.Solve(prog)
+        self.assertAlmostEqual(result.GetSolution(x)[0], 1.)
 
     def test_initial_guess(self):
         prog = mp.MathematicalProgram()
@@ -425,6 +478,9 @@ class TestMathematicalProgram(unittest.TestCase):
         prog.SetInitialGuessForAllVariables(x0)
         check_and_reset()
 
+    @unittest.skipIf(
+        SNOPT_NO_GUROBI,
+        "SNOPT is unable to solve this problem (#10653).")
     def test_lorentz_cone_constraint(self):
         # Set Up Mathematical Program
         prog = mp.MathematicalProgram()
@@ -437,12 +493,12 @@ class TestMathematicalProgram(unittest.TestCase):
         prog.AddLorentzConeConstraint(np.array([z[0], x[0], x[1]]))
 
         # Test result
-        result = prog.Solve()
-        self.assertEqual(result, mp.SolutionResult.kSolutionFound)
+        result = mp.Solve(prog)
+        self.assertTrue(result.is_success())
 
         # Check answer
         x_expected = np.array([1-2**(-0.5), 1-2**(-0.5)])
-        self.assertTrue(np.allclose(prog.GetSolution(x), x_expected))
+        self.assertTrue(np.allclose(result.GetSolution(x), x_expected))
 
     def test_solver_options(self):
         prog = mp.MathematicalProgram()
@@ -454,3 +510,7 @@ class TestMathematicalProgram(unittest.TestCase):
         options = prog.GetSolverOptions(SolverType.kGurobi)
         self.assertDictEqual(
             options, {"double_key": 1.0, "int_key": 2, "string_key": "3"})
+
+        # For now, just make sure the constructor exists.  Once we bind more
+        # accessors, we can test them here.
+        options_object = SolverOptions()

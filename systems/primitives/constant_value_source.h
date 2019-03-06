@@ -7,7 +7,6 @@
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_deprecated.h"
 #include "drake/systems/framework/leaf_system.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
@@ -25,7 +24,7 @@ namespace systems {
 ///
 /// They are already available to link against in the containing library.
 template <typename T>
-class ConstantValueSource : public LeafSystem<T> {
+class ConstantValueSource final : public LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ConstantValueSource)
 
