@@ -512,10 +512,207 @@ class BoxController(LeafSystem):
 
       return dist
 
+  # Computes the desired control forces for when contact is desired.
+  def ComputeActuationForContactDesired(self, controller_context):
+      ''' 
+      This function computes the desired positions and velocities for the robot to satisfy the amount of
+      interpenetration (a proxy for deformation) between the robot and the ball *while also attempting to follow the
+      robot's initially desired trajectory*.
+
+      This function first computes the error in ℝ³ between the desired signed distance between the robot end
+      effector/ball and the actual signed distance, and same for the time derivatives (we assume that the desired
+      time derivative of the signed distance is zero). Then, a spatial differential between the planned and actual
+      pose of the box is computed, as well as the time derivative of this differential. The components of the
+      spatial differential/time derivative parallel to the error/time derivative are then removed. The error/time
+      derivative and the spatial differential/time derivative are then summed. RMRC turns the resulting spatial
+      differential into a change in generalized coordinates, and the resulting time derivative of the spatial
+      differential into a change in generalized velocities. These deltas (changes) are scaled by some gains then and
+      summed with the generalized acceleration planned for the robot. The summed generalized acceleration is then
+      transformed using inverse dynamics into a control force.
+      ''' 
+
+      # Get the relevant plants.
+      all_plant = self.robot_and_ball_plant
+      robot_plant = self.robot_plant
+
+      # Get the generalized positions and velocities for the robot and the ball.
+      q0 = self.get_q_all(controller_context)
+      v0 = self.get_v_all(controller_context)
+
+      # Get the signed distance and the vector between the witness points on the robot end effector and the ball.
+      
+      # Get the time derivative of the relative velocity between the robot end effector and the ball, projected along
+      # the witness direction.
+
+      # Get the spatial pose differential between the actual and planned pose of the end effector in velocity
+      # coordinates.
+
+      # Remove the translational components in the direction of the witness vector from this spatial pose differential. 
+
+      # Get the spatial velocity differential between the actual and planned spatial velocity of the end effector,
+      # also in velocity coordinates. 
+
+      # Remove the translational components in the direction of the witness vector from this spatial velocity
+      # differential.
+
+      # Using RMRC:
+      # 1. Convert the difference between the ball location and the robot end effector location into a
+      #    positional change, in generalized velocity coordinates.
+
+      # 2. Convert the spatial pose differential into a positional change, in generalized velocity coordinates.
+
+      # 3. Convert the difference between the ball translational velocity and the robot end effector translational
+      #    velocity into a change in velocity, also in generalized velocity coordinates.
+
+      # 4. Convert the spatial velocity differential into a velocity change, also in generalized velocity
+      #    coordinates.
+
+      # Scale all of these changes by gains and add them to the planned generalized acceleration. Using inverse
+      # dynamics, convert the planned generalized acceleration to an actuation force.
+      # TODO: Verify that the robot is fully actuated first.
+
+      # Set the state in the "all plant" context.
+      all_plant.SetPositions(self.robot_and_ball_context, q0)
+      all_plant.SetVelocities(self.robot_and_ball_context, v0)
+
+      # Set the generalized velocities for the robot to zero.
+      self.robot_and_ball_plant.SetVelocities(self.robot_and_ball_context, self.robot_instance, np.zeros([self.nv_robot()]))
+
+      # Transform the velocities to time derivatives of generalized
+      # coordinates.
+      qdot0 = self.robot_and_ball_plant.MapVelocityToQDot(self.robot_and_ball_context, v0)
+      dt = 1.0/self.control_freq
+
+      # Get the estimated position of the ball and the robot at the next time
+      # step using a first order approximation to position and the current
+      # velocities.
+      q1 = q0 + dt * qdot0
+
+      # Update the context to use configuration q1 in the query. This will modify
+      # the mbw context, used immediately below.
+      self.UpdateRobotAndBallConfigurationForGeometricQueries(q1)
+
+      # Evaluate scene graph's output port, getting a SceneGraph reference.
+      query_object = self.robot_and_ball_plant.EvalAbstractInput(
+          self.robot_and_ball_context, self.geometry_query_input_port.get_index()).get_value()
+      inspector = query_object.inspector()
+
+      # Get the robot and the ball bodies.
+      ball_body = self.get_ball_from_robot_and_ball_plant()
+      foot_bodies = self.get_foot_links_from_robot_and_ball_plant()
+      foots_and_ball = [0] * len(foot_bodies)
+      for i in range(len(foot_bodies)):
+          foots_and_ball[i] = self.MakeSortedPair(ball_body, foot_bodies[i])
+
+      # Get the closest points on the robot foot and the ball corresponding to q1
+      # and v0.
+      closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
+      assert len(closest_points) > 0
+      found_index = -1
+      for i in range(len(closest_points)):
+          # Get the two bodies in contact.
+          point_pair = closest_points[i]
+          geometry_A_id = point_pair.id_A
+          geometry_B_id = point_pair.id_B
+          frame_A_id = inspector.GetFrameId(geometry_A_id)
+          frame_B_id = inspector.GetFrameId(geometry_B_id)
+          body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+          body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+          bodies = self.MakeSortedPair(body_A, body_B)
+
+          # If the two bodies correspond to the foot and the ball, mark the
+          # found index and stop looping.
+          if bodies in foots_and_ball:
+            found_index = i
+            break
+
+      # Get the signed distance data structure.
+      assert found_index >= 0
+      closest = closest_points[found_index]
+
+      # Make A be the body belonging to the robot.
+      geometry_A_id = closest.id_A
+      geometry_B_id = closest.id_B
+      frame_A_id = inspector.GetFrameId(geometry_A_id)
+      frame_B_id = inspector.GetFrameId(geometry_B_id)
+      body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+      body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+      if body_B != ball_body:
+          # Swap A and B.
+          body_A, body_B = body_B, body_A
+          closest.id_A, closest.id_B = closest.id_B, closest.id_A
+          closest.p_ACa, closest.p_BCb = closest.p_BCb, closest.p_ACa
+
+      # Get the closest points on the bodies. They'll be in their respective body
+      # frames.
+      closest_Aa = closest.p_ACa
+      closest_Bb = closest.p_BCb
+
+      # Transform the points in the body frames corresponding to q1 to the
+      # world frame.
+      X_wa = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, body_A)
+      X_wb = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, body_B)
+      closest_Aw = X_wa.multiply(closest_Aa)
+      closest_Bw = X_wb.multiply(closest_Bb)
+
+      # Get the vector from the closest point on the foot to the closest point
+      # on the ball in the body frames.
+      linear_v_des = (closest_Bw - closest_Aw) / dt
+
+      # Get the robot current generalized position and velocity.
+      q_robot = self.get_q_robot(controller_context)
+      v_robot = self.get_v_robot(controller_context)
+
+      # Set the state in the robot context to q_robot and qd_robot.
+      x = robot_plant.GetMutablePositionsAndVelocities(self.robot_context)
+      assert len(x) == len(q_robot) + len(v_robot)
+      x[0:len(q_robot)] = q_robot
+      x[-len(v_robot):] = v_robot
+
+      # Get the geometric Jacobian for the velocity of the closest point on the
+      # robot as moving with the robot Body A.
+      foot_bodies_in_robot_plant = self.get_foot_links_from_robot_plant()
+      for body in foot_bodies_in_robot_plant:
+          if body.name() == body_A.name():
+              foot_body_to_use = body
+      J_WAc = self.robot_plant.CalcPointsGeometricJacobianExpressedInWorld(
+              self.robot_context, foot_body_to_use.body_frame(), closest_Aw)
+      q_robot_des = q_robot
+
+      # Use resolved-motion rate control to determine the robot velocity that
+      # would be necessary to realize the desired end-effector velocity.
+      v_robot_des, residuals, rank, singular_values = np.linalg.lstsq(J_WAc, linear_v_des)
+      dvdot = np.reshape(v_robot_des - v_robot, (-1, 1))
+
+      # Set vdot_robot_des using purely error feedback.
+      if self.nq_robot() != self.nv_robot():
+        # Since the coordinates and velocities are different, we convert the
+        # difference in configuration to a difference in velocity coordinates.
+        # TODO: Explain why this is allowable.
+        self.robot_plant.SetPositions(self.robot_context, q_robot)
+        dv = np.reshape(self.robot_plant.MapQDotToVelocity(self.robot_context, q_robot_des - q_robot), (-1, 1))
+        vdot = np.diag(np.reshape(self.robot_gv_kp, (-1))).dot(dv) + np.diag(np.reshape(self.robot_gv_kd, (-1))).dot(dvdot)
+      else:
+        vdot = np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_kd).dot(np.reshape(v_robot_des - v_robot), (-1, 1))
+
+      # Get the generalized inertia matrix.
+      M = robot_plant.CalcMassMatrixViaInverseDynamics(self.robot_context)
+
+      # Compute the contribution from force elements.
+      link_wrenches = MultibodyForces(robot_plant)
+
+      # Compute the external forces.
+      fext = np.reshape(-robot_plant.CalcInverseDynamics(
+          self.robot_context, np.zeros([self.nv_robot()]), link_wrenches), (-1, 1))
+
+      # Compute inverse dynamics.
+      return M.dot(vdot) - fext
+          
+
   # Computes the control forces when contact is desired and the robot and the
   # ball are *not* in contact.
   def ComputeActuationForContactDesiredButNoContact(self, controller_context):
-      # Get the relevant trees.
+      # Get the relevant plants.
       all_plant = self.robot_and_ball_plant
       robot_plant = self.robot_plant
 
@@ -870,12 +1067,11 @@ class BoxController(LeafSystem):
       # forward in time.
       B = self.ConstructRobotActuationMatrix()
       self.embedded_sim.ApplyControls(B.dot(u))
-      return self.embedded_sim.CalcAccelerations() 
+      #return self.embedded_sim.CalcAccelerations() 
       self.embedded_sim.Step()
 
       # Get the new system velocity.
       vnew = self.embedded_sim.GetPlantVelocities()
-
 
       # Compute the estimated acceleration.
       return np.reshape((vnew - v) / self.embedded_sim.delta_t, (-1, 1))
@@ -947,10 +1143,6 @@ class BoxController(LeafSystem):
       fext = -all_plant.CalcInverseDynamics(all_context, np.zeros([len(v)]), link_wrenches)
       fext = np.reshape(fext, [len(v), 1])
 
-      # Get the desired ball *linear* acceleration.
-      vdot_ball_des = self.plan.GetBallQVAndVdot(controller_context.get_time())[-3:]
-      vdot_ball_des = np.reshape(vdot_ball_des, [-1, 1])
-
       # Get the Jacobians at the point of contact: N, S, T, and construct Z and
       # Zdot_v.
       nc = len(contacts)
@@ -973,6 +1165,35 @@ class BoxController(LeafSystem):
       Zdot_v[nc:2*nc] = Sdot_v[:, 0]
       Zdot_v[-nc:] = Tdot_v[:, 0]
 
+      # Get the desired accelerations.
+      t = controller_context.get_time()
+      vdot_des = np.zeros([nv, 1])
+      vdot_ball_des = self.plan.GetBallQVAndVdot(t)[-6:]
+      vdot_box_des = self.plan.GetRobotQVAndVdot(t)[-6:]
+
+      # Feed error feedback gains in for the robot.
+      nq_robot = all_plant.num_positions(self.robot_instance)
+      q_box = all_plant.GetPositionsFromArray(self.robot_instance, q)
+      q_box_des = self.plan.GetRobotQVAndVdot(t)[0:nq_robot]
+      nv_robot = all_plant.num_velocities(self.robot_instance)
+      v_box = all_plant.GetVelocitiesFromArray(self.robot_instance, v)
+      v_box_des = self.plan.GetRobotQVAndVdot(t)[nq_robot:nq_robot+nv_robot]
+
+      # Modify the desired accelerations using error feedback gains.
+      kp = 1e-5
+      kd = 1e-4
+      dt = 1.0/self.control_freq
+      deltaq = np.zeros([all_plant.num_positions(), 1])
+      all_plant.SetPositionsInArray(self.robot_instance, q_box_des - q_box, deltaq)
+      deltav = all_plant.MapQDotToVelocity(all_context, deltaq)
+      deltav_box_des = all_plant.GetVelocitiesFromArray(self.robot_instance, deltav)
+      vdot_box_des += kp/(dt*dt) * deltav_box_des
+      vdot_box_des += kd/dt * (v_box_des - v_box)
+
+      # Set the desired acceleration now.
+      all_plant.SetVelocitiesInArray(self.ball_instance, vdot_ball_des, vdot_des)
+      all_plant.SetVelocitiesInArray(self.robot_instance, vdot_box_des, vdot_des)
+
       # Compute forces without applying any tangential forces.
       if self.controller_type == 'NoSlip':
           u, f_contact = self.ComputeContactControlMotorForcesNoSlip(iM, fext, vdot_ball_des, Z, Zdot_v, N, Ndot_v,
@@ -980,7 +1201,7 @@ class BoxController(LeafSystem):
       if self.controller_type == 'NoSeparation':
           u, f_contact = self.ComputeContactControlMotorForcesNoSeparation(iM, fext, vdot_ball_des, Z, N, Ndot_v)
       if self.controller_type == 'BlackBoxDynamics':
-          u = self.ComputeOptimalContactControlMotorForces(controller_context, q, v, vdot_ball_des)
+          u = self.ComputeOptimalContactControlMotorForces(controller_context, q, v, vdot_des, weighting_type='full')
 
       # Compute the generalized contact forces.
       f_contact_generalized = None
