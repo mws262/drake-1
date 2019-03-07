@@ -512,9 +512,58 @@ class BoxController(LeafSystem):
 
       return dist
 
+  # Gets a normal vector and the signed distance between the ball and the foot.
+  # Returns a tuple of two elements: (1) a normal vector, defined as (a) the
+  # surface normal (when the two bodies are kissing), (b) the direction vector
+  # between the closest points (when the two bodies are disjoint), and a
+  # separation vector (when the two bodies are overlapping with nonzero volume);
+  # and (2) the signed distance between the ball and the foot. The normal
+  # vector points from the foot to the ball and is expressed in the global
+  # frame.
+  def GetNormalAndSignedDistanceFromRobotToBall(self, q0):
+      all_plant = self.robot_and_ball_plant
+
+      # Set the configuration in the all-plant context.
+      all_plant.SetPositions(self.robot_and_ball_context, q0)
+
+      # Get the ball body and foot bodies.
+      ball_body = self.get_ball_from_robot_and_ball_plant()
+      foot_bodies = self.get_foot_links_from_robot_and_ball_plant()
+
+      # Make sorted pairs to check.
+      ball_foot_pairs = [0] * len(foot_bodies)
+      for i in range(len(foot_bodies)):
+          ball_foot_pairs[i] = self.MakeSortedPair(ball_body, foot_bodies[i])
+
+      # Evaluate scene graph's output port, getting a SceneGraph reference.
+      query_object = self.robot_and_ball_plant.EvalAbstractInput(
+        self.robot_and_ball_context, self.geometry_query_input_port.get_index()).get_value()
+      inspector = query_object.inspector()
+
+      # Get the closest points on the robot foot and the ball corresponding to q1
+      # and v0.
+      closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
+      assert len(closest_points) > 0
+
+      dist = 1e20
+      for i in range(len(closest_points)):
+          geometry_A_id = closest_points[i].id_A
+          geometry_B_id = closest_points[i].id_B
+          frame_A_id = inspector.GetFrameId(geometry_A_id)
+          frame_B_id = inspector.GetFrameId(geometry_B_id)
+          body_A = all_plant.GetBodyFromFrameId(frame_A_id)
+          body_B = all_plant.GetBodyFromFrameId(frame_B_id)
+          body_A_B_pair = self.MakeSortedPair(body_A, body_B)
+          if body_A_B_pair not in ball_foot_pairs:
+              continue
+          dist = min(dist, closest_points[i].distance)
+          witness_points = ...
+
+      return dist
+
   # Computes the desired control forces for when contact is desired.
   def ComputeActuationForContactDesired(self, controller_context):
-      ''' 
+      '''
       This function computes the desired positions and velocities for the robot to satisfy the amount of
       interpenetration (a proxy for deformation) between the robot and the ball *while also attempting to follow the
       robot's initially desired trajectory*.
@@ -526,10 +575,13 @@ class BoxController(LeafSystem):
       spatial differential/time derivative parallel to the error/time derivative are then removed. The error/time
       derivative and the spatial differential/time derivative are then summed. RMRC turns the resulting spatial
       differential into a change in generalized coordinates, and the resulting time derivative of the spatial
-      differential into a change in generalized velocities. These deltas (changes) are scaled by some gains then and
+      differential into a change in generalized velocities. These deltas (changes) are then scaled by some gains and
       summed with the generalized acceleration planned for the robot. The summed generalized acceleration is then
       transformed using inverse dynamics into a control force.
-      ''' 
+      '''
+
+      # Get the current time.
+      t = controller_context.get_time()
 
       # Get the relevant plants.
       all_plant = self.robot_and_ball_plant
@@ -539,20 +591,34 @@ class BoxController(LeafSystem):
       q0 = self.get_q_all(controller_context)
       v0 = self.get_v_all(controller_context)
 
-      # Get the signed distance and the vector between the witness points on the robot end effector and the ball.
-      
+      # Get the signed distance and the normal vector between the witness points on the robot end effector and the ball.
+      [ normal_foot_ball_W, phi, closest_foot_body ] = self.GetNormalAndSignedDistanceFromRobotToBall(
+              controller_context)
+
       # Get the time derivative of the relative velocity between the robot end effector and the ball, projected along
-      # the witness direction.
+      # the normal direction.
+      rvel_normal = normal_foot_ball_W * np.inner(normal_foot_ball_W, rvel)
 
-      # Get the spatial pose differential between the actual and planned pose of the end effector in velocity
-      # coordinates.
+      # Get the spatial pose differential between the actual and planned pose of the end effector in spatial velocity
+      # coordinates. X_WE represents the transformation from the end-effector frame to the world frame.
+      all_plant.SetPositions(self.robot_and_ball_context, q0)
+      X_WE_robot = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, closest_foot_body)
+      all_plant.SetPositions(self.robot_and_ball_context, self.plan.GetRobotQVAndVdot(t)[0:self.nq_robot()])
+      X_WE_robot_des = all_plant.EvalBodyPoseInWorld(self.robot_and_ball_context, closest_foot_body)
 
-      # Remove the translational components in the direction of the witness vector from this spatial pose differential. 
+      # TODO: Convert the difference in poses to a differential in spatial velocity coordinates.
+
+      # Remove the translational components in the direction of the normal vector from this spatial pose differential.
+      dspatial_pose -= normal_foot_ball_W * np.inner(dspatial_pose, normal_foot_ball_W)
 
       # Get the spatial velocity differential between the actual and planned spatial velocity of the end effector,
-      # also in velocity coordinates. 
+      # also in spatial velocity coordinates.
+      all_plant.SetPositions(self.robot_and_ball_context, q0)
+      all_plant.SetVelocities(self.robot_and_ball_context, v0)
+      v_robot = all_plant.EvalBodySpatialVelocityInWorld(self.robot_and_ball_context, closest_foot_body))
+      all_plant.SetVelocities(self.robot_and_ball_context, self.plan.GetRobotQVAndVdot(t)[self.nq_robot():self.nv_robot()])
 
-      # Remove the translational components in the direction of the witness vector from this spatial velocity
+      # Remove the translational components in the direction of the normal vector from this spatial velocity
       # differential.
 
       # Using RMRC:
@@ -707,7 +773,7 @@ class BoxController(LeafSystem):
 
       # Compute inverse dynamics.
       return M.dot(vdot) - fext
-          
+
 
   # Computes the control forces when contact is desired and the robot and the
   # ball are *not* in contact.
@@ -883,7 +949,7 @@ class BoxController(LeafSystem):
   # Constructs the matrix that weights certain velocities.
   #  weighting_type: 'ball-linear' (everything but the ball linear velocities are given zero weight),
   #                  'ball-full' (ball linear and angular velocities are specially weighted), or
-  #                  'full'      (robot and ball linear and angular velocities are weighted). 
+  #                  'full'      (robot and ball linear and angular velocities are weighted).
   # Returns a nv x nv-sized matrix, where nv is the number of velocity variables in the plant.
   def ConstructVelocityWeightingMatrix(self, weighting_type='ball-linear'):
       ball_radius = 0.1
@@ -1067,7 +1133,7 @@ class BoxController(LeafSystem):
       # forward in time.
       B = self.ConstructRobotActuationMatrix()
       self.embedded_sim.ApplyControls(B.dot(u))
-      #return self.embedded_sim.CalcAccelerations() 
+      #return self.embedded_sim.CalcAccelerations()
       self.embedded_sim.Step()
 
       # Get the new system velocity.

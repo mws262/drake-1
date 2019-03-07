@@ -2653,29 +2653,37 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
 
   // Try Gurobi first.
   solvers::GurobiSolver gurobi_solver;
-  try {
-    gurobi_solver.Solve(math_program, {}, {}, &result);
-  } catch (...) {}
-  if (result.get_solution_result() == solvers::kSolutionFound) {
-    return result.GetSolution(lambda_hat);
+  if (gurobi_solver.available()) {
+    try {
+        gurobi_solver.Solve(math_program, {}, {}, &result);
+    } catch (...) {}
+    if (result.get_solution_result() == solvers::kSolutionFound) {
+        return result.GetSolution(lambda_hat);
+    } else {
+        failure_string += fmt::format(
+                "Gurobi failed to find a solution: return type {}\n",
+                result.get_solution_result());
+    }
   } else {
-    failure_string += fmt::format(
-            "Gurobi failed to find a solution: return type {}\n",
-            result.get_solution_result());
+    failure_string += "Gurobi solver unavailable.\n";
   }
 
   // Try again using Mosek.
   result = {};
   solvers::MosekSolver mosek_solver;
-  try {
-    mosek_solver.Solve(math_program, {}, {}, &result);
-  } catch (...) {}
-  if (result.get_solution_result() == solvers::kSolutionFound) {
-    return result.GetSolution(lambda_hat);
+  if (mosek_solver.available()) {
+    try {
+        mosek_solver.Solve(math_program, {}, {}, &result);
+    } catch (...) {}
+    if (result.get_solution_result() == solvers::kSolutionFound) {
+        return result.GetSolution(lambda_hat);
+    } else {
+        failure_string += fmt::format(
+                "Mosek failed to find a solution: return type {}\n",
+                result.get_solution_result());
+    }
   } else {
-    failure_string += fmt::format(
-            "Mosek failed to find a solution: return type {}\n",
-            result.get_solution_result());
+    failure_string += "Mosek solver unavailable.\n";
   }
 /*
   // Try again using Osqp.
@@ -2695,15 +2703,19 @@ VectorX<T> ConstraintSolver<T>::SolveMathematicalProgram(
   // Try again using IPOPT.
   result = {};
   solvers::IpoptSolver ipopt_solver;
-  try {
-    ipopt_solver.Solve(math_program, {}, {}, &result);
-  } catch (...) {}
-  if (result.get_solution_result() == solvers::kSolutionFound) {
-    return result.GetSolution(lambda_hat);
+  if (ipopt_solver.available()) {
+    try {
+        ipopt_solver.Solve(math_program, {}, {}, &result);
+    } catch (...) {}
+    if (result.get_solution_result() == solvers::kSolutionFound) {
+        return result.GetSolution(lambda_hat);
+    } else {
+        failure_string += fmt::format(
+                "Ipopt failed to find a solution: return type {}\n",
+                result.get_solution_result());
+    }
   } else {
-    failure_string += fmt::format(
-            "Ipopt failed to find a solution: return type {}\n",
-            result.get_solution_result());
+    failure_string += "Ipopt unavailable.";
   }
 
   // If still here, all failed.
@@ -2845,13 +2857,14 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   math_program.AddQuadraticCost(H, grad, lambda_hat);
 
   // Add affine constraints Aλ >= q.
-  const double inf = std::numeric_limits<double>::infinity();
+  const double inf = 1e12;//std::numeric_limits<double>::infinity();
   math_program.AddLinearConstraint(
       A, q, VectorX<T>::Ones(q.rows()) * inf, lambda_hat);
 
   // Add constraints lambda_n >= 0.
   for (int i = 0; i < nc; ++i)
     math_program.AddBoundingBoxConstraint(0, inf, lambda_hat(i));
+/*
 
   // Add constraints lambda_u >= 0.
   for (int i = 0; i < nu; ++i)
@@ -2878,7 +2891,7 @@ void ConstraintSolver<T>::SolveConstraintProblem(
       }
     }
   }
-
+*/
   const VectorX<T> lambda_hat_sol = SolveMathematicalProgram(
     math_program, lambda_hat);
 
