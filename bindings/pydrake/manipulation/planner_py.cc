@@ -26,6 +26,10 @@ PYBIND11_MODULE(planner, m) {
       .value("kStuck", DifferentialInverseKinematicsStatus::kStuck,
           doc.DifferentialInverseKinematicsStatus.kStuck.doc);
 
+  m.def("ComputePoseDiffInCommonFrame",
+      &manipulation::planner::ComputePoseDiffInCommonFrame,
+      py::arg("X_C0"), py::arg("X_C1"));
+
   {
     using Class = manipulation::planner::DifferentialInverseKinematicsResult;
     constexpr auto& class_doc = doc.DifferentialInverseKinematicsResult;
