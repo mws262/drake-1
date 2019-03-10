@@ -32,6 +32,9 @@ class BoxController(ControllerBase):
         self.robot_and_ball_plant = all_plant
         self.mbw = mbw
 
+        # Save whether the plant is fully actuated.
+        self.fully_actuated = fully_actuated
+
         # Set the output size.
         self.command_output_size = self.robot_and_ball_plant.num_velocities()
 
@@ -238,12 +241,12 @@ class BoxController(ControllerBase):
                 normal_and_signed_distance_data, q_robot_planned, v_robot_planned)
 
         # Turn the feedback into accelerations.
-        vdot = vdot_robot_planned + \
+        vdot = np.reshape(vdot_robot_planned, [-1, 1]) + \
                 np.diag(self.robot_gv_kp).dot(v_from_planned_position + v_from_ball_position_tracking) + \
                 np.diag(self.robot_gv_kd).dot(v_from_planned_velocity + v_from_ball_velocity_tracking)
 
         # Get the generalized inertia matrix.
-        robot_plant.SetPositions(self.robot_context, all_plant.GetPositionsFromArray(self.robot_instance), q0)
+        robot_plant.SetPositions(self.robot_context, all_plant.GetPositionsFromArray(self.robot_instance, q0))
         M = robot_plant.CalcMassMatrixViaInverseDynamics(self.robot_context)
 
         # Compute the contribution from force elements.
@@ -336,18 +339,14 @@ class BoxController(ControllerBase):
         else:  # "Real" control.
             # Compute tau.
             if contact_desired == True:
-                # Find contacts.
-                contacts = self.FindContacts(q)
-
-                # Two cases: in the first, the robot and the ball are already in contact,
-                # as desired. In the second, the robot desires to be in contact, but the
-                # ball and robot are not contacting: the robot must intercept the ball.
-                if self.IsRobotContactingBall(q, contacts):
-                    logging.info('Contact desired and contact detected at time ' + str(context.get_time()))
-                    tau = self.ComputeActuationForContactDesiredAndContacting(context, contacts)
-                else:
-                    logging.info('Contact desired and no contact detected at time ' + str(context.get_time()))
-                    tau = self.ComputeActuationForContactDesiredButNoContact(context)
+                v = self.get_v_all(context)
+                planned_robot_kinematics = self.plan.GetRobotQVAndVdot(context.get_time())
+                q_robot_planned = planned_robot_kinematics[0:self.robot_plant.num_positions()]
+                v_robot_planned = \
+                        planned_robot_kinematics[self.robot_plant.num_positions():-self.robot_plant.num_velocities()]
+                vdot_robot_planned = planned_robot_kinematics[-self.robot_plant.num_velocities():]
+                tau = self.ComputeActuationForContactDesired(
+                        context, q, v, q_robot_planned, v_robot_planned, vdot_robot_planned)
             else:
                 # No contact desired.
                 logging.info('Contact not desired at time ' + str(context.get_time()))
