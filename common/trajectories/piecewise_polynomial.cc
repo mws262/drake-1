@@ -17,6 +17,7 @@ PiecewisePolynomial<T>::PiecewisePolynomial(
     std::vector<PolynomialMatrix> const& polynomials,
     std::vector<double> const& breaks)
     : PiecewiseTrajectory<T>(breaks), polynomials_(polynomials) {
+      assert(false);
   DRAKE_ASSERT(breaks.size() == (polynomials.size() + 1));
   for (int i = 1; i < this->get_number_of_segments(); i++) {
     if (polynomials[i].rows() != polynomials[0].rows())
@@ -35,6 +36,7 @@ PiecewisePolynomial<T>::PiecewisePolynomial(
     std::vector<PolynomialType> const& polynomials,
     std::vector<double> const& breaks)
     : PiecewiseTrajectory<T>(breaks) {
+      assert(false);
   DRAKE_ASSERT(breaks.size() == (polynomials.size() + 1));
 
   for (size_t i = 0; i < polynomials.size(); i++) {
