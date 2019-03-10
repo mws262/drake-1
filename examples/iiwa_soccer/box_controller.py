@@ -114,8 +114,10 @@ class BoxController(ControllerBase):
         # coordinates.
         phi_des = self.get_desired_ball_signed_distance_under_contact()
         robot_plant.SetPositions(self.robot_context, all_plant.GetPositionsFromArray(self.robot_instance, q0))
+        spatial_v = np.zeros([6])
+        spatial_v[3:6] = -normal_foot_ball_W * (phi_des - phi)
         v_from_ball_position_tracking = self.RMRC(robot_plant, self.robot_context,
-                -normal_foot_ball_W * (phi_des - phi), closest_foot_body.body_frame())
+                spatial_v, closest_foot_body.body_frame())
 
         # Get the ball velocity in the direction of the normal and use RMRC to match it.
         all_plant.SetVelocities(self.robot_and_ball_context, v0)
@@ -124,8 +126,10 @@ class BoxController(ControllerBase):
         ball_translational_velocity_normal_W = normal_foot_ball_W * np.inner(
                 normal_foot_ball_W, ball_translational_velocity)
         robot_plant.SetPositions(self.robot_context, all_plant.GetPositionsFromArray(self.robot_instance, q0))
+        spatial_v = np.zeros([6])
+        spatial_v[3:6] = ball_translational_velocity_normal_W
         v_from_ball_velocity_tracking = self.RMRC(robot_plant, self.robot_context,
-                ball_translational_velocity_normal_W, closest_foot_body.body_frame())
+                spatial_v, closest_foot_body.body_frame())
 
         return [ v_from_ball_position_tracking, v_from_ball_velocity_tracking ]
 
