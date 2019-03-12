@@ -462,6 +462,16 @@ void DefineFrameworkPySemantics(py::module m) {
             overload_cast_explicit<const DiscreteValues<T>&>(
                 &State<T>::get_discrete_state),
             py_reference_internal, doc.State.get_discrete_state.doc)
+        .def("get_abstract_state",
+            [](const State<T>* self) -> const AbstractValues& {
+                return self->get_abstract_state();
+            },
+            py_reference_internal, doc.State.get_abstract_state.doc)
+        .def("get_mutable_abstract_state",
+            [](State<T>* self) -> AbstractValues& {
+                return self->get_mutable_abstract_state();
+            }, py_reference_internal,
+            doc.State.get_mutable_abstract_state.doc)
         .def("get_mutable_discrete_state",
             overload_cast_explicit<DiscreteValues<T>&>(
                 &State<T>::get_mutable_discrete_state),
