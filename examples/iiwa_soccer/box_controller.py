@@ -145,18 +145,18 @@ class BoxController(ControllerBase):
         all_plant = self.robot_and_ball_plant
         robot_plant = self.robot_plant
 
+        # The closest foot body was defined in the "all plant". Find the corresponding body in the robot plant.
+        closest_foot_body = robot_plant.GetBodyByName(closest_foot_body.name())
+
         # Get the desired spatial velocity for the end effector, first removing components along the normal direction.
         # TODO: We're using q0 below. Use q_robot_planned instead?
-        all_plant.SetPositions(self.robot_and_ball_context, q0)
-        all_plant.SetVelocities(self.robot_and_ball_context, v_robot_planned)
-        V_WE_des_spatial = all_plant.EvalBodySpatialVelocityInWorld(self.robot_and_ball_context, closest_foot_body)
+        robot_plant.SetPositions(self.robot_context, all_plant.GetPositionsFromArray(self.robot_instance, q0))
+        robot_plant.SetVelocities(self.robot_context, v_robot_planned)
+        V_WE_des_spatial = robot_plant.EvalBodySpatialVelocityInWorld(self.robot_context, closest_foot_body)
         V_WE_des = np.zeros([6])
         V_WE_des[0:3] = V_WE_des_spatial.rotational()
         V_WE_des[3:6] = V_WE_des_spatial.translational()
         V_WE_des[3:6] -= normal_foot_ball_W * np.inner(V_WE_des[3:6], normal_foot_ball_W)
-
-        # The closest foot body was defined in the "all plant". Find the corresponding body in the robot plant.
-        closest_foot_body = robot_plant.GetBodyByName(closest_foot_body.name())
 
         # Using RMRC, convert the altered end effector velocity to a desired velocity in generalized velocity coordinates.
         # NOTE: We are computing RMRC from the *current* robot configuration, not the planned one.
