@@ -1,6 +1,8 @@
 dist: xenial
 before_install:
   - sudo ./setup/ubuntu/install_prereqs.sh
+  - cd ..
   - mkdir drake-build
-  - cmake ../
+  - cd drake-build
+  - cmake ../drake
   - make -j
