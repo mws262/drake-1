@@ -4,5 +4,5 @@ before_install:
   - cd ..
   - mkdir drake-build
   - cd drake-build
-  - cmake ../drake
+  - cmake ../drake-1
   - make -j
