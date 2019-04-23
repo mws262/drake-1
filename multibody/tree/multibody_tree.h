@@ -12,7 +12,6 @@
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/common/drake_optional.h"
 #include "drake/common/pointer_cast.h"
 #include "drake/common/random.h"
@@ -69,9 +68,6 @@ template <typename T> class QuaternionFloatingMobilizer;
 /// and manages each of the elements that belong to this physical system.
 /// Multibody dynamics elements include bodies, joints, force elements and
 /// constraints.
-///
-/// @warning This class will be eventually deprecated; up until that point,
-/// most methods will be forwarded to MultibodyPlant.
 ///
 /// @tparam T The scalar type. Must be a valid Eigen scalar.
 ///
@@ -421,6 +417,9 @@ class MultibodyTree {
 
   // SFINAE overload for ForceElementType = UniformGravityFieldElement.
   // This allow us to keep track of the gravity field parameters.
+  // TODO(amcastro-tri): This specialization pattern leads to difficult to
+  // mantain indirection layers between MBP/MBT and can cause difficult to find
+  // bugs, see #11051. It is bad practice and should removed, see #11080.
   template<template<typename Scalar> class ForceElementType, typename... Args>
   typename std::enable_if<std::is_same<
       ForceElementType<T>,
@@ -469,7 +468,7 @@ class MultibodyTree {
   ///   the frame P of that body. `X_PF` is an optional parameter; empty curly
   ///   braces `{}` imply that frame F **is** the same body frame P. If instead
   ///   your intention is to make a frame F with pose `X_PF`, provide
-  ///   `Isometry3<double>::Identity()` as your input.
+  ///   `RigidTransform<double>::Identity()` as your input.
   /// @param[in] child
   ///   The child body connected by the new joint.
   /// @param[in] X_BM
@@ -477,7 +476,7 @@ class MultibodyTree {
   ///   the frame B of that body. `X_BM` is an optional parameter; empty curly
   ///   braces `{}` imply that frame M **is** the same body frame B. If instead
   ///   your intention is to make a frame F with pose `X_PF`, provide
-  ///   `Isometry3<double>::Identity()` as your input.
+  ///   `RigidTransform<double>::Identity()` as your input.
   /// @tparam JointType
   ///   The type of the new joint to add, which must be a subclass of Joint<T>.
   /// @returns A constant reference to the new joint just added, of type
@@ -513,8 +512,8 @@ class MultibodyTree {
   template<template<typename> class JointType, typename... Args>
   const JointType<T>& AddJoint(
       const std::string& name,
-      const Body<T>& parent, const optional<Isometry3<double>>& X_PF,
-      const Body<T>& child, const optional<Isometry3<double>>& X_BM,
+      const Body<T>& parent, const optional<math::RigidTransform<double>>& X_PF,
+      const Body<T>& child, const optional<math::RigidTransform<double>>& X_BM,
       Args&&... args);
 
   /// Creates and adds a JointActuator model for an actuator acting on a given
@@ -953,7 +952,7 @@ class MultibodyTree {
           "Joint '" + name + "' in model instance " +
           instance_index_to_name_.at(*model_instance) + " is not of type '" +
           NiceTypeName::Get<JointType<T>>() + "' but of type '" +
-          NiceTypeName::Get(GetJointByName(name)) + "'.");
+          NiceTypeName::Get(*joint) + "'.");
     }
     return *typed_joint;
   }
@@ -1162,7 +1161,7 @@ class MultibodyTree {
 
   /// See MultibodyPlant::SetFreeBodyPose.
   void SetFreeBodyPoseOrThrow(
-      const Body<T>& body, const Isometry3<T>& X_WB,
+      const Body<T>& body, const math::RigidTransform<T>& X_WB,
       systems::Context<T>* context) const;
 
   /// See MultibodyPlant::SetFreeBodySpatialVelocity.
@@ -1172,7 +1171,7 @@ class MultibodyTree {
 
   /// See MultibodyPlant::SetFreeBodyPose.
   void SetFreeBodyPoseOrThrow(
-      const Body<T>& body, const Isometry3<T>& X_WB,
+      const Body<T>& body, const math::RigidTransform<T>& X_WB,
       const systems::Context<T>& context, systems::State<T>* state) const;
 
   /// See MultibodyPlant::SetFreeBodySpatialVelocity.
@@ -1200,7 +1199,7 @@ class MultibodyTree {
   /// See MultibodyPlant method.
   void CalcAllBodyPosesInWorld(
       const systems::Context<T>& context,
-      std::vector<Isometry3<T>>* X_WB) const;
+      std::vector<math::RigidTransform<T>>* X_WB) const;
 
   /// See MultibodyPlant method.
   void CalcAllBodySpatialVelocitiesInWorld(
@@ -1208,7 +1207,7 @@ class MultibodyTree {
       std::vector<SpatialVelocity<T>>* V_WB) const;
 
   /// See MultibodyPlant method.
-  Isometry3<T> CalcRelativeTransform(
+  math::RigidTransform<T> CalcRelativeTransform(
       const systems::Context<T>& context,
       const Frame<T>& frame_A, const Frame<T>& frame_B) const;
 
@@ -1221,7 +1220,7 @@ class MultibodyTree {
       EigenPtr<MatrixX<T>> p_AQi) const;
 
   /// See MultibodyPlant method.
-  const Isometry3<T>& EvalBodyPoseInWorld(
+  const math::RigidTransform<T>& EvalBodyPoseInWorld(
       const systems::Context<T>& context,
       const Body<T>& body_B) const;
 
@@ -2372,13 +2371,6 @@ class MultibodyTree {
 };
 
 }  // namespace internal
-
-/// Deprecated public alias to internal `MultibodyTree`.
-/// @warning This alias will be removed 2019-03-01.
-template <typename T>
-using MultibodyTree DRAKE_DEPRECATED(
-    "This will be internal only after 2019-03-01. Please use `MultibodyPlant` "
-    "instead.") = internal::MultibodyTree<T>;
 
 /// @cond
 // Undef macros defined at the top of the file. From the GSG:

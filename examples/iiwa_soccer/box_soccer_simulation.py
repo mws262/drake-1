@@ -7,7 +7,7 @@ import logging
 from pydrake.all import (DiagramBuilder, DrakeLcm, SceneGraph,
 FindResourceOrThrow, MultibodyPlant,
 UniformGravityFieldElement, Simulator, ConnectDrakeVisualizer, Demultiplexer,
-Multiplexer, LcmPublisherSystem, MobilizerIndex,
+Multiplexer, LcmPublisherSystem,
 Isometry3, Quaternion, Parser, ConnectSpatialForcesToDrakeVisualizer,
 ConnectContactResultsToDrakeVisualizer, ConnectGenericArrowsToDrakeVisualizer)
 from box_controller import BoxController

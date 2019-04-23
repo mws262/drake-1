@@ -4,6 +4,7 @@
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/solvers/mathematical_program.h"
+#include "drake/solvers/test/exponential_cone_program_examples.h"
 #include "drake/solvers/test/linear_program_examples.h"
 #include "drake/solvers/test/mathematical_program_test_util.h"
 #include "drake/solvers/test/quadratic_program_examples.h"
@@ -247,6 +248,48 @@ GTEST_TEST(TestSemidefiniteProgram, EigenvalueProblem) {
   ScsSolver scs_solver;
   if (scs_solver.available()) {
     SolveEigenvalueProblem(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample1) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    SolveSDPwithSecondOrderConeExample1(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample2) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    SolveSDPwithSecondOrderConeExample2(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithOverlappingVariables) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    SolveSDPwithOverlappingVariables(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestExponentialConeProgram, ExponentialConeTrivialExample) {
+  ScsSolver solver;
+  if (solver.available()) {
+    ExponentialConeTrivialExample(solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestExponentialConeProgram, MinimizeKLDivengence) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    MinimizeKLDivergence(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestExponentialConeProgram, MinimalEllipsoidConveringPoints) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    MinimalEllipsoidCoveringPoints(scs_solver, 1E-5);
   }
 }
 

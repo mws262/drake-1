@@ -2,12 +2,12 @@
 
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/multibody/tree/fixed_offset_frame.h"
 #include "drake/multibody/tree/mobilizer.h"
 #include "drake/multibody/tree/multibody_forces.h"
@@ -162,13 +162,6 @@ class Joint : public MultibodyTreeElement<Joint<T>, JointIndex>  {
   /// Returns a const reference to the frame M attached on the child body B.
   const Frame<T>& frame_on_child() const {
     return frame_on_child_;
-  }
-
-  /// Returns the number of degrees of freedom for `this` joint.
-  /// E.g., one for a revolute joint and three for a ball joint.
-  DRAKE_DEPRECATED("Please use num_velocities().")
-  int num_dofs() const {
-    return num_velocities();
   }
 
   /// Returns the index to the first generalized velocity for this joint
@@ -439,7 +432,8 @@ class Joint : public MultibodyTreeElement<Joint<T>, JointIndex>  {
   /// Revolute and prismatic are examples of joints that will want to implement
   /// this method.
   virtual const T& DoGetOnePosition(const systems::Context<T>&) const {
-    DRAKE_ABORT_MSG("This method can only be called on single-dof joints.");
+    throw std::domain_error(
+        "GetOnePosition can only be called on single-dof joints.");
   }
 
   /// Implementation to the NVI GetOneVelocity() that must only be implemented
@@ -449,7 +443,8 @@ class Joint : public MultibodyTreeElement<Joint<T>, JointIndex>  {
   /// Revolute and prismatic are examples of joints that will want to implement
   /// this method.
   virtual const T& DoGetOneVelocity(const systems::Context<T>&) const {
-    DRAKE_ABORT_MSG("This method can only be called on single-dof joints.");
+    throw std::domain_error(
+        "GetOneVelocity can only be called on single-dof joints.");
   }
 
   /// Adds into `forces` a force along the one of the joint's degrees of

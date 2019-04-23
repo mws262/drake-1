@@ -185,7 +185,7 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
   /// @name Mobilizer overrides
   /// Refer to the Mobilizer class documentation for details.
   /// @{
-  Isometry3<T> CalcAcrossMobilizerTransform(
+  math::RigidTransform<T> CalcAcrossMobilizerTransform(
       const systems::Context<T>& context) const override;
 
   SpatialVelocity<T> CalcAcrossMobilizerSpatialVelocity(
@@ -268,14 +268,6 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
 };
 
 }  // namespace internal
-
-/// WARNING: This will be removed on or around 2019/03/01.
-template <typename T>
-using QuaternionFloatingMobilizer
-DRAKE_DEPRECATED(
-    "This public alias is deprecated, and will be removed around 2019/03/01.")
-    = internal::QuaternionFloatingMobilizer<T>;
-
 }  // namespace multibody
 }  // namespace drake
 

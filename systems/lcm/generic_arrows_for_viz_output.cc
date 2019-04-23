@@ -48,8 +48,8 @@ typename LeafOutputPort<T>::CalcCallback CreateArrowOutputCalcCallback(
       const Context<T>& context, AbstractValue* output) {
     DRAKE_DEMAND(output);
     const std::vector<ArrowVisualization> arrows_to_visualize =
-        arrow_visualization_callback(context);        
-    auto& lcm_output = output->GetMutableValue<lcmt_generic_arrows_for_viz>();
+        arrow_visualization_callback(context);
+    auto& lcm_output = output->get_mutable_value<lcmt_generic_arrows_for_viz>();
     CalcArrowOutput(context, arrows_to_visualize, &lcm_output);
   };
 }

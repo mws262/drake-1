@@ -4,7 +4,7 @@ import trace
 import argparse
 import numpy as np
 from pydrake.all import (DiagramBuilder, SceneGraph, FindResourceOrThrow, MultibodyPlant, UniformGravityFieldElement, \
-    Simulator, MobilizerIndex, ConstantVectorSource, Isometry3, Quaternion, Parser, Demultiplexer)
+    Simulator, ConstantVectorSource, Isometry3, Quaternion, Parser, Demultiplexer)
 
 robot_model_name = "box_model"
 ball_model_name = "soccer_ball"

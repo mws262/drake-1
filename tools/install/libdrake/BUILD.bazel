@@ -169,6 +169,7 @@ cc_library(
         "@libprotobuf",
         "@scs//:scsdir",
         "@tinyxml2",
+        "@yaml_cpp",
     ] + [
         # The list of depended-on header-only libraries that libdrake's header
         # files depend on.
@@ -201,6 +202,7 @@ drake_cc_test(
 
 drake_cc_googletest(
     name = "fast_math_test",
+    tags = ["no_kcov"],  # See #10788.
     deps = [
         "//:drake_shared_library",
     ],

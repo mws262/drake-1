@@ -7,8 +7,7 @@ from embedded_box_soccer_sim import EmbeddedSim
 from controller_base import ControllerBase
 
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType, BasicVector, MultibodyForces,
-        CreateArrowOutputCalcCallback, CreateArrowOutputAllocCallback, ArrowVisualization, SpatialVelocity,
-        ComputePoseDiffInCommonFrame)
+        SpatialVelocity, ComputePoseDiffInCommonFrame)
 from pydrake.solvers import mathematicalprogram
 
 # All code specific to controlling the box.
@@ -216,7 +215,7 @@ class BoxController(ControllerBase):
     '''
     def ComputeActuationForContactDesired(self, controller_context, q0, v0, q_robot_planned, v_robot_planned,
              vdot_robot_planned):
-    
+
         # Get the current time.
         t = controller_context.get_time()
 
@@ -306,13 +305,13 @@ class BoxController(ControllerBase):
                     FindResourceOrThrow(prefix + path + 'box_angular_vel.mat'),
                     FindResourceOrThrow(prefix + path + 'box_linear_accel.mat'),
                     FindResourceOrThrow(prefix + path + 'box_angular_accel.mat'))
-    
+
         # Read in the plans for the point of contact.
         self.plan.ReadContactPoint(
                     FindResourceOrThrow(prefix + path + 'timings.mat'),
                     FindResourceOrThrow(prefix + path + 'contact_pt_positions.mat'),
                     FindResourceOrThrow(prefix + path + 'contact_pt_velocities.mat'))
-    
+
         # Read in the plans for the ball kinematics.
         self.plan.ReadBallQVAndVdot(
                     FindResourceOrThrow(prefix + path + 'timings.mat'),
@@ -345,8 +344,10 @@ class BoxController(ControllerBase):
                 v_robot_planned = \
                         planned_robot_kinematics[self.robot_plant.num_positions():-self.robot_plant.num_velocities()]
                 vdot_robot_planned = planned_robot_kinematics[-self.robot_plant.num_velocities():]
+                print('Computing actuation')
                 tau = self.ComputeActuationForContactDesired(
                         context, q, v, q_robot_planned, v_robot_planned, vdot_robot_planned)
+                print('Done')
             else:
                 # No contact desired.
                 logging.info('Contact not desired at time ' + str(context.get_time()))

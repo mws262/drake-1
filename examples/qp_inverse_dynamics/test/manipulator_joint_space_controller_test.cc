@@ -116,7 +116,7 @@ class ManipulatorJointSpaceControllerTest : public ::testing::Test {
     diagram_ = builder.Build();
 
     context_ = diagram_->CreateDefaultContext();
-    context_->set_time(0);
+    context_->SetTime(0);
     output_ = diagram_->AllocateOutput();
 
     // Initializes.
@@ -169,7 +169,7 @@ class ManipulatorJointSpaceControllerTest : public ::testing::Test {
 // should be specified by params_ loaded from kControlConfigPath.
 TEST_F(ManipulatorJointSpaceControllerTest, PlanEvalTest) {
   const QpInput& qp_input =
-      output_->get_data(plan_eval_output_index_)->GetValue<QpInput>();
+      output_->get_data(plan_eval_output_index_)->get_value<QpInput>();
 
   // Desired generalized acceleration should match expected.
   EXPECT_TRUE(drake::CompareMatrices(

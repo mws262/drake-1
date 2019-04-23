@@ -64,22 +64,22 @@ TEST_F(ContinuousStateTest, Access) {
   EXPECT_EQ(kLength, continuous_state_->size());
   EXPECT_EQ(kPositionLength,
             continuous_state_->get_generalized_position().size());
-  EXPECT_EQ(1, continuous_state_->get_generalized_position().GetAtIndex(0));
-  EXPECT_EQ(2, continuous_state_->get_generalized_position().GetAtIndex(1));
+  EXPECT_EQ(1, continuous_state_->get_generalized_position()[0]);
+  EXPECT_EQ(2, continuous_state_->get_generalized_position()[1]);
 
   EXPECT_EQ(kVelocityLength,
             continuous_state_->get_generalized_velocity().size());
-  EXPECT_EQ(3, continuous_state_->get_generalized_velocity().GetAtIndex(0));
+  EXPECT_EQ(3, continuous_state_->get_generalized_velocity()[0]);
 
   EXPECT_EQ(kMiscLength, continuous_state_->get_misc_continuous_state().size());
-  EXPECT_EQ(4, continuous_state_->get_misc_continuous_state().GetAtIndex(0));
+  EXPECT_EQ(4, continuous_state_->get_misc_continuous_state()[0]);
 }
 
 TEST_F(ContinuousStateTest, Mutation) {
-  continuous_state_->get_mutable_generalized_position().SetAtIndex(0, 5);
-  continuous_state_->get_mutable_generalized_position().SetAtIndex(1, 6);
-  continuous_state_->get_mutable_generalized_velocity().SetAtIndex(0, 7);
-  continuous_state_->get_mutable_misc_continuous_state().SetAtIndex(0, 8);
+  continuous_state_->get_mutable_generalized_position()[0] = 5;
+  continuous_state_->get_mutable_generalized_position()[1] = 6;
+  continuous_state_->get_mutable_generalized_velocity()[0] = 7;
+  continuous_state_->get_mutable_misc_continuous_state()[0] = 8;
 
   EXPECT_EQ(5, continuous_state_->get_vector()[0]);
   EXPECT_EQ(6, continuous_state_->get_vector()[1]);
@@ -208,7 +208,7 @@ TEST_F(ContinuousStateTest, Clone) {
 
   // Make sure underlying BasicVector type, and 2nd-order structure,
   // is preserved in the clone.
-  ContinuousState<double> state(MyVector<3, double>::Make(1.25, 1.5, 1.75),
+  ContinuousState<double> state(MyVector3d::Make(1.25, 1.5, 1.75),
                                 2, 1, 0);
   clone_ptr = state.Clone();
   const ContinuousState<double>& clone2 = *clone_ptr;
@@ -222,7 +222,7 @@ TEST_F(ContinuousStateTest, Clone) {
   EXPECT_EQ(clone2.get_generalized_position()[1], 1.5);
   EXPECT_EQ(clone2.get_generalized_velocity()[0], 1.75);
 
-  auto vector = dynamic_cast<const MyVector<3, double>*>(&clone2.get_vector());
+  auto vector = dynamic_cast<const MyVector3d*>(&clone2.get_vector());
   ASSERT_NE(vector, nullptr);
   EXPECT_EQ((*vector)[0], 1.25);
   EXPECT_EQ((*vector)[1], 1.5);

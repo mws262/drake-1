@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/automotive/maliput/api/rules/phase.h"
+#include "drake/automotive/maliput/api/rules/phase_ring.h"
 #include "drake/automotive/maliput/api/rules/regions.h"
 #include "drake/automotive/maliput/api/rules/traffic_lights.h"
 #include "drake/common/unused.h"
@@ -152,7 +154,7 @@ inline ::testing::AssertionResult IsEqual(
   unused(a_expression, b_expression);
   AssertionResultCollector c;
   MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.size(), b.size()));
-  int smallest = std::min(a.size(), b.size());
+  const int smallest = std::min(a.size(), b.size());
   for (int i = 0; i < smallest; ++i) {
     MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a[i], b[i]));
   }
@@ -175,7 +177,6 @@ inline ::testing::AssertionResult IsEqual(const char* a_expression,
                                           const char* b_expression,
                                           const GeoPosition& a,
                                           const GeoPosition& b) {
-  unused(a_expression, b_expression);
   return ::testing::internal::CmpHelperEQ(a_expression, b_expression, a, b);
 }
 
@@ -184,7 +185,6 @@ inline ::testing::AssertionResult IsEqual(const char* a_expression,
                                           const char* b_expression,
                                           const Rotation& a,
                                           const Rotation& b) {
-  unused(a_expression, b_expression);
   return ::testing::internal::CmpHelperEQ(a_expression, b_expression,
                                           a.matrix(), b.matrix());
 }
@@ -194,7 +194,6 @@ inline ::testing::AssertionResult IsEqual(const char* a_expression,
                                           const char* b_expression,
                                           const BulbColor& a,
                                           const BulbColor& b) {
-  unused(a_expression, b_expression);
   return ::testing::internal::CmpHelperEQ(a_expression, b_expression, a, b);
 }
 
@@ -203,7 +202,14 @@ inline ::testing::AssertionResult IsEqual(const char* a_expression,
                                           const char* b_expression,
                                           const BulbType& a,
                                           const BulbType& b) {
-  unused(a_expression, b_expression);
+  return ::testing::internal::CmpHelperEQ(a_expression, b_expression, a, b);
+}
+
+/// Predicate-formatter which tests equality of BulbState.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const BulbState& a,
+                                          const BulbState& b) {
   return ::testing::internal::CmpHelperEQ(a_expression, b_expression, a, b);
 }
 
@@ -212,8 +218,21 @@ inline ::testing::AssertionResult IsEqual(const char* a_expression,
                                           const char* b_expression,
                                           const optional<double>& a,
                                           const optional<double>& b) {
-  unused(a_expression, b_expression);
   return ::testing::internal::CmpHelperEQ(a_expression, b_expression, a, b);
+}
+
+/// Predicate-formatter which tests equality of Bulb::BoundingBox.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const Bulb::BoundingBox& a,
+                                          const Bulb::BoundingBox& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  for (int i = 0; i < 3; ++i) {
+    MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.p_BMin(i), b.p_BMin(i)));
+    MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.p_BMax(i), b.p_BMax(i)));
+  }
+  return c.result();
 }
 
 /// Predicate-formatter which tests equality of Bulb.
@@ -231,6 +250,144 @@ inline ::testing::AssertionResult IsEqual(const char* a_expression,
   MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.type(), b.type()));
   MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.arrow_orientation_rad(),
                                          b.arrow_orientation_rad()));
+  const std::vector<BulbState>& a_states = a.states();
+  const std::vector<BulbState>& b_states = b.states();
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a_states.size(), b_states.size()));
+  int smallest = std::min(a_states.size(), b_states.size());
+  for (int i = 0; i < smallest; ++i) {
+    MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a_states[i], b_states[i]));
+  }
+  MALIPUT_IS_EQUAL(a.bounding_box(), b.bounding_box());
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of std::vector<Bulb>.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const std::vector<Bulb>& a,
+                                          const std::vector<Bulb>& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.size(), b.size()));
+  const int smallest = std::min(a.size(), b.size());
+  for (int i = 0; i < smallest; ++i) {
+    MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.at(i), b.at(i)));
+  }
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of BulbGroup.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const BulbGroup& a,
+                                          const BulbGroup& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.id(), b.id()));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.position_traffic_light(),
+                                         b.position_traffic_light()));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.orientation_traffic_light(),
+                                         b.orientation_traffic_light()));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.bulbs(), b.bulbs()));
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of TrafficLight.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const TrafficLight& a,
+                                          const TrafficLight& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.id(), b.id()));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.position_road_network(),
+                                         b.position_road_network()));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.orientation_road_network(),
+                                         b.orientation_road_network()));
+  const std::vector<BulbGroup>& bulb_groups_a = a.bulb_groups();
+  const std::vector<BulbGroup>& bulb_groups_b = b.bulb_groups();
+  MALIPUT_ADD_RESULT(
+      c, MALIPUT_IS_EQUAL(bulb_groups_a.size(), bulb_groups_b.size()));
+  const int smallest = std::min(bulb_groups_a.size(), bulb_groups_b.size());
+  for (int i = 0; i < smallest; ++i) {
+    MALIPUT_ADD_RESULT(
+        c, MALIPUT_IS_EQUAL(bulb_groups_a.at(i), bulb_groups_b.at(i)));
+  }
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of RuleStates.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const RuleStates& a,
+                                          const RuleStates& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.size(), b.size()));
+  for (const auto& rule_state : a) {
+    MALIPUT_ADD_RESULT(
+        c, MALIPUT_IS_EQUAL(b.at(rule_state.first), rule_state.second));
+  }
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of optional<BulbStates>.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const optional<BulbStates>& a,
+                                          const optional<BulbStates>& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.has_value(), b.has_value()));
+  if (a.has_value()) {
+    MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a->size(), b->size()));
+    for (const auto& bulb_state : *a) {
+      MALIPUT_ADD_RESULT(
+          c, MALIPUT_IS_EQUAL(b->at(bulb_state.first), bulb_state.second));
+    }
+  }
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of Phase.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const Phase& a,
+                                          const Phase& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.id(), b.id()));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.rule_states(), b.rule_states()));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.bulb_states(), b.bulb_states()));
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of PhaseRing::NextPhase.
+inline ::testing::AssertionResult IsEqual(const char* a_expression,
+                                          const char* b_expression,
+                                          const PhaseRing::NextPhase& a,
+                                          const PhaseRing::NextPhase& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.id, b.id));
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.duration_until, b.duration_until));
+  return c.result();
+}
+
+/// Predicate-formatter which tests equality of
+/// std::vector<PhaseRing::NextPhase>.
+inline ::testing::AssertionResult IsEqual(
+    const char* a_expression, const char* b_expression,
+    const std::vector<PhaseRing::NextPhase>& a,
+    const std::vector<PhaseRing::NextPhase>& b) {
+  unused(a_expression, b_expression);
+  AssertionResultCollector c;
+  MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.size(), b.size()));
+  if (a.size() == b.size()) {
+    for (size_t i = 0; i < a.size(); ++i) {
+      MALIPUT_ADD_RESULT(c, MALIPUT_IS_EQUAL(a.at(i), b.at(i)));
+    }
+  }
   return c.result();
 }
 

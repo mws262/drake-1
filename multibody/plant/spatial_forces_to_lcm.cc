@@ -52,7 +52,7 @@ void SpatialForcesToLcmSystem<T>::CalcLcmSpatialForcesOutput(
   // Get input / output.
   const auto& spatial_forces =
       this->EvalAbstractInput(context, spatial_forces_input_port_index_)
-          ->template GetValue<std::vector<SpatialForceOutput<T>>>();
+          ->template get_value<std::vector<SpatialForceOutput<T>>>();
   auto& msg = *output;
 
   // Time in microseconds.

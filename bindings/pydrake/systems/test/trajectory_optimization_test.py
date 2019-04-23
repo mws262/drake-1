@@ -10,6 +10,7 @@ from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.examples.pendulum import PendulumPlant
 from pydrake.trajectories import PiecewisePolynomial
 from pydrake.solvers import mathematicalprogram as mp
+from pydrake.systems.framework import InputPortSelection
 from pydrake.systems.primitives import LinearSystem
 from pydrake.systems.trajectory_optimization import (
     AddDirectCollocationConstraint, DirectCollocation,
@@ -22,8 +23,11 @@ class TestTrajectoryOptimization(unittest.TestCase):
         plant = PendulumPlant()
         context = plant.CreateDefaultContext()
 
-        dircol = DirectCollocation(plant, context, num_time_samples=21,
-                                   minimum_timestep=0.2, maximum_timestep=0.5)
+        dircol = DirectCollocation(
+            plant, context, num_time_samples=21, minimum_timestep=0.2,
+            maximum_timestep=0.5,
+            input_port_index=InputPortSelection.kUseFirstInputIfItExists,
+            assume_non_continuous_states_are_fixed=False)
 
         # Spell out most of the methods, regardless of whether they make sense
         # as a consistent optimization.  The goal is to check the bindings,
@@ -149,3 +153,11 @@ class TestTrajectoryOptimization(unittest.TestCase):
 
     def test_direct_transcription_deprecated(self):
         self._do_test_direct_transcription(use_deprecated_solve=True)
+
+    def test_direct_transcription_continuous_time(self):
+        # Test that the continuous-time constructor is also spelled correctly.
+        plant = LinearSystem(A=[0.], B=[1.], C=[1.], D=[0.])
+        context = plant.CreateDefaultContext()
+        dirtran = DirectTranscription(plant, context, num_time_samples=3,
+                                      fixed_timestep=0.1)
+        self.assertEqual(len(dirtran.linear_equality_constraints()), 3)

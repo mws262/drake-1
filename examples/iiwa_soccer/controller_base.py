@@ -2,12 +2,12 @@ import math
 import scipy.optimize
 import numpy as np
 import logging
-from recordclass import recordclass 
+from recordclass import recordclass
 from embedded_box_soccer_sim import EmbeddedSim
 
 from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType, BasicVector, MultibodyForces,
-CreateArrowOutputCalcCallback, CreateArrowOutputAllocCallback, ArrowVisualization, SpatialVelocity,
-ComputePoseDiffInCommonFrame, DoDifferentialInverseKinematics)
+SpatialVelocity, ComputePoseDiffInCommonFrame, DoDifferentialInverseKinematics,
+CreateArrowOutputCalcCallback, CreateArrowOutputAllocCallback, ArrowVisualization)
 from pydrake.solvers import mathematicalprogram
 
 # General controller components (not specific to, e.g., the box controller).
@@ -602,7 +602,7 @@ class ControllerBase(LeafSystem):
     def get_desired_ball_signed_distance_under_contact(self):
         return -2.5e-3
 
-    ''' 
+    '''
     Computes the motor forces that minimize deviation from the desired acceleration without using dynamics information.
     It uses a gradient-based optimization strategy. This controller uses the embedded simulator to compute contact
     forces, rather than attempting to predict the contact forces that the simulator will generate.
@@ -676,7 +676,7 @@ class ControllerBase(LeafSystem):
         # Initialize the normal/signed distance data structure.
         normal_and_signed_distance = recordclass(
                 'NormalAndSignedDistanceData', 'phi normal_foot_ball_W closest_foot_body')
- 
+
         # Get the closest points on the robot foot and the ball corresponding to q1
         # and v0.
         closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
