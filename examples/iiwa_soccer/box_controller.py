@@ -363,7 +363,7 @@ class BoxController(ControllerBase):
         else:
             self.robot_and_ball_plant.SetVelocitiesInArray(self.robot_instance, tau.flatten(), mutable_torque_out)
 
-    def _DoCalcTimeDerivatives(self, context, derivatives):
+    def DoCalcTimeDerivatives(self, context, derivatives):
         # Determine whether we're in a contacting or not-contacting phase.
         contact_intended = self.plan.IsContactDesired(context.get_time())
 

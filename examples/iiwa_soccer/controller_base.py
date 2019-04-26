@@ -44,16 +44,16 @@ class ControllerBase(LeafSystem):
         self.control_freq = 1000.0  # 1000 Hz.
 
         # Declare states and ports.
-        self._DeclareContinuousState(self.nq_robot())   # For integral control state.
-        self.input_port_index_estimated_robot_q = self._DeclareInputPort(
+        self.DeclareContinuousState(self.nq_robot())   # For integral control state.
+        self.input_port_index_estimated_robot_q = self.DeclareInputPort(
                 PortDataType.kVectorValued, self.nq_robot()).get_index()
-        self.input_port_index_estimated_robot_qd = self._DeclareInputPort(
+        self.input_port_index_estimated_robot_qd = self.DeclareInputPort(
                 PortDataType.kVectorValued, self.nv_robot()).get_index()
-        self.input_port_index_estimated_ball_q = self._DeclareInputPort(
+        self.input_port_index_estimated_ball_q = self.DeclareInputPort(
                 PortDataType.kVectorValued, self.nq_ball()).get_index()
-        self.input_port_index_estimated_ball_v = self._DeclareInputPort(
+        self.input_port_index_estimated_ball_v = self.DeclareInputPort(
                 PortDataType.kVectorValued, self.nv_ball()).get_index()
-        self._DeclareVectorOutputPort("command_output",
+        self.DeclareVectorOutputPort("command_output",
                 BasicVector(self.command_output_size),
                 self.DoControlCalc) # Output 0.
 
@@ -61,7 +61,7 @@ class ControllerBase(LeafSystem):
         self.geometry_query_input_port = self.robot_and_ball_plant.get_geometry_query_input_port()
 
         # Set up ball c.o.m. acceleration visualization.
-        self.ball_acceleration_visualization_output_port = self._DeclareAbstractOutputPort(
+        self.ball_acceleration_visualization_output_port = self.DeclareAbstractOutputPort(
                 "arrow_output",
                 CreateArrowOutputAllocCallback(),
                 CreateArrowOutputCalcCallback(self.OutputBallAccelerationAsGenericArrow))

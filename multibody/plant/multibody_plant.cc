@@ -1885,7 +1885,7 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
     this->DeclarePeriodicDiscreteUpdate(time_step_);
   }
 
-  // TODO(sherm1) Add ContactResults cache entry.
+  DeclareCacheEntries();
 
   // Declare per model instance actuation ports.
   int num_actuated_instances = 0;
