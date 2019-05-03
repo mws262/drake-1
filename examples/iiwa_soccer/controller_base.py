@@ -234,7 +234,7 @@ class ControllerBase(LeafSystem):
         Tdot_v = np.empty([nc, 1])
 
         # Evaluate scene graph's output port, getting a SceneGraph reference.
-        self.UpdateRobotAndBallConfigurationForGeometricQueries(q)
+        all_plant.SetPositions(self.robot_and_ball_context, q)
         query_object = all_plant.EvalAbstractInput(
                 self.robot_and_ball_context, self.geometry_query_input_port.get_index()).get_value()
         inspector = query_object.inspector()

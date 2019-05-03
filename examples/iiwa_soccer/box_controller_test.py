@@ -491,7 +491,7 @@ class ControllerTest(unittest.TestCase):
         def CalcJacobian(q_current, witness_point_W, projection_vector_W, body):
             # Get the geometric Jacobian for the velocity of the witness point point as moving with body.
             logging.debug('projection vector: ' + str(projection_vector_W))
-            self.controller.UpdateRobotAndBallConfigurationForGeometricQueries(q_current)
+            self.controller.robot_and_ball_plant.SetPositions(self.controller.robot_and_ball_context, q_current)
             J_Ww = self.controller.robot_and_ball_plant.CalcPointsGeometricJacobianExpressedInWorld(
                   self.controller.robot_and_ball_context, body.body_frame(), witness_point_W)
             return projection_vector_W.T.dot(J_Ww)
@@ -509,7 +509,7 @@ class ControllerTest(unittest.TestCase):
 
             # Update the context to use configuration q1 in the query. This will modify
             # the mbw context, used immediately below.
-            self.controller.UpdateRobotAndBallConfigurationForGeometricQueries(q_current)
+            self.controller.robot_and_ball_plant.SetPositions(self.controller.robot_and_ball_context, q_current)
 
             # Evaluate scene graph's output port, getting a SceneGraph reference.
             query_object = all_plant.EvalAbstractInput(all_context,
