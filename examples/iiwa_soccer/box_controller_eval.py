@@ -79,7 +79,7 @@ class BoxControllerEvaluator:
             ball_v_input)
 
         # Update the context.
-        self.context.set_time(t)
+        self.context.SetTime(t)
 
         return [q, v]
 
@@ -113,7 +113,7 @@ class BoxControllerEvaluator:
         mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, context)
         robot_and_ball_context = self.mbw.GetMutableSubsystemContext(all_plant, mbw_context)
         plan = self.controller.plan
-        context.set_time(t)
+        context.SetTime(t)
         all_plant.SetPositions(robot_and_ball_context, q)
         all_plant.SetVelocities(robot_and_ball_context, v)
         assert np.linalg.norm(all_plant.GetVelocities(robot_and_ball_context) - v) < 1e-10
@@ -222,7 +222,7 @@ class BoxControllerEvaluator:
         mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, context)
         robot_and_ball_context = self.mbw.GetMutableSubsystemContext(all_plant, mbw_context)
         plan = self.controller.plan
-        context.set_time(t)
+        context.SetTime(t)
         robot_and_ball_state = robot_and_ball_context.get_mutable_state()
         robot_and_ball_state = all_context.get_state()
         all_plant.SetVelocities(robot_and_ball_context, self.controller.robot_instance, v_robot_perturb)

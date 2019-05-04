@@ -85,7 +85,7 @@ class ControllerTest(unittest.TestCase):
           ball_v_input)
 
       # Update the context.
-      self.context.set_time(t)
+      self.context.SetTime(t)
 
       return [q, v]
 

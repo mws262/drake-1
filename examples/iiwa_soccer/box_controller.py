@@ -54,6 +54,10 @@ class BoxController(ControllerBase):
         logging.warning('box_controller.py is violating the const System assumption')
         self.ball_accel_from_controller = np.array([0, 0, 0])
 
+    # NOTE: Not sure why it's necessary to call the base class for BoxController.FindBallGroundContacts() to work.
+    def FindBallGroundContacts(self, all_q):
+        return ControllerBase.FindRobotBallContacts(self, all_q)
+
     # Gets the foot links from the robot and ball plant.
     def get_foot_links_from_robot_and_ball_plant(self):
         return [ self.robot_and_ball_plant.GetBodyByName("box") ]

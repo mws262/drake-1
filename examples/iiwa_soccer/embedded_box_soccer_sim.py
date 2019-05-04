@@ -104,7 +104,7 @@ class EmbeddedSim:
       self.control_input.get_mutable_source_value(control_context).SetFromVector(Bu)
 
   def UpdateTime(self, t):
-      self.context.set_time(t)
+      self.context.SetTime(t)
 
   def GetPlantVelocities(self):
       mbw_context = self.diagram.GetMutableSubsystemContext(self.mbw, self.context)
