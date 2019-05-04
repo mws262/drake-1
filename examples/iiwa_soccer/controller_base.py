@@ -40,6 +40,9 @@ class ControllerBase(LeafSystem):
         self.robot_context = robot_plant.CreateDefaultContext()
         self.robot_and_ball_context = self.mbw.GetMutableSubsystemContext(self.robot_and_ball_plant, self.mbw_context)
 
+        # Save the initial configuration.
+        self.q0 = self.robot_and_ball_plant.GetPositions(self.robot_and_ball_context)
+
         # Set the control frequency.
         self.control_freq = 1000.0  # 1000 Hz.
 
@@ -454,7 +457,7 @@ class ControllerBase(LeafSystem):
         return contacts
 
     # Determines whether the ball and the ground are in contact.
-    def IsBallContactingGround(self, q, contacts):
+    def IsBallContactingGround(self, contacts, q):
         # Get the ball and ground bodies.
         ball_body = self.get_ball_from_robot_and_ball_plant()
         ground_body = self.get_ground_from_robot_and_ball_plant()
@@ -488,7 +491,7 @@ class ControllerBase(LeafSystem):
         return False
 
     # Determines whether the ball and the robot are in contact.
-    def IsRobotContactingBall(self, q, contacts):
+    def IsRobotContactingBall(self, contacts, q):
         # Get the ball body and foot bodies.
         ball_body = self.get_ball_from_robot_and_ball_plant()
         foot_bodies = self.get_foot_links_from_robot_and_ball_plant()
@@ -541,6 +544,7 @@ class ControllerBase(LeafSystem):
 
         # Get the closest points on the robot foot and the ball corresponding to q1
         # and v0.
+        self.ResetSignedDistanceQuery()
         closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
         assert len(closest_points) == 3
 
@@ -579,6 +583,7 @@ class ControllerBase(LeafSystem):
 
         # Get the closest points on the robot foot and the ball corresponding to q1
         # and v0.
+        self.ResetSignedDistanceQuery()
         closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
         assert len(closest_points) > 0
 
@@ -647,6 +652,17 @@ class ControllerBase(LeafSystem):
 
         return u_best
 
+    def ResetSignedDistanceQuery(self):
+        all_plant = self.robot_and_ball_plant
+        all_context = self.robot_and_ball_context
+        qcurrent = all_plant.GetPositions(all_context)
+        all_plant.SetPositions(all_context, self.q0)
+        query_object = all_plant.EvalAbstractInput(all_context, self.geometry_query_input_port.get_index()).get_value()
+        inspector = query_object.inspector()
+        query_object.ComputeSignedDistancePairwiseClosestPoints()
+        all_plant.SetPositions(self.robot_and_ball_context, qcurrent)
+
+
     # Gets a normal vector and the signed distance between the ball and the foot.
     # Returns a data structure holding three elements:
     #    normal_foot_ball_W a unit vector pointing from a witness point on the foot body to a witness point on the ball
@@ -679,6 +695,7 @@ class ControllerBase(LeafSystem):
 
         # Get the closest points on the robot foot and the ball corresponding to q1
         # and v0.
+        self.ResetSignedDistanceQuery()
         closest_points = query_object.ComputeSignedDistancePairwiseClosestPoints()
         assert len(closest_points) > 0
 

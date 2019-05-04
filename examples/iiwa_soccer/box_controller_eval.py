@@ -97,8 +97,8 @@ class BoxControllerEvaluator:
         contacts = self.controller.FindContacts(q)
 
         # Ensure that the robot/ball and the ball/ground are contacting.
-        assert self.controller.IsRobotContactingBall(contacts)
-        assert self.controller.IsBallContactingGround(contacts)
+        assert self.controller.IsRobotContactingBall(contacts, q)
+        assert self.controller.IsBallContactingGround(contacts, q)
 
         # Verify that there are exactly two points of contact.
         assert len(contacts) == 2
@@ -153,8 +153,8 @@ class BoxControllerEvaluator:
         contacts = self.controller.FindContacts(q)
 
         # Ensure that the robot/ball and the ball/ground are contacting.
-        assert self.controller.IsRobotContactingBall(contacts)
-        assert self.controller.IsBallContactingGround(contacts)
+        assert self.controller.IsRobotContactingBall(contacts, q)
+        assert self.controller.IsBallContactingGround(contacts, q)
 
         # Verify that there are exactly two points of contact.
         assert len(contacts) == 2
@@ -237,16 +237,16 @@ class BoxControllerEvaluator:
         newcontacts = self.controller.FindContacts(qnew)
 
         # Check whether the ball is still contacting the ground.
-        if (not self.controller.IsBallContactingGround(contacts)):
+        if (not self.controller.IsBallContactingGround(contacts, qnew)):
             return [-1, 0]
 
         # Check whether the ball and robot are still contacting.
-        if (not self.controller.IsRobotContactingBall(contacts)):
+        if (not self.controller.IsRobotContactingBall(contacts, qnew)):
             return [-2, 0]
 
         # If still here, all contacts are still maintained. Compute the slip
         # velocities for the ball/ground and ball/robot.
-        [N, S, T, Ndot, Sdot, Vdot] = self.controller.ConstructJacobians(newcontacts, qnew)
+        [N, S, T, Ndot, Sdot, Vdot] = self.controller.ConstructJacobians(newcontacts, qnew, vnew)
 
         # Compute the change in slip velocities.
         Sv = S.dot(v)
@@ -278,13 +278,13 @@ class BoxControllerEvaluator:
             contacts = self.controller.FindContacts(q)
 
             # Verify that the robot is contacting the ball.
-            if (not self.controller.IsRobotContactingBall(contacts)):
+            if (not self.controller.IsRobotContactingBall(contacts, q)):
                 logging.warning('Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.')
                 t += dt
                 continue
 
             # Verify that the ball is contacting the ground.
-            if (not self.controller.IsBallContactingGround(contacts)):
+            if (not self.controller.IsBallContactingGround(contacts, q)):
                 logging.warning('Expected the ball to be contacting the ground at time ' + str(t) + ' but it is not.')
                 t += dt
                 continue
@@ -324,7 +324,7 @@ class BoxControllerEvaluator:
             contacts = self.controller.FindContacts(q)
 
             # Verify that the robot is contacting the ball.
-            if (not self.controller.IsRobotContactingBall(contacts)):
+            if (not self.controller.IsRobotContactingBall(contacts, q)):
                 logging.warning('Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.')
                 t += dt
                 continue
@@ -356,9 +356,12 @@ class BoxControllerEvaluator:
 
         return [Z, Zdot_v]
 
+    # Note: this isn't evaluated at the moment, since performance appeared
+    # poor. But keeping this around so that we can evaluate this control
+    # strategy nevertheless.
     def EvaluateAccelerationTrackingPerformanceNoSlip(self):
         # Get the weighting and actuation matrices.
-        P = self.controller.ConstructBallVelocityWeightingMatrix()
+        P = self.controller.ConstructVelocityWeightingMatrix()
         B = self.controller.ConstructRobotActuationMatrix()
 
         # Get the plan.
@@ -382,7 +385,7 @@ class BoxControllerEvaluator:
             contacts = self.controller.FindContacts(q)
 
             # Verify that the robot is contacting the ball.
-            if (not self.controller.IsRobotContactingBall(q, contacts)):
+            if (not self.controller.IsRobotContactingBall(contacts, q)):
                 logging.warning('Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.')
                 t += dt
                 continue
@@ -438,6 +441,8 @@ class BoxControllerEvaluator:
         # Close the file.
         handle.close()
 
+    # Tracks acceleration performance using the black box control approach. This is currently not evaluated since the
+    # black box controller seemed to perform badly. But leaving this here so we can evaluate it nevertheless.
     def EvaluateAccelerationTrackingPerformanceBlackBox(self):
         # Get the weighting and actuation matrices.
         P = self.controller.ConstructVelocityWeightingMatrix()
@@ -464,7 +469,7 @@ class BoxControllerEvaluator:
             contacts = self.controller.FindContacts(q)
 
             # Verify that the robot is contacting the ball.
-            if (not self.controller.IsRobotContactingBall(q, contacts)):
+            if (not self.controller.IsRobotContactingBall(contacts, q)):
                 logging.warning('Expected the robot to be contacting the ball at time ' + str(t) + ' but it is not.')
                 t += dt
                 continue
@@ -541,10 +546,9 @@ def main():
 
     # Construct and run the evaluator.
     bce = BoxControllerEvaluator(args.penetration_allowance, args.plan_path, args.time_step)
-    #bce.EvaluateSlipPerturbation()
-    #bce.EvaluateContactTrackingPerformance()
-    #bce.EvaluateAccelerationTrackingPerformanceNoSlip()
-    #bce.EvaluateAccelerationTrackingPerformanceBlackBox()
+
+    bce.EvaluateSlipPerturbation()
+    bce.EvaluateContactTrackingPerformance()
 
 if __name__ == "__main__":
     main()

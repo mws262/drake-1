@@ -348,10 +348,8 @@ class BoxController(ControllerBase):
                 v_robot_planned = \
                         planned_robot_kinematics[self.robot_plant.num_positions():-self.robot_plant.num_velocities()]
                 vdot_robot_planned = planned_robot_kinematics[-self.robot_plant.num_velocities():]
-                print('Computing actuation')
                 tau = self.ComputeActuationForContactDesired(
                         context, q, v, q_robot_planned, v_robot_planned, vdot_robot_planned)
-                print('Done')
             else:
                 # No contact desired.
                 logging.info('Contact not desired at time ' + str(context.get_time()))

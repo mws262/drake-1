@@ -270,7 +270,8 @@ class ControllerTest(unittest.TestCase):
 
         # Check the distance, normal, and body.
         normal_and_signed_distance_data = self.controller.GetNormalAndSignedDistanceFromRobotToBall(q)
-        self.assertAlmostEqual(np.inner(normal_and_signed_distance_data.normal_foot_ball_W, np.array([1, 0, 0])), 1.0)
+        self.assertAlmostEqual(1.0, 
+            abs(np.inner(normal_and_signed_distance_data.normal_foot_ball_W, np.array([1, 0, 0]))))
         self.assertAlmostEqual(normal_and_signed_distance_data.phi, target_signed_distance)
         self.assertEqual(normal_and_signed_distance_data.closest_foot_body.name(), 'box')
 
@@ -905,7 +906,7 @@ class ControllerTest(unittest.TestCase):
           # Look for contact.
           q, v = self.SetStates(t)
           contacts = self.controller.FindContacts(q)
-          if self.controller.IsRobotContactingBall(q, contacts):
+          if self.controller.IsRobotContactingBall(contacts, q):
             logging.info('-- TestAccelerationFromLearnedDynamicsControlCorrect() - desired time identified: ' + str(t))
             break
 
@@ -961,7 +962,7 @@ class ControllerTest(unittest.TestCase):
           # Look for contact.
           q, v = self.SetStates(t)
           contacts = self.controller.FindContacts(q)
-          if self.controller.IsRobotContactingBall(q, contacts):
+          if self.controller.IsRobotContactingBall(contacts, q):
             logging.info('-- test_FullyActuatedAccelerationCorrect() - desired time identified: ' + str(t))
             break
 
@@ -1013,7 +1014,7 @@ class ControllerTest(unittest.TestCase):
           # Look for contact.
           q, v = self.SetStates(t)
           contacts = self.controller.FindContacts(q)
-          if self.controller.IsRobotContactingBall(q, contacts):
+          if self.controller.IsRobotContactingBall(contacts, q):
             break
 
         # No contact desired or contact between robot and ball not found.
