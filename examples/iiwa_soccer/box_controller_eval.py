@@ -12,8 +12,8 @@ from pydrake.all import (LeafSystem, ComputeBasisFromAxis, PortDataType,
                          Simulator)
 
 class BoxControllerEvaluator:
-    def __init__(self, plan_path, time_step):
-        self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance, self.ball_continuous_state_output = BuildBlockDiagram(time_step, plan_path, fully_actuated=False)
+    def __init__(self, penetration_allowance, plan_path, time_step):
+        self.controller, self.diagram, self.all_plant, self.robot_plant, self.mbw, self.robot_instance, self.ball_instance, self.ball_continuous_state_output = BuildBlockDiagram(time_step, penetration_allowance, plan_path, fully_actuated=False)
 
         # Create the context for the diagram.
         self.context = self.diagram.CreateDefaultContext()
@@ -440,7 +440,7 @@ class BoxControllerEvaluator:
 
     def EvaluateAccelerationTrackingPerformanceBlackBox(self):
         # Get the weighting and actuation matrices.
-        P = self.controller.ConstructBallVelocityWeightingMatrix()
+        P = self.controller.ConstructVelocityWeightingMatrix()
         B = self.controller.ConstructRobotActuationMatrix()
 
         # Get the plan.
@@ -480,7 +480,7 @@ class BoxControllerEvaluator:
             all_plant.SetVelocities(all_context, v)
 
             # Get the motor torques.
-            u = np.reshape(self.controller.ComputeOptimalContactControlMotorTorques(self.controller_context, q, v, vdot_ball_des), [-1, 1])
+            u = np.reshape(self.controller.ComputeOptimalContactControlMotorForces(self.controller_context, q, v, vdot_ball_des), [-1, 1])
 
             # Now simulate the ball and compute the approximate vdot.
             vdot_approx = self.controller.ComputeApproximateAcceleration(self.controller_context, q, v, u)
@@ -520,6 +520,9 @@ def main():
              "discrete updates and period equal to this time_step. "
              "If 0, the plant is modeled as a continuous system.")
     parser.add_argument(
+        "--penetration_allowance", type=float, default=1e-8,
+        help="The amount of interpenetration to allow in the simulation.")
+    parser.add_argument(
         "--log", default='none',
         help='Logging type: "none", "info", "warning", "debug"')
     parser.add_argument(
@@ -537,11 +540,11 @@ def main():
         logging.disable(logging.CRITICAL)
 
     # Construct and run the evaluator.
-    bce = BoxControllerEvaluator(args.plan_path, args.time_step)
+    bce = BoxControllerEvaluator(args.penetration_allowance, args.plan_path, args.time_step)
     #bce.EvaluateSlipPerturbation()
     #bce.EvaluateContactTrackingPerformance()
     #bce.EvaluateAccelerationTrackingPerformanceNoSlip()
-    bce.EvaluateAccelerationTrackingPerformanceBlackBox()
+    #bce.EvaluateAccelerationTrackingPerformanceBlackBox()
 
 if __name__ == "__main__":
     main()
