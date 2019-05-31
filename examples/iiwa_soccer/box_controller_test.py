@@ -111,6 +111,44 @@ class ControllerTest(unittest.TestCase):
         logging.info('  Point of contact: ' + str(0.5 * (i.p_WCa + i.p_WCb)))
         logging.info('  Normal (pointing to ' + body_A.name() + '): ' + str(i.nhat_BA_W))
 
+    # Tests that ComputeActuationForContactDesired produces forces which keep the box stationary when given a plan
+    # that is already satisfied.
+    def test_ComputeActuationForContactDesired(self):
+        box_height = 0.4
+        ball_radius = 0.1
+        ball_mass = 1
+        gravity = -9.81
+
+        # Initial configuration is no rotation for ball and box. Box is `kissing' the top of the ball.
+        q0 = np.array([0, 0, 0, 1, 0, 0, ball_radius * 2 + box_height/2,
+                       0, 0, 0, 1, 0, 0, ball_radius])
+        # No velocity
+        v0 = np.zeros([12])
+
+        # Desired configuration is current configuration, no desired velocity or acceleration.
+        q_robot_planned = q0[0:7]
+        v_robot_planned = np.zeros([6])
+        vdot_robot_planned = np.zeros([6])
+
+        # Actuation for the box should only be gravity compensation.
+        force = self.controller.ComputeActuationForContactDesired(self.context, q0, v0, q_robot_planned, v_robot_planned,
+                                                                  vdot_robot_planned)
+
+        self.assertAlmostEqual(force[0], 0, msg="x Torque should be zero.", delta=1e-12)
+        self.assertAlmostEqual(force[1], 0, msg="y Torque should be zero.", delta=1e-12)
+        self.assertAlmostEqual(force[2], 0, msg="z Torque should be zero.", delta=1e-12)
+        self.assertAlmostEqual(force[3], 0, msg="x force should be zero.", delta=1e-12)
+        self.assertAlmostEqual(force[4], 0, msg="y force should be zero.", delta=1e-12)
+
+        # This can be made to pass by altering two things in ComputeActuationForContactDesired:
+        # 1. Get rid of 'v_from_ball_position_tracking' in the vdot calculation.
+        # 2. Add np.reshape([0,0,0,0,0,9.81], [6,1]) to vdot.
+        self.assertAlmostEqual(force[5], -ball_mass * gravity, msg="z force should counteract gravity and no more. Was: " + str(force[5]), delta=1e-12)
+
+    # For now, just tests whether the calculation from ComputeActuationForContactNotDesired runs without errors.
+    def test_ComputeActuationForContactNotDesired(self):
+        self.controller.ComputeActuationForContactNotDesired(self.context)
+
     # Tests that ComputeContributionsFromPlannedBoxPosition() produces control forces that accelerate in the direction
     # of the planned error in position.
     def test_ComputeContributionsFromPlannedBoxPosition(self):
