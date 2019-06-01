@@ -111,8 +111,8 @@ class ControllerTest(unittest.TestCase):
         logging.info('  Point of contact: ' + str(0.5 * (i.p_WCa + i.p_WCb)))
         logging.info('  Normal (pointing to ' + body_A.name() + '): ' + str(i.nhat_BA_W))
 
-    # Tests that ComputeActuationForContactDesired produces forces which keep the box stationary when given a plan
-    # that is already satisfied.
+    # Tests that ComputeActuationForContactDesired produces forces which keep the box stationary when the planned
+    # position and velocity for the box matches the current position and velocity for the box
     def test_ComputeActuationForContactDesired(self):
         box_height = 0.4
         ball_radius = 0.1
@@ -147,7 +147,7 @@ class ControllerTest(unittest.TestCase):
 
     # For now, just tests whether the calculation from ComputeActuationForContactNotDesired runs without errors.
     def test_ComputeActuationForContactNotDesired(self):
-        self.controller.ComputeActuationForContactNotDesired(self.context)
+        self.controller.ComputeActuationForContactNotDesired(self.controller_context)
 
     # Tests that ComputeContributionsFromPlannedBoxPosition() produces control forces that accelerate in the direction
     # of the planned error in position.
